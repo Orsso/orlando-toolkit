@@ -1,0 +1,31 @@
+# Fichiers et dossiers spécifiques au projet à ignorer
+/word2dita/
+/word2dita_orlando_compatible/
+/extracted4reference/
+/docs/
+
+# Archives de sortie générées
+*_orlando_compatible.zip
+
+# Fichiers Python temporaires
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Dossiers d'environnement virtuel
+venv/
+.venv/
+env/
+.env
+
+# Fichiers spécifiques à l'IDE
+.vscode/
+.idea/
+.project
+.pydevproject
+.settings/
+
+# Fichiers spécifiques au système d'exploitation
+.DS_Store
+Thumbs.db 
