@@ -10,7 +10,7 @@ Il prend en entrée une archive `.zip` contenant une structure DITA standard et 
 
 **Attention :** Dans sa version actuelle, cet outil **ne gère pas** la conversion initiale du document `.docx` vers le format DITA.
 
-Cette première étape doit être réalisée manuellement à l'aide d'un outil externe. Nous utilisons actuellement le convertisseur en ligne de **[XMLmind](https://www.xmlmind.com/w2x/docx_to_dita.html)**. L'intégration de cette conversion directement dans l'application est prévue pour une future version.
+Cette première étape doit être réalisée manuellement à l'aide d'un outil externe. Nous utilisons actuellement le convertisseur en ligne de **[XMLmind](https://www.xmlmind.com/w2x/docx_to_dita.html)** (format 'map'). L'intégration de cette conversion directement dans l'application est prévue pour une future version.
 
 ### Fonctionnalités principales
 
