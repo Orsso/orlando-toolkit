@@ -1,14 +1,9 @@
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 import threading
-import sys
-import os
 from datetime import datetime
 
-# Ajoute le répertoire parent au path pour que le module 'core' soit trouvable
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-
-from core import transformer
+from orlando_dita_packager.core import transformer
 
 class Application(tk.Frame):
     def __init__(self, master: tk.Tk):
