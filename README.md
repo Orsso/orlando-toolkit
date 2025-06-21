@@ -1,6 +1,4 @@
-# Orlando DITA Packager
-
-![app_icon](https://github.com/user-attachments/assets/ea390a2f-5dde-4e33-9be2-57ae087b111e)
+# ![app_icon(2)](https://github.com/user-attachments/assets/3094f15e-5dda-42c7-afa7-b9a91ac8d3c5) Orlando DITA Packager    
 
 ## 1. Description
 
