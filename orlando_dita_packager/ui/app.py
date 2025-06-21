@@ -1,6 +1,8 @@
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 import threading
+import os
+import sys
 from datetime import datetime
 
 from orlando_dita_packager.core import transformer
@@ -10,6 +12,21 @@ class Application(tk.Frame):
         super().__init__(master)
         self.master = master
         self.master.title("Outil de Transformation DITA pour Orlando")
+
+        # --- Définir l'icône de la fenêtre ---
+        try:
+            # Le chemin est relatif au fichier app.py.
+            # Cela nécessite un dossier 'assets' dans le même répertoire 'ui'.
+            icon_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'assets', 'app_icon.ico')
+            if os.path.exists(icon_path):
+                self.master.iconbitmap(icon_path)
+            else:
+                # Cet avertissement s'affichera dans la console si l'icône n'est pas trouvée.
+                print(f"Avertissement : Fichier d'icône non trouvé à l'emplacement '{icon_path}'.", file=sys.stderr)
+        except Exception as e:
+            # Attraper d'autres erreurs potentielles (ex: format non supporté sur l'OS)
+            print(f"Avertissement : Impossible de charger l'icône. Erreur : {e}", file=sys.stderr)
+        
         self.master.geometry("600x400")
         self.pack(fill="both", expand=True, padx=10, pady=10)
         self.create_widgets()
