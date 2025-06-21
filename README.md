@@ -60,3 +60,15 @@ Cette première étape doit être réalisée manuellement à l'aide d'un outil e
 5.  Vérifiez ou modifiez la **Date de révision** (pré-remplie avec la date du jour).
 6.  Cliquez sur le bouton **Lancer la Transformation**.
 7.  Une fois le processus terminé, un message de succès s'affiche. Une nouvelle archive nommée `[nom_de_l_archive_originale]_orlando_compatible.zip` sera créée dans le même dossier que votre archive d'origine. 
+
+## 6. Packaging
+
+Pour créer un exécutable `.exe` unique pour Windows (qui n'a pas besoin que Python soit installé pour fonctionner), utilisez la commande suivante depuis la racine du projet.
+
+**Pré-requis :**
+- Avoir un fichier d'icône situé à `orlando_dita_packager/ui/assets/app_icon.ico`.
+- Avoir `pyinstaller` installé (`pip install pyinstaller`).
+
+```powershell
+pyinstaller --noconfirm --onefile --windowed --name "Orlando DITA Packager" --icon="orlando_dita_packager\ui\assets\app_icon.ico" --add-data "orlando_dita_packager\dtd_package;orlando_dita_packager\dtd_package" --add-data "orlando_dita_packager\ui\assets;orlando_dita_packager\ui\assets" run_app.py
+```
