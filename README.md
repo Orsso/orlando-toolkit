@@ -1,5 +1,7 @@
 # Orlando DITA Packager
 
+![app_icon](https://github.com/user-attachments/assets/ea390a2f-5dde-4e33-9be2-57ae087b111e)
+
 ## 1. Description
 
 Cet outil est conçu pour automatiser la transformation d'archives DITA (générées à partir de documents Word) vers un format structuré et entièrement compatible avec la plateforme de publication Orlando.
