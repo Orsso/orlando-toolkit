@@ -63,6 +63,13 @@ def main():
         "--add-data", f"{project_root / 'src' / 'dtd_package'};src/dtd_package",  # Include DTD files
         "--hidden-import", "PIL._tkinter_finder",  # Pillow support
         "--hidden-import", "sv_ttk",    # sv-ttk theme
+        "--hidden-import", "src.logger_config",  # Logger config module
+        "--hidden-import", "src.main",  # Main application module
+        "--hidden-import", "src.docx_parser",  # DOCX parser
+        "--hidden-import", "src.docx_to_dita_converter",  # Converter
+        "--hidden-import", "src.ui.metadata_tab",  # UI modules
+        "--hidden-import", "src.ui.image_tab",
+        "--hidden-import", "src.ui.custom_widgets",
         "--collect-all", "sv_ttk",      # Include all sv-ttk files
         *icon_option,                   # Add icon if available
         "run.py"                        # Entry point
