@@ -1,58 +1,65 @@
-# Orlando DITA Packager
+# Orlando Toolkit
 
-Cet outil convertit un document `.docx` en une archive DITA structurée selon les conventions spécifiques requises par le logiciel Orlando. Il a été développé en analysant une archive de référence pour reproduire la structure et les métadonnées attendues.
+**Professional DOCX to DITA converter for Orlando software**
 
-## Fonctionnalités
+Orlando Toolkit converts Microsoft Word documents (.docx) to DITA archives compliant with Orlando software specifications.
 
-*   **Conversion DOCX vers DITA** : Transforme les paragraphes, titres, listes, tableaux et images d'un document Word en leurs équivalents DITA.
-*   **Interface Graphique** : Utilise Tkinter pour permettre la sélection de fichiers, la modification des métadonnées et le lancement de la conversion.
-*   **Respect des Conventions Orlando** : Le DITA généré suit des règles strictes découvertes lors de l'analyse.
-*   **Génération d'une Archive Complète** : Crée une archive `.zip` contenant le `.ditamap`, les topics, les médias, et les DTDs nécessaires.
+## Features
 
-## Conventions DITA Implémentées
+- **Automated conversion**: Complete transformation of DOCX content (text, formatting, images, tables, lists)
+- **Orlando compliance**: Strict adherence to Orlando-specific DITA conventions
+- **Media handling**: Automatic extraction and integration of images
+- **GUI interface**: User-friendly interface for metadata configuration
 
-L'analyse de l'archive de référence a révélé plusieurs règles de structuration non standards qui sont cruciales pour la compatibilité avec Orlando :
+## Recent Fix: Image Layout Correction
 
-1.  **Structure de l'archive** : Le `.zip` final contient un dossier `DATA` à la racine, qui lui-même contient :
-    *   Un fichier `.ditamap` à sa racine.
-    *   Un dossier `topics/` pour les fichiers de contenu `.dita`.
-    *   Un dossier `media/` pour toutes les images.
-    *   Un dossier `dtd/` contenant les DTD standards.
-
-2.  **Identifiants Uniques** : Absolument **chaque élément XML** (de `<p>` à `<b>` en passant par `<table>`, `<row>`, etc.) doit posséder un attribut `id` unique.
-
-3.  **Stylage par `outputclass`** : Le formatage avancé (texte centré, boîtes grisées, etc.) n'est pas géré par des balises DITA sémantiques mais par l'attribut `outputclass` sur des éléments standards. Le convertisseur détecte le formatage direct dans le `.docx` (alignement, couleur de fond du paragraphe, couleur du texte) pour appliquer les classes correspondantes.
-
-4.  **Structure des Tableaux** : Les bordures internes des tableaux ne sont pas gérées par un attribut `frame` ou `colsep`/`rowsep` sur `<tgroup>`, mais par des attributs `colsep="1"` et `rowsep="1"` appliqués à **chaque cellule (`<entry>`)** individuellement.
-
-5.  **Gestion des Images** : Les images sont traitées différemment selon le contexte :
-    *   Une image isolée est placée dans une balise `<image>`.
-    *   Des images consécutives (dans des paragraphes successifs sans texte) sont regroupées dans une liste simple DITA : `<sl>`. Chaque image est alors dans un `<sli>`.
-
-6.  **Structure du Ditamap** : Le Ditamap utilise des `<topichead>` pour les sections qui ne sont pas des liens directs, et des `<topicref>` pour les fichiers de contenu. La hiérarchie et la numérotation sont gérées par une métadonnée `<othermeta name="tocIndex" ...>`.
+This version addresses critical image placement issues:
+- **Separates images from text content** preventing layout conflicts
+- **Preserves logical content order** (text followed by associated images)
+- **Generates compliant XML structure** according to Orlando standards
 
 ## Installation
 
-Il est recommandé d'utiliser un environnement virtuel.
+### Prerequisites
+- Python 3.8+
+- Windows, macOS, or Linux
 
-1.  **Créer l'environnement virtuel :**
-    ```bash
-    python -m venv venv
-    ```
+### Setup
+```bash
+git clone [repository-url]
+cd orlando-dita-packager
+python -m venv venv
+source venv/bin/activate  # Linux/macOS: venv\Scripts\activate on Windows
+pip install -r requirements.txt
+```
 
-2.  **Activer l'environnement :**
-    *   Sur Windows : `venv\Scripts\activate`
-    *   Sur macOS/Linux : `source venv/bin/activate`
-
-3.  **Installer les dépendances :**
-    ```bash
-    pip install -r requirements.txt
-    ```
-
-## Lancement
-
-Une fois les dépendances installées, lancez l'application avec la commande suivante :
+## Usage
 
 ```bash
+source venv/bin/activate  # Linux/macOS only
 python run.py
-``` 
+```
+
+1. Select DOCX document
+2. Configure metadata (title, manual code, dates)
+3. Set image parameters (prefix, nomenclature)
+4. Generate DITA archive
+
+## Technical Implementation
+
+### Orlando DITA Specifications
+- **Archive structure**: `DATA/topics/`, `DATA/media/`, `DATA/dtd/` organization
+- **Unique identifiers**: Automatic ID assignment for all XML elements
+- **Formatting classes**: Styling via `outputclass` attributes
+- **Table structure**: Cell-level border attributes
+- **Image handling**: Dedicated paragraphs for images, separated from text
+
+### Core Modules
+- `docx_to_dita_converter.py`: Main conversion engine
+- `docx_parser.py`: DOCX content extraction
+- `main.py`: Application orchestration
+- `ui/`: GUI components
+
+## Support
+
+Conversion logs are generated in `logs/` for troubleshooting.

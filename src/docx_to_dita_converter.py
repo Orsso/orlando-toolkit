@@ -149,7 +149,7 @@ def create_dita_table(table: Table, image_map: Dict[str, str]) -> ET.Element:
         for block in iter_block_items(cell):
             if isinstance(block, Paragraph):
                 p_element = ET.SubElement(entry, 'p', id=generate_dita_id())
-                process_paragraph_runs(p_element, block, image_map)
+                process_paragraph_content_and_images(p_element, block, image_map, None)
 
     # Les autres lignes vont dans le <tbody>
     tbody = ET.SubElement(tgroup, 'tbody', id=generate_dita_id())
@@ -161,7 +161,7 @@ def create_dita_table(table: Table, image_map: Dict[str, str]) -> ET.Element:
             for block in iter_block_items(cell):
                 if isinstance(block, Paragraph):
                     p_element = ET.SubElement(entry, 'p', id=generate_dita_id())
-                    process_paragraph_runs(p_element, block, image_map)
+                    process_paragraph_content_and_images(p_element, block, image_map, None)
     return dita_table
 
 def create_dita_concept(title, topic_id, revision_date):
@@ -209,9 +209,38 @@ def add_orlando_topicmeta(map_root, metadata):
         # Insérer au début si pas de titre
         map_root.insert(0, topicmeta)
 
-def process_paragraph_runs(p_element, paragraph, image_map):
+def process_paragraph_content_and_images(p_element, paragraph, image_map, conbody):
+    """
+    Traite le contenu d'un paragraphe en séparant les images du texte.
+    Les images sont placées dans des paragraphes séparés après le texte.
+    Si conbody est None (tableaux, listes), utilise le comportement original.
+    """
+    if conbody is None:
+        # Dans les tableaux et listes, on garde le comportement original
+        process_paragraph_runs(p_element, paragraph, image_map, exclude_images=False)
+        return
+    
+    images_found = []
+    
+    # Collecter les images présentes dans le paragraphe
+    for run in paragraph.runs:
+        r_ids = run.element.xpath(".//@r:embed")
+        if r_ids and r_ids[0] in image_map:
+            img_filename = os.path.basename(image_map[r_ids[0]])
+            images_found.append(img_filename)
+    
+    # Traiter le texte normalement (sans les images)
+    process_paragraph_runs(p_element, paragraph, image_map, exclude_images=True)
+    
+    # Ajouter les images dans des paragraphes séparés seulement si conbody existe
+    for img_filename in images_found:
+        img_p = ET.SubElement(conbody, 'p', id=generate_dita_id(), outputclass='align-center')
+        ET.SubElement(img_p, 'image', href=f'../media/{img_filename}', id=generate_dita_id())
+
+def process_paragraph_runs(p_element, paragraph, image_map, exclude_images=False):
     """
     Reconstruit le contenu d'un paragraphe (texte, formatage, images) en préservant l'ordre.
+    Si exclude_images=True, ignore les images (utilisé pour séparer texte et images).
     """
     last_element = None
 
@@ -219,7 +248,7 @@ def process_paragraph_runs(p_element, paragraph, image_map):
         # --- Gestion des images ---
         r_ids = run.element.xpath(".//@r:embed")
         if r_ids:
-            if r_ids[0] in image_map:
+            if not exclude_images and r_ids[0] in image_map:
                 img_filename = os.path.basename(image_map[r_ids[0]])
                 image_element = ET.Element('image', href=f'../media/{img_filename}', id=generate_dita_id())
                 p_element.append(image_element)
@@ -409,7 +438,7 @@ def convert_docx_to_dita(file_path: str, metadata: Dict[str, Any]) -> DitaContex
                         
                         li = ET.SubElement(current_list, 'li', id=generate_dita_id())
                         p_in_li = ET.SubElement(li, 'p', id=generate_dita_id())
-                        process_paragraph_runs(p_in_li, block, all_images_map_rid)
+                        process_paragraph_content_and_images(p_in_li, block, all_images_map_rid, None)
 
                     # C. Gestion du texte et paragraphes normaux
                     else:
@@ -425,7 +454,7 @@ def convert_docx_to_dita(file_path: str, metadata: Dict[str, Any]) -> DitaContex
                         # Appliquer les outputclass (align, roundedbox, etc.)
                         apply_paragraph_formatting(p_element, block)
                         
-                        process_paragraph_runs(p_element, block, all_images_map_rid)
+                        process_paragraph_content_and_images(p_element, block, all_images_map_rid, current_conbody)
 
         if current_concept is not None:
             # add_unique_ids(current_concept) # On ne veut plus d'ID partout
