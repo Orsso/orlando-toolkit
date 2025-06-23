@@ -25,20 +25,20 @@ This version addresses critical image placement issues:
 - Windows, macOS, or Linux
 
 ### Setup
-```bash
+    ```bash
 git clone [repository-url]
 cd orlando-dita-packager
-python -m venv venv
+    python -m venv venv
 source venv/bin/activate  # Linux/macOS: venv\Scripts\activate on Windows
-pip install -r requirements.txt
-```
+    pip install -r requirements.txt
+    ```
 
 ## Usage
 
 ```bash
 source venv/bin/activate  # Linux/macOS only
 python run.py
-```
+``` 
 
 1. Select DOCX document
 2. Configure metadata (title, manual code, dates)
@@ -59,6 +59,37 @@ python run.py
 - `docx_parser.py`: DOCX content extraction
 - `main.py`: Application orchestration
 - `ui/`: GUI components
+
+## Building Windows Executable
+
+### Quick Build (Recommended)
+
+1. **On Windows**, navigate to the project folder
+2. Double-click `build.bat` OR run:
+   ```cmd
+   build.bat
+   ```
+3. Find your executable in the `release/` folder
+
+### Manual Build
+
+1. Install PyInstaller:
+   ```cmd
+   pip install pyinstaller
+   ```
+
+2. Run the build script:
+   ```cmd
+   python build_exe.py
+   ```
+
+### Build Output
+
+- **Executable**: `release/OrlandoToolkit.exe` (~50-70MB, no dependencies)
+- **User guide**: `release/README.txt`
+- **Complete package**: Ready for distribution
+
+The executable includes all dependencies and can run on any Windows 10/11 system without requiring Python installation.
 
 ## Support
 
