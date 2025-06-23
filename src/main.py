@@ -60,10 +60,9 @@ class OrlandoToolkit:
         except Exception as e:
             logger.warning(f"Could not load logo: {e}")
 
-        ttk.Label(center_frame, text="Welcome to Orlando Toolkit", font=("Arial", 24, "bold")).pack(pady=20)
-        ttk.Label(center_frame, text="Professional DOCX to DITA converter for Orlando software", 
+        ttk.Label(center_frame, text="Orlando Toolkit", font=("Arial", 24, "bold")).pack(pady=20)
+        ttk.Label(center_frame, text="DOCX to DITA converter", 
                  font=("Arial", 12), foreground="gray").pack(pady=(0, 10))
-        ttk.Label(center_frame, text="Start by loading a DOCX document to convert it to DITA format.").pack(pady=10)
         
         self.load_button = ttk.Button(center_frame, text="Load Document (.docx)", 
                                      command=self.start_conversion_workflow,
@@ -211,8 +210,12 @@ class OrlandoToolkit:
         # --- END OF FIX ---
 
         # Step 2: Ask user where to save the final archive
+        manual_code = self.dita_context.metadata.get('manual_code', 'package')
+        default_filename = f"{manual_code}.zip" if manual_code else "package.zip"
+        
         save_path = filedialog.asksaveasfilename(
             title="Save DITA Package",
+            initialfile=default_filename,
             defaultextension=".zip",
             filetypes=[("Zip Archives", "*.zip")]
         )
