@@ -16,7 +16,7 @@ Orlando Toolkit converts Microsoft Word documents (.docx) to DITA archives compl
 
 This version addresses critical image placement issues:
 - **Separates images from text content** preventing layout conflicts
-- **Preserves logical content order** (text followed by associated images)
+- **Preserves logical content order** 
 - **Generates compliant XML structure** according to Orlando standards
 
 ## Installation
@@ -53,7 +53,7 @@ python run.py
 - **Unique identifiers**: Automatic ID assignment for all XML elements
 - **Formatting classes**: Styling via `outputclass` attributes
 - **Table structure**: Cell-level border attributes
-- **Image handling**: Dedicated paragraphs for images, separated from text
+- **Image handling**: Dedicated paragraphs for images.
 
 ### Core Modules
 - `docx_to_dita_converter.py`: Main conversion engine
