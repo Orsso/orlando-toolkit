@@ -1,9 +1,9 @@
 #  ![output-onlinepngtools](https://github.com/user-attachments/assets/15f610f5-52c0-43c3-93fc-37ae5be11d13) Orlando Toolkit 
 
 
-**Professional DOCX to DITA converter for Orlando software**
+**Professional DOCX to DITA converter for Orlando**
 
-Orlando Toolkit converts Microsoft Word documents (.docx) to DITA archives compliant with Orlando software specifications.
+Orlando Toolkit converts Microsoft Word documents (.docx) to DITA archives compliant with Orlando specifications.
 
 ## Features
 
