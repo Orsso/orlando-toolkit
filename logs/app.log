@@ -7133,3 +7133,378 @@ TypeError: BaseOxmlElement.xpath() got an unexpected keyword argument 'namespace
 2025-06-23 17:03:26,966 - src.docx_to_dita_converter - INFO - Sauvegarde du package DITA dans : C:\Users\reibel\AppData\Local\Temp\orlando_packager_1b_gqw1n
 2025-06-23 17:03:27,543 - src.docx_to_dita_converter - INFO - Sauvegarde du package DITA terminée.
 2025-06-23 17:03:28,184 - main - INFO - Copie de débogage créée dans : Reference\archive_creer
+2025-06-23 19:08:31,752 - root - INFO - ===== Logging setup complete =====
+2025-06-23 19:09:19,075 - src.docx_to_dita_converter - INFO - Début de la conversion en mémoire pour : /home/orso/Downloads/BEO001 - Manuel d'administration EFB MAY25.docx
+2025-06-23 19:09:19,161 - PIL.Image - DEBUG - Importing AvifImagePlugin
+2025-06-23 19:09:19,161 - PIL.Image - DEBUG - Importing BlpImagePlugin
+2025-06-23 19:09:19,162 - PIL.Image - DEBUG - Importing BmpImagePlugin
+2025-06-23 19:09:19,162 - PIL.Image - DEBUG - Importing BufrStubImagePlugin
+2025-06-23 19:09:19,162 - PIL.Image - DEBUG - Importing CurImagePlugin
+2025-06-23 19:09:19,162 - PIL.Image - DEBUG - Importing DcxImagePlugin
+2025-06-23 19:09:19,163 - PIL.Image - DEBUG - Importing DdsImagePlugin
+2025-06-23 19:09:19,165 - PIL.Image - DEBUG - Importing EpsImagePlugin
+2025-06-23 19:09:19,166 - PIL.Image - DEBUG - Importing FitsImagePlugin
+2025-06-23 19:09:19,166 - PIL.Image - DEBUG - Importing FliImagePlugin
+2025-06-23 19:09:19,166 - PIL.Image - DEBUG - Importing FpxImagePlugin
+2025-06-23 19:09:19,166 - PIL.Image - DEBUG - Image: failed to import FpxImagePlugin: No module named 'olefile'
+2025-06-23 19:09:19,166 - PIL.Image - DEBUG - Importing FtexImagePlugin
+2025-06-23 19:09:19,166 - PIL.Image - DEBUG - Importing GbrImagePlugin
+2025-06-23 19:09:19,167 - PIL.Image - DEBUG - Importing GifImagePlugin
+2025-06-23 19:09:19,167 - PIL.Image - DEBUG - Importing GribStubImagePlugin
+2025-06-23 19:09:19,167 - PIL.Image - DEBUG - Importing Hdf5StubImagePlugin
+2025-06-23 19:09:19,167 - PIL.Image - DEBUG - Importing IcnsImagePlugin
+2025-06-23 19:09:19,168 - PIL.Image - DEBUG - Importing IcoImagePlugin
+2025-06-23 19:09:19,168 - PIL.Image - DEBUG - Importing ImImagePlugin
+2025-06-23 19:09:19,169 - PIL.Image - DEBUG - Importing ImtImagePlugin
+2025-06-23 19:09:19,169 - PIL.Image - DEBUG - Importing IptcImagePlugin
+2025-06-23 19:09:19,169 - PIL.Image - DEBUG - Importing JpegImagePlugin
+2025-06-23 19:09:19,169 - PIL.Image - DEBUG - Importing Jpeg2KImagePlugin
+2025-06-23 19:09:19,169 - PIL.Image - DEBUG - Importing McIdasImagePlugin
+2025-06-23 19:09:19,170 - PIL.Image - DEBUG - Importing MicImagePlugin
+2025-06-23 19:09:19,170 - PIL.Image - DEBUG - Image: failed to import MicImagePlugin: No module named 'olefile'
+2025-06-23 19:09:19,170 - PIL.Image - DEBUG - Importing MpegImagePlugin
+2025-06-23 19:09:19,170 - PIL.Image - DEBUG - Importing MpoImagePlugin
+2025-06-23 19:09:19,174 - PIL.Image - DEBUG - Importing MspImagePlugin
+2025-06-23 19:09:19,174 - PIL.Image - DEBUG - Importing PalmImagePlugin
+2025-06-23 19:09:19,175 - PIL.Image - DEBUG - Importing PcdImagePlugin
+2025-06-23 19:09:19,175 - PIL.Image - DEBUG - Importing PcxImagePlugin
+2025-06-23 19:09:19,175 - PIL.Image - DEBUG - Importing PdfImagePlugin
+2025-06-23 19:09:19,179 - PIL.Image - DEBUG - Importing PixarImagePlugin
+2025-06-23 19:09:19,180 - PIL.Image - DEBUG - Importing PngImagePlugin
+2025-06-23 19:09:19,180 - PIL.Image - DEBUG - Importing PpmImagePlugin
+2025-06-23 19:09:19,180 - PIL.Image - DEBUG - Importing PsdImagePlugin
+2025-06-23 19:09:19,180 - PIL.Image - DEBUG - Importing QoiImagePlugin
+2025-06-23 19:09:19,180 - PIL.Image - DEBUG - Importing SgiImagePlugin
+2025-06-23 19:09:19,180 - PIL.Image - DEBUG - Importing SpiderImagePlugin
+2025-06-23 19:09:19,180 - PIL.Image - DEBUG - Importing SunImagePlugin
+2025-06-23 19:09:19,181 - PIL.Image - DEBUG - Importing TgaImagePlugin
+2025-06-23 19:09:19,181 - PIL.Image - DEBUG - Importing TiffImagePlugin
+2025-06-23 19:09:19,181 - PIL.Image - DEBUG - Importing WebPImagePlugin
+2025-06-23 19:09:19,182 - PIL.Image - DEBUG - Importing WmfImagePlugin
+2025-06-23 19:09:19,182 - PIL.Image - DEBUG - Importing XbmImagePlugin
+2025-06-23 19:09:19,182 - PIL.Image - DEBUG - Importing XpmImagePlugin
+2025-06-23 19:09:19,182 - PIL.Image - DEBUG - Importing XVThumbImagePlugin
+2025-06-23 19:09:19,183 - PIL.PngImagePlugin - DEBUG - STREAM b'IHDR' 16 13
+2025-06-23 19:09:19,183 - PIL.PngImagePlugin - DEBUG - STREAM b'iCCP' 41 353
+2025-06-23 19:09:19,183 - PIL.PngImagePlugin - DEBUG - iCCP profile name b'kCGColorSpaceDisplayP3'
+2025-06-23 19:09:19,183 - PIL.PngImagePlugin - DEBUG - Compression method 0
+2025-06-23 19:09:19,183 - PIL.PngImagePlugin - DEBUG - STREAM b'eXIf' 406 130
+2025-06-23 19:09:19,183 - PIL.PngImagePlugin - DEBUG - STREAM b'iTXt' 548 495
+2025-06-23 19:09:19,183 - PIL.PngImagePlugin - DEBUG - STREAM b'IDAT' 1055 16384
+2025-06-23 19:09:19,184 - PIL.PngImagePlugin - DEBUG - STREAM b'IHDR' 16 13
+2025-06-23 19:09:19,184 - PIL.PngImagePlugin - DEBUG - STREAM b'sRGB' 41 1
+2025-06-23 19:09:19,184 - PIL.PngImagePlugin - DEBUG - STREAM b'gAMA' 54 4
+2025-06-23 19:09:19,184 - PIL.PngImagePlugin - DEBUG - STREAM b'pHYs' 70 9
+2025-06-23 19:09:19,184 - PIL.PngImagePlugin - DEBUG - STREAM b'IDAT' 91 65445
+2025-06-23 19:09:19,184 - PIL.TiffImagePlugin - DEBUG - tag: Orientation (274) - type: short (3) - value: b'\x00\x01'
+2025-06-23 19:09:19,184 - PIL.TiffImagePlugin - DEBUG - tag: XResolution (282) - type: rational (5) Tag Location: 34 - Data Location: 74 - value: b'\x00\x00\x00H\x00\x00\x00\x01'
+2025-06-23 19:09:19,184 - PIL.TiffImagePlugin - DEBUG - tag: YResolution (283) - type: rational (5) Tag Location: 46 - Data Location: 82 - value: b'\x00\x00\x00H\x00\x00\x00\x01'
+2025-06-23 19:09:19,184 - PIL.TiffImagePlugin - DEBUG - tag: ResolutionUnit (296) - type: short (3) - value: b'\x00\x02'
+2025-06-23 19:09:19,184 - PIL.TiffImagePlugin - DEBUG - tag: ExifIFD (34665) - type: long (4) - value: b'\x00\x00\x00Z'
+2025-06-23 19:09:19,184 - PIL.PngImagePlugin - DEBUG - STREAM b'IHDR' 16 13
+2025-06-23 19:09:19,184 - PIL.PngImagePlugin - DEBUG - STREAM b'bKGD' 41 6
+2025-06-23 19:09:19,184 - PIL.PngImagePlugin - DEBUG - b'bKGD' 41 6 (unknown)
+2025-06-23 19:09:19,184 - PIL.PngImagePlugin - DEBUG - STREAM b'pHYs' 59 9
+2025-06-23 19:09:19,184 - PIL.PngImagePlugin - DEBUG - STREAM b'IDAT' 80 8192
+2025-06-23 19:09:19,184 - PIL.PngImagePlugin - DEBUG - STREAM b'IHDR' 16 13
+2025-06-23 19:09:19,184 - PIL.PngImagePlugin - DEBUG - STREAM b'sRGB' 41 1
+2025-06-23 19:09:19,185 - PIL.PngImagePlugin - DEBUG - STREAM b'gAMA' 54 4
+2025-06-23 19:09:19,185 - PIL.PngImagePlugin - DEBUG - STREAM b'pHYs' 70 9
+2025-06-23 19:09:19,185 - PIL.PngImagePlugin - DEBUG - STREAM b'IDAT' 91 65445
+2025-06-23 19:09:19,185 - PIL.PngImagePlugin - DEBUG - STREAM b'IHDR' 16 13
+2025-06-23 19:09:19,185 - PIL.PngImagePlugin - DEBUG - STREAM b'IDAT' 41 8192
+2025-06-23 19:09:19,185 - PIL.PngImagePlugin - DEBUG - STREAM b'IHDR' 16 13
+2025-06-23 19:09:19,185 - PIL.PngImagePlugin - DEBUG - STREAM b'sRGB' 41 1
+2025-06-23 19:09:19,185 - PIL.PngImagePlugin - DEBUG - STREAM b'gAMA' 54 4
+2025-06-23 19:09:19,185 - PIL.PngImagePlugin - DEBUG - STREAM b'pHYs' 70 9
+2025-06-23 19:09:19,185 - PIL.PngImagePlugin - DEBUG - STREAM b'IDAT' 91 65445
+2025-06-23 19:09:19,185 - PIL.PngImagePlugin - DEBUG - STREAM b'IHDR' 16 13
+2025-06-23 19:09:19,185 - PIL.PngImagePlugin - DEBUG - STREAM b'sRGB' 41 1
+2025-06-23 19:09:19,185 - PIL.PngImagePlugin - DEBUG - STREAM b'gAMA' 54 4
+2025-06-23 19:09:19,185 - PIL.PngImagePlugin - DEBUG - STREAM b'pHYs' 70 9
+2025-06-23 19:09:19,185 - PIL.PngImagePlugin - DEBUG - STREAM b'IDAT' 91 65445
+2025-06-23 19:09:19,185 - PIL.PngImagePlugin - DEBUG - STREAM b'IHDR' 16 13
+2025-06-23 19:09:19,185 - PIL.PngImagePlugin - DEBUG - STREAM b'sRGB' 41 1
+2025-06-23 19:09:19,185 - PIL.PngImagePlugin - DEBUG - STREAM b'gAMA' 54 4
+2025-06-23 19:09:19,185 - PIL.PngImagePlugin - DEBUG - STREAM b'pHYs' 70 9
+2025-06-23 19:09:19,185 - PIL.PngImagePlugin - DEBUG - STREAM b'IDAT' 91 65445
+2025-06-23 19:09:19,186 - PIL.PngImagePlugin - DEBUG - STREAM b'IHDR' 16 13
+2025-06-23 19:09:19,186 - PIL.PngImagePlugin - DEBUG - STREAM b'iCCP' 41 353
+2025-06-23 19:09:19,186 - PIL.PngImagePlugin - DEBUG - iCCP profile name b'kCGColorSpaceDisplayP3'
+2025-06-23 19:09:19,186 - PIL.PngImagePlugin - DEBUG - Compression method 0
+2025-06-23 19:09:19,186 - PIL.PngImagePlugin - DEBUG - STREAM b'eXIf' 406 130
+2025-06-23 19:09:19,186 - PIL.PngImagePlugin - DEBUG - STREAM b'iTXt' 548 495
+2025-06-23 19:09:19,186 - PIL.PngImagePlugin - DEBUG - STREAM b'IDAT' 1055 16384
+2025-06-23 19:09:19,186 - PIL.TiffImagePlugin - DEBUG - tag: Orientation (274) - type: short (3) - value: b'\x00\x01'
+2025-06-23 19:09:19,186 - PIL.TiffImagePlugin - DEBUG - tag: XResolution (282) - type: rational (5) Tag Location: 34 - Data Location: 74 - value: b'\x00\x00\x00H\x00\x00\x00\x01'
+2025-06-23 19:09:19,186 - PIL.TiffImagePlugin - DEBUG - tag: YResolution (283) - type: rational (5) Tag Location: 46 - Data Location: 82 - value: b'\x00\x00\x00H\x00\x00\x00\x01'
+2025-06-23 19:09:19,186 - PIL.TiffImagePlugin - DEBUG - tag: ResolutionUnit (296) - type: short (3) - value: b'\x00\x02'
+2025-06-23 19:09:19,186 - PIL.TiffImagePlugin - DEBUG - tag: ExifIFD (34665) - type: long (4) - value: b'\x00\x00\x00Z'
+2025-06-23 19:09:19,186 - PIL.PngImagePlugin - DEBUG - STREAM b'IHDR' 16 13
+2025-06-23 19:09:19,186 - PIL.PngImagePlugin - DEBUG - STREAM b'iCCP' 41 353
+2025-06-23 19:09:19,186 - PIL.PngImagePlugin - DEBUG - iCCP profile name b'kCGColorSpaceDisplayP3'
+2025-06-23 19:09:19,187 - PIL.PngImagePlugin - DEBUG - Compression method 0
+2025-06-23 19:09:19,187 - PIL.PngImagePlugin - DEBUG - STREAM b'eXIf' 406 130
+2025-06-23 19:09:19,187 - PIL.PngImagePlugin - DEBUG - STREAM b'iTXt' 548 495
+2025-06-23 19:09:19,187 - PIL.PngImagePlugin - DEBUG - STREAM b'IDAT' 1055 16384
+2025-06-23 19:09:19,187 - PIL.PngImagePlugin - DEBUG - STREAM b'IHDR' 16 13
+2025-06-23 19:09:19,187 - PIL.PngImagePlugin - DEBUG - STREAM b'sRGB' 41 1
+2025-06-23 19:09:19,187 - PIL.PngImagePlugin - DEBUG - STREAM b'gAMA' 54 4
+2025-06-23 19:09:19,187 - PIL.PngImagePlugin - DEBUG - STREAM b'pHYs' 70 9
+2025-06-23 19:09:19,187 - PIL.PngImagePlugin - DEBUG - STREAM b'IDAT' 91 65445
+2025-06-23 19:09:19,187 - PIL.PngImagePlugin - DEBUG - STREAM b'IHDR' 16 13
+2025-06-23 19:09:19,187 - PIL.PngImagePlugin - DEBUG - STREAM b'iCCP' 41 353
+2025-06-23 19:09:19,187 - PIL.PngImagePlugin - DEBUG - iCCP profile name b'kCGColorSpaceDisplayP3'
+2025-06-23 19:09:19,187 - PIL.PngImagePlugin - DEBUG - Compression method 0
+2025-06-23 19:09:19,187 - PIL.PngImagePlugin - DEBUG - STREAM b'eXIf' 406 130
+2025-06-23 19:09:19,187 - PIL.PngImagePlugin - DEBUG - STREAM b'iTXt' 548 495
+2025-06-23 19:09:19,187 - PIL.PngImagePlugin - DEBUG - STREAM b'IDAT' 1055 16384
+2025-06-23 19:09:19,187 - PIL.PngImagePlugin - DEBUG - STREAM b'IHDR' 16 13
+2025-06-23 19:09:19,187 - PIL.PngImagePlugin - DEBUG - STREAM b'PLTE' 41 768
+2025-06-23 19:09:19,187 - PIL.PngImagePlugin - DEBUG - STREAM b'bKGD' 821 1
+2025-06-23 19:09:19,187 - PIL.PngImagePlugin - DEBUG - b'bKGD' 821 1 (unknown)
+2025-06-23 19:09:19,187 - PIL.PngImagePlugin - DEBUG - STREAM b'pHYs' 834 9
+2025-06-23 19:09:19,187 - PIL.PngImagePlugin - DEBUG - STREAM b'IDAT' 855 8192
+2025-06-23 19:09:19,849 - src.docx_to_dita_converter - INFO - Conversion en mémoire terminée avec succès.
+2025-06-23 19:09:39,425 - src.ui.metadata_tab - INFO - Context updated: manual_title = PROCBEO001_TEST1.2
+2025-06-23 19:09:42,322 - PIL.PngImagePlugin - DEBUG - STREAM b'IHDR' 16 13
+2025-06-23 19:09:42,323 - PIL.PngImagePlugin - DEBUG - STREAM b'bKGD' 41 6
+2025-06-23 19:09:42,323 - PIL.PngImagePlugin - DEBUG - b'bKGD' 41 6 (unknown)
+2025-06-23 19:09:42,323 - PIL.PngImagePlugin - DEBUG - STREAM b'pHYs' 59 9
+2025-06-23 19:09:42,323 - PIL.PngImagePlugin - DEBUG - STREAM b'IDAT' 80 8192
+2025-06-23 19:09:42,788 - PIL.PngImagePlugin - DEBUG - STREAM b'IHDR' 16 13
+2025-06-23 19:09:42,788 - PIL.PngImagePlugin - DEBUG - STREAM b'sRGB' 41 1
+2025-06-23 19:09:42,788 - PIL.PngImagePlugin - DEBUG - STREAM b'gAMA' 54 4
+2025-06-23 19:09:42,788 - PIL.PngImagePlugin - DEBUG - STREAM b'pHYs' 70 9
+2025-06-23 19:09:42,788 - PIL.PngImagePlugin - DEBUG - STREAM b'IDAT' 91 65445
+2025-06-23 19:09:43,264 - PIL.PngImagePlugin - DEBUG - STREAM b'IHDR' 16 13
+2025-06-23 19:09:43,264 - PIL.PngImagePlugin - DEBUG - STREAM b'bKGD' 41 6
+2025-06-23 19:09:43,264 - PIL.PngImagePlugin - DEBUG - b'bKGD' 41 6 (unknown)
+2025-06-23 19:09:43,264 - PIL.PngImagePlugin - DEBUG - STREAM b'pHYs' 59 9
+2025-06-23 19:09:43,264 - PIL.PngImagePlugin - DEBUG - STREAM b'IDAT' 80 8192
+2025-06-23 19:09:45,481 - PIL.PngImagePlugin - DEBUG - STREAM b'IHDR' 16 13
+2025-06-23 19:09:45,481 - PIL.PngImagePlugin - DEBUG - STREAM b'iCCP' 41 353
+2025-06-23 19:09:45,481 - PIL.PngImagePlugin - DEBUG - iCCP profile name b'kCGColorSpaceDisplayP3'
+2025-06-23 19:09:45,481 - PIL.PngImagePlugin - DEBUG - Compression method 0
+2025-06-23 19:09:45,481 - PIL.PngImagePlugin - DEBUG - STREAM b'eXIf' 406 130
+2025-06-23 19:09:45,481 - PIL.PngImagePlugin - DEBUG - STREAM b'iTXt' 548 495
+2025-06-23 19:09:45,481 - PIL.PngImagePlugin - DEBUG - STREAM b'IDAT' 1055 16384
+2025-06-23 19:09:47,227 - PIL.PngImagePlugin - DEBUG - STREAM b'IHDR' 16 13
+2025-06-23 19:09:47,228 - PIL.PngImagePlugin - DEBUG - STREAM b'iCCP' 41 353
+2025-06-23 19:09:47,228 - PIL.PngImagePlugin - DEBUG - iCCP profile name b'kCGColorSpaceDisplayP3'
+2025-06-23 19:09:47,228 - PIL.PngImagePlugin - DEBUG - Compression method 0
+2025-06-23 19:09:47,228 - PIL.PngImagePlugin - DEBUG - STREAM b'eXIf' 406 130
+2025-06-23 19:09:47,228 - PIL.PngImagePlugin - DEBUG - STREAM b'iTXt' 548 495
+2025-06-23 19:09:47,228 - PIL.PngImagePlugin - DEBUG - STREAM b'IDAT' 1055 16384
+2025-06-23 19:09:47,600 - PIL.PngImagePlugin - DEBUG - STREAM b'IHDR' 16 13
+2025-06-23 19:09:47,600 - PIL.PngImagePlugin - DEBUG - STREAM b'sRGB' 41 1
+2025-06-23 19:09:47,600 - PIL.PngImagePlugin - DEBUG - STREAM b'gAMA' 54 4
+2025-06-23 19:09:47,601 - PIL.PngImagePlugin - DEBUG - STREAM b'pHYs' 70 9
+2025-06-23 19:09:47,601 - PIL.PngImagePlugin - DEBUG - STREAM b'IDAT' 91 65445
+2025-06-23 19:09:48,101 - PIL.TiffImagePlugin - DEBUG - tag: Orientation (274) - type: short (3) - value: b'\x00\x01'
+2025-06-23 19:09:48,101 - PIL.TiffImagePlugin - DEBUG - tag: XResolution (282) - type: rational (5) Tag Location: 34 - Data Location: 74 - value: b'\x00\x00\x00H\x00\x00\x00\x01'
+2025-06-23 19:09:48,101 - PIL.TiffImagePlugin - DEBUG - tag: YResolution (283) - type: rational (5) Tag Location: 46 - Data Location: 82 - value: b'\x00\x00\x00H\x00\x00\x00\x01'
+2025-06-23 19:09:48,101 - PIL.TiffImagePlugin - DEBUG - tag: ResolutionUnit (296) - type: short (3) - value: b'\x00\x02'
+2025-06-23 19:09:48,101 - PIL.TiffImagePlugin - DEBUG - tag: ExifIFD (34665) - type: long (4) - value: b'\x00\x00\x00Z'
+2025-06-23 19:09:48,160 - PIL.PngImagePlugin - DEBUG - STREAM b'IHDR' 16 13
+2025-06-23 19:09:48,160 - PIL.PngImagePlugin - DEBUG - STREAM b'bKGD' 41 6
+2025-06-23 19:09:48,160 - PIL.PngImagePlugin - DEBUG - b'bKGD' 41 6 (unknown)
+2025-06-23 19:09:48,160 - PIL.PngImagePlugin - DEBUG - STREAM b'pHYs' 59 9
+2025-06-23 19:09:48,161 - PIL.PngImagePlugin - DEBUG - STREAM b'IDAT' 80 8192
+2025-06-23 19:09:48,191 - PIL.PngImagePlugin - DEBUG - STREAM b'IHDR' 16 13
+2025-06-23 19:09:48,191 - PIL.PngImagePlugin - DEBUG - STREAM b'sRGB' 41 1
+2025-06-23 19:09:48,191 - PIL.PngImagePlugin - DEBUG - STREAM b'gAMA' 54 4
+2025-06-23 19:09:48,191 - PIL.PngImagePlugin - DEBUG - STREAM b'pHYs' 70 9
+2025-06-23 19:09:48,191 - PIL.PngImagePlugin - DEBUG - STREAM b'IDAT' 91 65445
+2025-06-23 19:09:48,280 - PIL.PngImagePlugin - DEBUG - STREAM b'IHDR' 16 13
+2025-06-23 19:09:48,281 - PIL.PngImagePlugin - DEBUG - STREAM b'IDAT' 41 8192
+2025-06-23 19:09:48,310 - PIL.PngImagePlugin - DEBUG - STREAM b'IHDR' 16 13
+2025-06-23 19:09:48,310 - PIL.PngImagePlugin - DEBUG - STREAM b'sRGB' 41 1
+2025-06-23 19:09:48,310 - PIL.PngImagePlugin - DEBUG - STREAM b'gAMA' 54 4
+2025-06-23 19:09:48,311 - PIL.PngImagePlugin - DEBUG - STREAM b'pHYs' 70 9
+2025-06-23 19:09:48,311 - PIL.PngImagePlugin - DEBUG - STREAM b'IDAT' 91 65445
+2025-06-23 19:09:48,430 - PIL.PngImagePlugin - DEBUG - STREAM b'IHDR' 16 13
+2025-06-23 19:09:48,430 - PIL.PngImagePlugin - DEBUG - STREAM b'sRGB' 41 1
+2025-06-23 19:09:48,431 - PIL.PngImagePlugin - DEBUG - STREAM b'gAMA' 54 4
+2025-06-23 19:09:48,431 - PIL.PngImagePlugin - DEBUG - STREAM b'pHYs' 70 9
+2025-06-23 19:09:48,431 - PIL.PngImagePlugin - DEBUG - STREAM b'IDAT' 91 65445
+2025-06-23 19:09:48,469 - PIL.PngImagePlugin - DEBUG - STREAM b'IHDR' 16 13
+2025-06-23 19:09:48,469 - PIL.PngImagePlugin - DEBUG - STREAM b'sRGB' 41 1
+2025-06-23 19:09:48,469 - PIL.PngImagePlugin - DEBUG - STREAM b'gAMA' 54 4
+2025-06-23 19:09:48,469 - PIL.PngImagePlugin - DEBUG - STREAM b'pHYs' 70 9
+2025-06-23 19:09:48,469 - PIL.PngImagePlugin - DEBUG - STREAM b'IDAT' 91 65445
+2025-06-23 19:09:48,580 - PIL.PngImagePlugin - DEBUG - STREAM b'IHDR' 16 13
+2025-06-23 19:09:48,580 - PIL.PngImagePlugin - DEBUG - STREAM b'iCCP' 41 353
+2025-06-23 19:09:48,580 - PIL.PngImagePlugin - DEBUG - iCCP profile name b'kCGColorSpaceDisplayP3'
+2025-06-23 19:09:48,580 - PIL.PngImagePlugin - DEBUG - Compression method 0
+2025-06-23 19:09:48,580 - PIL.PngImagePlugin - DEBUG - STREAM b'eXIf' 406 130
+2025-06-23 19:09:48,580 - PIL.PngImagePlugin - DEBUG - STREAM b'iTXt' 548 495
+2025-06-23 19:09:48,580 - PIL.PngImagePlugin - DEBUG - STREAM b'IDAT' 1055 16384
+2025-06-23 19:09:48,656 - PIL.TiffImagePlugin - DEBUG - tag: Orientation (274) - type: short (3) - value: b'\x00\x01'
+2025-06-23 19:09:48,657 - PIL.TiffImagePlugin - DEBUG - tag: XResolution (282) - type: rational (5) Tag Location: 34 - Data Location: 74 - value: b'\x00\x00\x00H\x00\x00\x00\x01'
+2025-06-23 19:09:48,657 - PIL.TiffImagePlugin - DEBUG - tag: YResolution (283) - type: rational (5) Tag Location: 46 - Data Location: 82 - value: b'\x00\x00\x00H\x00\x00\x00\x01'
+2025-06-23 19:09:48,657 - PIL.TiffImagePlugin - DEBUG - tag: ResolutionUnit (296) - type: short (3) - value: b'\x00\x02'
+2025-06-23 19:09:48,657 - PIL.TiffImagePlugin - DEBUG - tag: ExifIFD (34665) - type: long (4) - value: b'\x00\x00\x00Z'
+2025-06-23 19:09:48,731 - PIL.PngImagePlugin - DEBUG - STREAM b'IHDR' 16 13
+2025-06-23 19:09:48,731 - PIL.PngImagePlugin - DEBUG - STREAM b'iCCP' 41 353
+2025-06-23 19:09:48,731 - PIL.PngImagePlugin - DEBUG - iCCP profile name b'kCGColorSpaceDisplayP3'
+2025-06-23 19:09:48,731 - PIL.PngImagePlugin - DEBUG - Compression method 0
+2025-06-23 19:09:48,732 - PIL.PngImagePlugin - DEBUG - STREAM b'eXIf' 406 130
+2025-06-23 19:09:48,732 - PIL.PngImagePlugin - DEBUG - STREAM b'iTXt' 548 495
+2025-06-23 19:09:48,732 - PIL.PngImagePlugin - DEBUG - STREAM b'IDAT' 1055 16384
+2025-06-23 19:09:48,796 - PIL.PngImagePlugin - DEBUG - STREAM b'IHDR' 16 13
+2025-06-23 19:09:48,796 - PIL.PngImagePlugin - DEBUG - STREAM b'sRGB' 41 1
+2025-06-23 19:09:48,797 - PIL.PngImagePlugin - DEBUG - STREAM b'gAMA' 54 4
+2025-06-23 19:09:48,797 - PIL.PngImagePlugin - DEBUG - STREAM b'pHYs' 70 9
+2025-06-23 19:09:48,797 - PIL.PngImagePlugin - DEBUG - STREAM b'IDAT' 91 65445
+2025-06-23 19:09:48,853 - PIL.PngImagePlugin - DEBUG - STREAM b'IHDR' 16 13
+2025-06-23 19:09:48,853 - PIL.PngImagePlugin - DEBUG - STREAM b'iCCP' 41 353
+2025-06-23 19:09:48,853 - PIL.PngImagePlugin - DEBUG - iCCP profile name b'kCGColorSpaceDisplayP3'
+2025-06-23 19:09:48,853 - PIL.PngImagePlugin - DEBUG - Compression method 0
+2025-06-23 19:09:48,853 - PIL.PngImagePlugin - DEBUG - STREAM b'eXIf' 406 130
+2025-06-23 19:09:48,853 - PIL.PngImagePlugin - DEBUG - STREAM b'iTXt' 548 495
+2025-06-23 19:09:48,853 - PIL.PngImagePlugin - DEBUG - STREAM b'IDAT' 1055 16384
+2025-06-23 19:09:48,921 - PIL.PngImagePlugin - DEBUG - STREAM b'IHDR' 16 13
+2025-06-23 19:09:48,921 - PIL.PngImagePlugin - DEBUG - STREAM b'PLTE' 41 768
+2025-06-23 19:09:48,921 - PIL.PngImagePlugin - DEBUG - STREAM b'bKGD' 821 1
+2025-06-23 19:09:48,921 - PIL.PngImagePlugin - DEBUG - b'bKGD' 821 1 (unknown)
+2025-06-23 19:09:48,921 - PIL.PngImagePlugin - DEBUG - STREAM b'pHYs' 834 9
+2025-06-23 19:09:48,921 - PIL.PngImagePlugin - DEBUG - STREAM b'IDAT' 855 8192
+2025-06-23 19:09:50,193 - PIL.PngImagePlugin - DEBUG - STREAM b'IHDR' 16 13
+2025-06-23 19:09:50,193 - PIL.PngImagePlugin - DEBUG - STREAM b'PLTE' 41 768
+2025-06-23 19:09:50,193 - PIL.PngImagePlugin - DEBUG - STREAM b'bKGD' 821 1
+2025-06-23 19:09:50,193 - PIL.PngImagePlugin - DEBUG - b'bKGD' 821 1 (unknown)
+2025-06-23 19:09:50,193 - PIL.PngImagePlugin - DEBUG - STREAM b'pHYs' 834 9
+2025-06-23 19:09:50,193 - PIL.PngImagePlugin - DEBUG - STREAM b'IDAT' 855 8192
+2025-06-23 19:09:50,551 - PIL.PngImagePlugin - DEBUG - STREAM b'IHDR' 16 13
+2025-06-23 19:09:50,551 - PIL.PngImagePlugin - DEBUG - STREAM b'iCCP' 41 353
+2025-06-23 19:09:50,552 - PIL.PngImagePlugin - DEBUG - iCCP profile name b'kCGColorSpaceDisplayP3'
+2025-06-23 19:09:50,552 - PIL.PngImagePlugin - DEBUG - Compression method 0
+2025-06-23 19:09:50,552 - PIL.PngImagePlugin - DEBUG - STREAM b'eXIf' 406 130
+2025-06-23 19:09:50,552 - PIL.PngImagePlugin - DEBUG - STREAM b'iTXt' 548 495
+2025-06-23 19:09:50,552 - PIL.PngImagePlugin - DEBUG - STREAM b'IDAT' 1055 16384
+2025-06-23 19:09:51,196 - PIL.PngImagePlugin - DEBUG - STREAM b'IHDR' 16 13
+2025-06-23 19:09:51,196 - PIL.PngImagePlugin - DEBUG - STREAM b'sRGB' 41 1
+2025-06-23 19:09:51,197 - PIL.PngImagePlugin - DEBUG - STREAM b'gAMA' 54 4
+2025-06-23 19:09:51,197 - PIL.PngImagePlugin - DEBUG - STREAM b'pHYs' 70 9
+2025-06-23 19:09:51,197 - PIL.PngImagePlugin - DEBUG - STREAM b'IDAT' 91 65445
+2025-06-23 19:09:51,826 - PIL.PngImagePlugin - DEBUG - STREAM b'IHDR' 16 13
+2025-06-23 19:09:51,826 - PIL.PngImagePlugin - DEBUG - STREAM b'iCCP' 41 353
+2025-06-23 19:09:51,826 - PIL.PngImagePlugin - DEBUG - iCCP profile name b'kCGColorSpaceDisplayP3'
+2025-06-23 19:09:51,826 - PIL.PngImagePlugin - DEBUG - Compression method 0
+2025-06-23 19:09:51,826 - PIL.PngImagePlugin - DEBUG - STREAM b'eXIf' 406 130
+2025-06-23 19:09:51,826 - PIL.PngImagePlugin - DEBUG - STREAM b'iTXt' 548 495
+2025-06-23 19:09:51,826 - PIL.PngImagePlugin - DEBUG - STREAM b'IDAT' 1055 16384
+2025-06-23 19:09:52,550 - PIL.TiffImagePlugin - DEBUG - tag: Orientation (274) - type: short (3) - value: b'\x00\x01'
+2025-06-23 19:09:52,550 - PIL.TiffImagePlugin - DEBUG - tag: XResolution (282) - type: rational (5) Tag Location: 34 - Data Location: 74 - value: b'\x00\x00\x00H\x00\x00\x00\x01'
+2025-06-23 19:09:52,550 - PIL.TiffImagePlugin - DEBUG - tag: YResolution (283) - type: rational (5) Tag Location: 46 - Data Location: 82 - value: b'\x00\x00\x00H\x00\x00\x00\x01'
+2025-06-23 19:09:52,550 - PIL.TiffImagePlugin - DEBUG - tag: ResolutionUnit (296) - type: short (3) - value: b'\x00\x02'
+2025-06-23 19:09:52,550 - PIL.TiffImagePlugin - DEBUG - tag: ExifIFD (34665) - type: long (4) - value: b'\x00\x00\x00Z'
+2025-06-23 19:09:53,013 - PIL.PngImagePlugin - DEBUG - STREAM b'IHDR' 16 13
+2025-06-23 19:09:53,014 - PIL.PngImagePlugin - DEBUG - STREAM b'iCCP' 41 353
+2025-06-23 19:09:53,014 - PIL.PngImagePlugin - DEBUG - iCCP profile name b'kCGColorSpaceDisplayP3'
+2025-06-23 19:09:53,014 - PIL.PngImagePlugin - DEBUG - Compression method 0
+2025-06-23 19:09:53,014 - PIL.PngImagePlugin - DEBUG - STREAM b'eXIf' 406 130
+2025-06-23 19:09:53,014 - PIL.PngImagePlugin - DEBUG - STREAM b'iTXt' 548 495
+2025-06-23 19:09:53,014 - PIL.PngImagePlugin - DEBUG - STREAM b'IDAT' 1055 16384
+2025-06-23 19:09:53,578 - PIL.PngImagePlugin - DEBUG - STREAM b'IHDR' 16 13
+2025-06-23 19:09:53,578 - PIL.PngImagePlugin - DEBUG - STREAM b'sRGB' 41 1
+2025-06-23 19:09:53,578 - PIL.PngImagePlugin - DEBUG - STREAM b'gAMA' 54 4
+2025-06-23 19:09:53,578 - PIL.PngImagePlugin - DEBUG - STREAM b'pHYs' 70 9
+2025-06-23 19:09:53,578 - PIL.PngImagePlugin - DEBUG - STREAM b'IDAT' 91 65445
+2025-06-23 19:09:53,715 - PIL.PngImagePlugin - DEBUG - STREAM b'IHDR' 16 13
+2025-06-23 19:09:53,715 - PIL.PngImagePlugin - DEBUG - STREAM b'sRGB' 41 1
+2025-06-23 19:09:53,716 - PIL.PngImagePlugin - DEBUG - STREAM b'gAMA' 54 4
+2025-06-23 19:09:53,716 - PIL.PngImagePlugin - DEBUG - STREAM b'pHYs' 70 9
+2025-06-23 19:09:53,716 - PIL.PngImagePlugin - DEBUG - STREAM b'IDAT' 91 65445
+2025-06-23 19:09:54,452 - PIL.PngImagePlugin - DEBUG - STREAM b'IHDR' 16 13
+2025-06-23 19:09:54,452 - PIL.PngImagePlugin - DEBUG - STREAM b'sRGB' 41 1
+2025-06-23 19:09:54,452 - PIL.PngImagePlugin - DEBUG - STREAM b'gAMA' 54 4
+2025-06-23 19:09:54,453 - PIL.PngImagePlugin - DEBUG - STREAM b'pHYs' 70 9
+2025-06-23 19:09:54,453 - PIL.PngImagePlugin - DEBUG - STREAM b'IDAT' 91 65445
+2025-06-23 19:09:58,612 - src.docx_to_dita_converter - INFO - Début de la conversion en mémoire pour : /home/orso/Downloads/BEO001 - Manuel d'administration EFB MAY25.docx
+2025-06-23 19:09:58,670 - PIL.PngImagePlugin - DEBUG - STREAM b'IHDR' 16 13
+2025-06-23 19:09:58,670 - PIL.PngImagePlugin - DEBUG - STREAM b'iCCP' 41 353
+2025-06-23 19:09:58,670 - PIL.PngImagePlugin - DEBUG - iCCP profile name b'kCGColorSpaceDisplayP3'
+2025-06-23 19:09:58,670 - PIL.PngImagePlugin - DEBUG - Compression method 0
+2025-06-23 19:09:58,670 - PIL.PngImagePlugin - DEBUG - STREAM b'eXIf' 406 130
+2025-06-23 19:09:58,670 - PIL.PngImagePlugin - DEBUG - STREAM b'iTXt' 548 495
+2025-06-23 19:09:58,671 - PIL.PngImagePlugin - DEBUG - STREAM b'IDAT' 1055 16384
+2025-06-23 19:09:58,671 - PIL.PngImagePlugin - DEBUG - STREAM b'IHDR' 16 13
+2025-06-23 19:09:58,671 - PIL.PngImagePlugin - DEBUG - STREAM b'sRGB' 41 1
+2025-06-23 19:09:58,671 - PIL.PngImagePlugin - DEBUG - STREAM b'gAMA' 54 4
+2025-06-23 19:09:58,671 - PIL.PngImagePlugin - DEBUG - STREAM b'pHYs' 70 9
+2025-06-23 19:09:58,671 - PIL.PngImagePlugin - DEBUG - STREAM b'IDAT' 91 65445
+2025-06-23 19:09:58,671 - PIL.TiffImagePlugin - DEBUG - tag: Orientation (274) - type: short (3) - value: b'\x00\x01'
+2025-06-23 19:09:58,671 - PIL.TiffImagePlugin - DEBUG - tag: XResolution (282) - type: rational (5) Tag Location: 34 - Data Location: 74 - value: b'\x00\x00\x00H\x00\x00\x00\x01'
+2025-06-23 19:09:58,671 - PIL.TiffImagePlugin - DEBUG - tag: YResolution (283) - type: rational (5) Tag Location: 46 - Data Location: 82 - value: b'\x00\x00\x00H\x00\x00\x00\x01'
+2025-06-23 19:09:58,671 - PIL.TiffImagePlugin - DEBUG - tag: ResolutionUnit (296) - type: short (3) - value: b'\x00\x02'
+2025-06-23 19:09:58,671 - PIL.TiffImagePlugin - DEBUG - tag: ExifIFD (34665) - type: long (4) - value: b'\x00\x00\x00Z'
+2025-06-23 19:09:58,671 - PIL.PngImagePlugin - DEBUG - STREAM b'IHDR' 16 13
+2025-06-23 19:09:58,671 - PIL.PngImagePlugin - DEBUG - STREAM b'bKGD' 41 6
+2025-06-23 19:09:58,671 - PIL.PngImagePlugin - DEBUG - b'bKGD' 41 6 (unknown)
+2025-06-23 19:09:58,671 - PIL.PngImagePlugin - DEBUG - STREAM b'pHYs' 59 9
+2025-06-23 19:09:58,671 - PIL.PngImagePlugin - DEBUG - STREAM b'IDAT' 80 8192
+2025-06-23 19:09:58,671 - PIL.PngImagePlugin - DEBUG - STREAM b'IHDR' 16 13
+2025-06-23 19:09:58,671 - PIL.PngImagePlugin - DEBUG - STREAM b'sRGB' 41 1
+2025-06-23 19:09:58,671 - PIL.PngImagePlugin - DEBUG - STREAM b'gAMA' 54 4
+2025-06-23 19:09:58,672 - PIL.PngImagePlugin - DEBUG - STREAM b'pHYs' 70 9
+2025-06-23 19:09:58,672 - PIL.PngImagePlugin - DEBUG - STREAM b'IDAT' 91 65445
+2025-06-23 19:09:58,672 - PIL.PngImagePlugin - DEBUG - STREAM b'IHDR' 16 13
+2025-06-23 19:09:58,672 - PIL.PngImagePlugin - DEBUG - STREAM b'IDAT' 41 8192
+2025-06-23 19:09:58,672 - PIL.PngImagePlugin - DEBUG - STREAM b'IHDR' 16 13
+2025-06-23 19:09:58,672 - PIL.PngImagePlugin - DEBUG - STREAM b'sRGB' 41 1
+2025-06-23 19:09:58,672 - PIL.PngImagePlugin - DEBUG - STREAM b'gAMA' 54 4
+2025-06-23 19:09:58,672 - PIL.PngImagePlugin - DEBUG - STREAM b'pHYs' 70 9
+2025-06-23 19:09:58,672 - PIL.PngImagePlugin - DEBUG - STREAM b'IDAT' 91 65445
+2025-06-23 19:09:58,672 - PIL.PngImagePlugin - DEBUG - STREAM b'IHDR' 16 13
+2025-06-23 19:09:58,672 - PIL.PngImagePlugin - DEBUG - STREAM b'sRGB' 41 1
+2025-06-23 19:09:58,672 - PIL.PngImagePlugin - DEBUG - STREAM b'gAMA' 54 4
+2025-06-23 19:09:58,672 - PIL.PngImagePlugin - DEBUG - STREAM b'pHYs' 70 9
+2025-06-23 19:09:58,672 - PIL.PngImagePlugin - DEBUG - STREAM b'IDAT' 91 65445
+2025-06-23 19:09:58,672 - PIL.PngImagePlugin - DEBUG - STREAM b'IHDR' 16 13
+2025-06-23 19:09:58,672 - PIL.PngImagePlugin - DEBUG - STREAM b'sRGB' 41 1
+2025-06-23 19:09:58,672 - PIL.PngImagePlugin - DEBUG - STREAM b'gAMA' 54 4
+2025-06-23 19:09:58,672 - PIL.PngImagePlugin - DEBUG - STREAM b'pHYs' 70 9
+2025-06-23 19:09:58,672 - PIL.PngImagePlugin - DEBUG - STREAM b'IDAT' 91 65445
+2025-06-23 19:09:58,673 - PIL.PngImagePlugin - DEBUG - STREAM b'IHDR' 16 13
+2025-06-23 19:09:58,673 - PIL.PngImagePlugin - DEBUG - STREAM b'iCCP' 41 353
+2025-06-23 19:09:58,673 - PIL.PngImagePlugin - DEBUG - iCCP profile name b'kCGColorSpaceDisplayP3'
+2025-06-23 19:09:58,673 - PIL.PngImagePlugin - DEBUG - Compression method 0
+2025-06-23 19:09:58,673 - PIL.PngImagePlugin - DEBUG - STREAM b'eXIf' 406 130
+2025-06-23 19:09:58,673 - PIL.PngImagePlugin - DEBUG - STREAM b'iTXt' 548 495
+2025-06-23 19:09:58,673 - PIL.PngImagePlugin - DEBUG - STREAM b'IDAT' 1055 16384
+2025-06-23 19:09:58,673 - PIL.TiffImagePlugin - DEBUG - tag: Orientation (274) - type: short (3) - value: b'\x00\x01'
+2025-06-23 19:09:58,673 - PIL.TiffImagePlugin - DEBUG - tag: XResolution (282) - type: rational (5) Tag Location: 34 - Data Location: 74 - value: b'\x00\x00\x00H\x00\x00\x00\x01'
+2025-06-23 19:09:58,673 - PIL.TiffImagePlugin - DEBUG - tag: YResolution (283) - type: rational (5) Tag Location: 46 - Data Location: 82 - value: b'\x00\x00\x00H\x00\x00\x00\x01'
+2025-06-23 19:09:58,673 - PIL.TiffImagePlugin - DEBUG - tag: ResolutionUnit (296) - type: short (3) - value: b'\x00\x02'
+2025-06-23 19:09:58,673 - PIL.TiffImagePlugin - DEBUG - tag: ExifIFD (34665) - type: long (4) - value: b'\x00\x00\x00Z'
+2025-06-23 19:09:58,673 - PIL.PngImagePlugin - DEBUG - STREAM b'IHDR' 16 13
+2025-06-23 19:09:58,673 - PIL.PngImagePlugin - DEBUG - STREAM b'iCCP' 41 353
+2025-06-23 19:09:58,673 - PIL.PngImagePlugin - DEBUG - iCCP profile name b'kCGColorSpaceDisplayP3'
+2025-06-23 19:09:58,673 - PIL.PngImagePlugin - DEBUG - Compression method 0
+2025-06-23 19:09:58,673 - PIL.PngImagePlugin - DEBUG - STREAM b'eXIf' 406 130
+2025-06-23 19:09:58,674 - PIL.PngImagePlugin - DEBUG - STREAM b'iTXt' 548 495
+2025-06-23 19:09:58,674 - PIL.PngImagePlugin - DEBUG - STREAM b'IDAT' 1055 16384
+2025-06-23 19:09:58,674 - PIL.PngImagePlugin - DEBUG - STREAM b'IHDR' 16 13
+2025-06-23 19:09:58,674 - PIL.PngImagePlugin - DEBUG - STREAM b'sRGB' 41 1
+2025-06-23 19:09:58,674 - PIL.PngImagePlugin - DEBUG - STREAM b'gAMA' 54 4
+2025-06-23 19:09:58,674 - PIL.PngImagePlugin - DEBUG - STREAM b'pHYs' 70 9
+2025-06-23 19:09:58,674 - PIL.PngImagePlugin - DEBUG - STREAM b'IDAT' 91 65445
+2025-06-23 19:09:58,674 - PIL.PngImagePlugin - DEBUG - STREAM b'IHDR' 16 13
+2025-06-23 19:09:58,674 - PIL.PngImagePlugin - DEBUG - STREAM b'iCCP' 41 353
+2025-06-23 19:09:58,674 - PIL.PngImagePlugin - DEBUG - iCCP profile name b'kCGColorSpaceDisplayP3'
+2025-06-23 19:09:58,674 - PIL.PngImagePlugin - DEBUG - Compression method 0
+2025-06-23 19:09:58,674 - PIL.PngImagePlugin - DEBUG - STREAM b'eXIf' 406 130
+2025-06-23 19:09:58,674 - PIL.PngImagePlugin - DEBUG - STREAM b'iTXt' 548 495
+2025-06-23 19:09:58,674 - PIL.PngImagePlugin - DEBUG - STREAM b'IDAT' 1055 16384
+2025-06-23 19:09:58,674 - PIL.PngImagePlugin - DEBUG - STREAM b'IHDR' 16 13
+2025-06-23 19:09:58,674 - PIL.PngImagePlugin - DEBUG - STREAM b'PLTE' 41 768
+2025-06-23 19:09:58,674 - PIL.PngImagePlugin - DEBUG - STREAM b'bKGD' 821 1
+2025-06-23 19:09:58,674 - PIL.PngImagePlugin - DEBUG - b'bKGD' 821 1 (unknown)
+2025-06-23 19:09:58,674 - PIL.PngImagePlugin - DEBUG - STREAM b'pHYs' 834 9
+2025-06-23 19:09:58,674 - PIL.PngImagePlugin - DEBUG - STREAM b'IDAT' 855 8192
+2025-06-23 19:09:59,274 - src.docx_to_dita_converter - INFO - Conversion en mémoire terminée avec succès.
+2025-06-23 19:10:09,017 - src.ui.metadata_tab - INFO - Context updated: manual_title = PROCBEO001_TEST1.2
+2025-06-23 19:11:46,526 - root - INFO - ===== Application terminated =====
+2025-06-23 19:12:28,369 - root - INFO - ===== Logging setup complete =====
