@@ -1,0 +1,651 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<!DOCTYPE map PUBLIC "-//OASIS//DTD DITA Map//EN" "./dtd/technicalContent/dtd/map.dtd">
+<map xml:lang="en-US">
+  <title>PROCBEO001_TEST20</title>
+  <topicmeta>
+    <critdates>
+      <created date="2025-06-23"/>
+      <revised modified="2025-06-23"/>
+    </critdates>
+    <othermeta name="manualCode" content="beo001_manuel_dadministration_efb_may25"/>
+    <othermeta name="manual_reference" content="BEO001_MANUEL_DADMINISTRATION_EFB_MAY25"/>
+    <othermeta name="revNumber" content="1.0"/>
+    <othermeta name="isRevNumberNull" content="false"/>
+  </topicmeta>
+  <topichead>
+    <topicmeta>
+      <navtitle>CONTROLE DU DOCUMENT</navtitle>
+      <critdates>
+        <created date="2025-06-23"/>
+        <revised modified="2025-06-23"/>
+      </critdates>
+      <metadata/>
+      <othermeta name="tocIndex" content="1"/>
+    </topicmeta>
+    <topicref href="topics/topic_8e9790a03871.dita" locktitle="yes">
+      <topicmeta>
+        <navtitle>OBJECTIFS</navtitle>
+        <critdates>
+          <created date="2025-06-23"/>
+          <revised modified="2025-06-23"/>
+        </critdates>
+        <metadata/>
+        <othermeta name="tocIndex" content="1.1"/>
+        <othermeta name="foldout" content="false"/>
+        <othermeta name="tdm" content="false"/>
+      </topicmeta>
+    </topicref>
+    <topicref href="topics/topic_411d0546e15f.dita" locktitle="yes">
+      <topicmeta>
+        <navtitle>DOMAINE D’APPLICATION</navtitle>
+        <critdates>
+          <created date="2025-06-23"/>
+          <revised modified="2025-06-23"/>
+        </critdates>
+        <metadata/>
+        <othermeta name="tocIndex" content="1.2"/>
+        <othermeta name="foldout" content="false"/>
+        <othermeta name="tdm" content="false"/>
+      </topicmeta>
+    </topicref>
+    <topicref href="topics/topic_96f161d0dee6.dita" locktitle="yes">
+      <topicmeta>
+        <navtitle>DOCUMENTS DE REFERENCES ET ANNEXES</navtitle>
+        <critdates>
+          <created date="2025-06-23"/>
+          <revised modified="2025-06-23"/>
+        </critdates>
+        <metadata/>
+        <othermeta name="tocIndex" content="1.3"/>
+        <othermeta name="foldout" content="false"/>
+        <othermeta name="tdm" content="false"/>
+      </topicmeta>
+    </topicref>
+    <topicref href="topics/topic_b9ed08cb10a7.dita" locktitle="yes">
+      <topicmeta>
+        <navtitle>APPROBATIONS</navtitle>
+        <critdates>
+          <created date="2025-06-23"/>
+          <revised modified="2025-06-23"/>
+        </critdates>
+        <metadata/>
+        <othermeta name="tocIndex" content="1.4"/>
+        <othermeta name="foldout" content="false"/>
+        <othermeta name="tdm" content="false"/>
+      </topicmeta>
+    </topicref>
+    <topicref href="topics/topic_bf94f334ec96.dita" locktitle="yes">
+      <topicmeta>
+        <navtitle>RESPONSABILITES ET AUTORITES</navtitle>
+        <critdates>
+          <created date="2025-06-23"/>
+          <revised modified="2025-06-23"/>
+        </critdates>
+        <metadata/>
+        <othermeta name="tocIndex" content="1.5"/>
+        <othermeta name="foldout" content="false"/>
+        <othermeta name="tdm" content="false"/>
+      </topicmeta>
+    </topicref>
+    <topicref href="topics/topic_a069effe75b9.dita" locktitle="yes">
+      <topicmeta>
+        <navtitle>DIFFUSION</navtitle>
+        <critdates>
+          <created date="2025-06-23"/>
+          <revised modified="2025-06-23"/>
+        </critdates>
+        <metadata/>
+        <othermeta name="tocIndex" content="1.6"/>
+        <othermeta name="foldout" content="false"/>
+        <othermeta name="tdm" content="false"/>
+      </topicmeta>
+    </topicref>
+  </topichead>
+  <topichead>
+    <topicmeta>
+      <navtitle>POLITIQUE D’UTILISATION DE L’EFB</navtitle>
+      <critdates>
+        <created date="2025-06-23"/>
+        <revised modified="2025-06-23"/>
+      </critdates>
+      <metadata/>
+      <othermeta name="tocIndex" content="2"/>
+    </topicmeta>
+    <topicref href="topics/topic_fc6395f61f70.dita" locktitle="yes">
+      <topicmeta>
+        <navtitle>PRÉSENTATION EFB</navtitle>
+        <critdates>
+          <created date="2025-06-23"/>
+          <revised modified="2025-06-23"/>
+        </critdates>
+        <metadata/>
+        <othermeta name="tocIndex" content="2.1"/>
+        <othermeta name="foldout" content="false"/>
+        <othermeta name="tdm" content="false"/>
+      </topicmeta>
+    </topicref>
+    <topicref href="topics/topic_42828677ab7c.dita" locktitle="yes">
+      <topicmeta>
+        <navtitle>CADRE D’UTILISATION</navtitle>
+        <critdates>
+          <created date="2025-06-23"/>
+          <revised modified="2025-06-23"/>
+        </critdates>
+        <metadata/>
+        <othermeta name="tocIndex" content="2.2"/>
+        <othermeta name="foldout" content="false"/>
+        <othermeta name="tdm" content="false"/>
+      </topicmeta>
+    </topicref>
+    <topicref href="topics/topic_044d34cab9d3.dita" locktitle="yes">
+      <topicmeta>
+        <navtitle>PARAMETRAGE SOFTWARE</navtitle>
+        <critdates>
+          <created date="2025-06-23"/>
+          <revised modified="2025-06-23"/>
+        </critdates>
+        <metadata/>
+        <othermeta name="tocIndex" content="2.3"/>
+        <othermeta name="foldout" content="false"/>
+        <othermeta name="tdm" content="false"/>
+      </topicmeta>
+    </topicref>
+    <topicref href="topics/topic_1676ebe5c7a6.dita" locktitle="yes">
+      <topicmeta>
+        <navtitle>ADMINISTRATION HARDWARE</navtitle>
+        <critdates>
+          <created date="2025-06-23"/>
+          <revised modified="2025-06-23"/>
+        </critdates>
+        <metadata/>
+        <othermeta name="tocIndex" content="2.4"/>
+        <othermeta name="foldout" content="false"/>
+        <othermeta name="tdm" content="false"/>
+      </topicmeta>
+    </topicref>
+    <topicref href="topics/topic_85c65d71ede8.dita" locktitle="yes">
+      <topicmeta>
+        <navtitle>CONFIGURATION GENERALE</navtitle>
+        <critdates>
+          <created date="2025-06-23"/>
+          <revised modified="2025-06-23"/>
+        </critdates>
+        <metadata/>
+        <othermeta name="tocIndex" content="2.5"/>
+        <othermeta name="foldout" content="false"/>
+        <othermeta name="tdm" content="false"/>
+      </topicmeta>
+    </topicref>
+    <topicref href="topics/topic_9d7a485b5736.dita" locktitle="yes">
+      <topicmeta>
+        <navtitle>MODIFICATIONS DES APPLICATIONS METIER</navtitle>
+        <critdates>
+          <created date="2025-06-23"/>
+          <revised modified="2025-06-23"/>
+        </critdates>
+        <metadata/>
+        <othermeta name="tocIndex" content="2.6"/>
+        <othermeta name="foldout" content="false"/>
+        <othermeta name="tdm" content="false"/>
+      </topicmeta>
+    </topicref>
+    <topicref href="topics/topic_ec6c91944a02.dita" locktitle="yes">
+      <topicmeta>
+        <navtitle>PARAMÉTRAGE WIFI FOMAX</navtitle>
+        <critdates>
+          <created date="2025-06-23"/>
+          <revised modified="2025-06-23"/>
+        </critdates>
+        <metadata/>
+        <othermeta name="tocIndex" content="2.7"/>
+        <othermeta name="foldout" content="false"/>
+        <othermeta name="tdm" content="false"/>
+      </topicmeta>
+    </topicref>
+  </topichead>
+  <topichead>
+    <topicmeta>
+      <navtitle>POLITIQUE D’UTILISATION IPAD PNT</navtitle>
+      <critdates>
+        <created date="2025-06-23"/>
+        <revised modified="2025-06-23"/>
+      </critdates>
+      <metadata/>
+      <othermeta name="tocIndex" content="3"/>
+    </topicmeta>
+    <topicref href="topics/topic_7a180f925f76.dita" locktitle="yes">
+      <topicmeta>
+        <navtitle>PRÉSENTATION IPAD PNT</navtitle>
+        <critdates>
+          <created date="2025-06-23"/>
+          <revised modified="2025-06-23"/>
+        </critdates>
+        <metadata/>
+        <othermeta name="tocIndex" content="3.1"/>
+        <othermeta name="foldout" content="false"/>
+        <othermeta name="tdm" content="false"/>
+      </topicmeta>
+    </topicref>
+    <topicref href="topics/topic_f505b9d22133.dita" locktitle="yes">
+      <topicmeta>
+        <navtitle>CADRE D’UTILISATION DE L’IPAD</navtitle>
+        <critdates>
+          <created date="2025-06-23"/>
+          <revised modified="2025-06-23"/>
+        </critdates>
+        <metadata/>
+        <othermeta name="tocIndex" content="3.2"/>
+        <othermeta name="foldout" content="false"/>
+        <othermeta name="tdm" content="false"/>
+      </topicmeta>
+    </topicref>
+    <topicref href="topics/topic_592e98501e35.dita" locktitle="yes">
+      <topicmeta>
+        <navtitle>PARAMETRAGE SOFTWARE</navtitle>
+        <critdates>
+          <created date="2025-06-23"/>
+          <revised modified="2025-06-23"/>
+        </critdates>
+        <metadata/>
+        <othermeta name="tocIndex" content="3.3"/>
+        <othermeta name="foldout" content="false"/>
+        <othermeta name="tdm" content="false"/>
+      </topicmeta>
+    </topicref>
+    <topicref href="topics/topic_7e698159361e.dita" locktitle="yes">
+      <topicmeta>
+        <navtitle>ADMINISTRATION HARDWARE</navtitle>
+        <critdates>
+          <created date="2025-06-23"/>
+          <revised modified="2025-06-23"/>
+        </critdates>
+        <metadata/>
+        <othermeta name="tocIndex" content="3.4"/>
+        <othermeta name="foldout" content="false"/>
+        <othermeta name="tdm" content="false"/>
+      </topicmeta>
+    </topicref>
+    <topicref href="topics/topic_ed9da0ad369c.dita" locktitle="yes">
+      <topicmeta>
+        <navtitle>MODIFICATIONS DES APPLICATIONS METIER</navtitle>
+        <critdates>
+          <created date="2025-06-23"/>
+          <revised modified="2025-06-23"/>
+        </critdates>
+        <metadata/>
+        <othermeta name="tocIndex" content="3.5"/>
+        <othermeta name="foldout" content="false"/>
+        <othermeta name="tdm" content="false"/>
+      </topicmeta>
+    </topicref>
+  </topichead>
+  <topichead>
+    <topicmeta>
+      <navtitle>INVENTAIRE DES APPLICATIONS METIER</navtitle>
+      <critdates>
+        <created date="2025-06-23"/>
+        <revised modified="2025-06-23"/>
+      </critdates>
+      <metadata/>
+      <othermeta name="tocIndex" content="4"/>
+    </topicmeta>
+    <topicref href="topics/topic_f1d1b2e231ee.dita" locktitle="yes">
+      <topicmeta>
+        <navtitle>APPLICATIONS AUTORISEES</navtitle>
+        <critdates>
+          <created date="2025-06-23"/>
+          <revised modified="2025-06-23"/>
+        </critdates>
+        <metadata/>
+        <othermeta name="tocIndex" content="4.1"/>
+        <othermeta name="foldout" content="false"/>
+        <othermeta name="tdm" content="false"/>
+      </topicmeta>
+    </topicref>
+    <topicref href="topics/topic_814faece33d1.dita" locktitle="yes">
+      <topicmeta>
+        <navtitle>FLYSMART WITH AIRBUS (SUR IPAD)</navtitle>
+        <critdates>
+          <created date="2025-06-23"/>
+          <revised modified="2025-06-23"/>
+        </critdates>
+        <metadata/>
+        <othermeta name="tocIndex" content="4.2"/>
+        <othermeta name="foldout" content="false"/>
+        <othermeta name="tdm" content="false"/>
+      </topicmeta>
+      <topicref href="topics/topic_0538e3302dbf.dita" locktitle="yes">
+        <topicmeta>
+          <navtitle>Administration du contenu et des accès :</navtitle>
+          <critdates>
+            <created date="2025-06-23"/>
+            <revised modified="2025-06-23"/>
+          </critdates>
+          <metadata/>
+          <othermeta name="tocIndex" content="4.2.1"/>
+          <othermeta name="foldout" content="false"/>
+          <othermeta name="tdm" content="false"/>
+        </topicmeta>
+      </topicref>
+      <topicref href="topics/topic_536e503c18db.dita" locktitle="yes">
+        <topicmeta>
+          <navtitle>Création des loads Documentation OLB</navtitle>
+          <critdates>
+            <created date="2025-06-23"/>
+            <revised modified="2025-06-23"/>
+          </critdates>
+          <metadata/>
+          <othermeta name="tocIndex" content="4.2.2"/>
+          <othermeta name="foldout" content="false"/>
+          <othermeta name="tdm" content="false"/>
+        </topicmeta>
+      </topicref>
+      <topicref href="topics/topic_50d1d25e6610.dita" locktitle="yes">
+        <topicmeta>
+          <navtitle>Création des loads Performance</navtitle>
+          <critdates>
+            <created date="2025-06-23"/>
+            <revised modified="2025-06-23"/>
+          </critdates>
+          <metadata/>
+          <othermeta name="tocIndex" content="4.2.3"/>
+          <othermeta name="foldout" content="false"/>
+          <othermeta name="tdm" content="false"/>
+        </topicmeta>
+      </topicref>
+    </topicref>
+    <topicref href="topics/topic_a64deceb3267.dita" locktitle="yes">
+      <topicmeta>
+        <navtitle>LIDO mPilot</navtitle>
+        <critdates>
+          <created date="2025-06-23"/>
+          <revised modified="2025-06-23"/>
+        </critdates>
+        <metadata/>
+        <othermeta name="tocIndex" content="4.3"/>
+        <othermeta name="foldout" content="false"/>
+        <othermeta name="tdm" content="false"/>
+      </topicmeta>
+      <topicref href="topics/topic_9dffa7e6fa04.dita" locktitle="yes">
+        <topicmeta>
+          <navtitle>Première installation :</navtitle>
+          <critdates>
+            <created date="2025-06-23"/>
+            <revised modified="2025-06-23"/>
+          </critdates>
+          <metadata/>
+          <othermeta name="tocIndex" content="4.3.1"/>
+          <othermeta name="foldout" content="false"/>
+          <othermeta name="tdm" content="false"/>
+        </topicmeta>
+      </topicref>
+      <topicref href="topics/topic_887d455e3f27.dita" locktitle="yes">
+        <topicmeta>
+          <navtitle>Administration du contenu et des accès :</navtitle>
+          <critdates>
+            <created date="2025-06-23"/>
+            <revised modified="2025-06-23"/>
+          </critdates>
+          <metadata/>
+          <othermeta name="tocIndex" content="4.3.2"/>
+          <othermeta name="foldout" content="false"/>
+          <othermeta name="tdm" content="false"/>
+        </topicmeta>
+      </topicref>
+      <topicref href="topics/topic_bba364b471d3.dita" locktitle="yes">
+        <topicmeta>
+          <navtitle>Fonctionnalités approuvées :</navtitle>
+          <critdates>
+            <created date="2025-06-23"/>
+            <revised modified="2025-06-23"/>
+          </critdates>
+          <metadata/>
+          <othermeta name="tocIndex" content="4.3.3"/>
+          <othermeta name="foldout" content="false"/>
+          <othermeta name="tdm" content="false"/>
+        </topicmeta>
+      </topicref>
+      <topicref href="topics/topic_49abb61e6abb.dita" locktitle="yes">
+        <topicmeta>
+          <navtitle>Création de contenus spécifiques Corsair (CCI, Layers,…)</navtitle>
+          <critdates>
+            <created date="2025-06-23"/>
+            <revised modified="2025-06-23"/>
+          </critdates>
+          <metadata/>
+          <othermeta name="tocIndex" content="4.3.4"/>
+          <othermeta name="foldout" content="false"/>
+          <othermeta name="tdm" content="false"/>
+        </topicmeta>
+      </topicref>
+    </topicref>
+    <topicref href="topics/topic_ca8820ad0796.dita" locktitle="yes">
+      <topicmeta>
+        <navtitle>Mission +</navtitle>
+        <critdates>
+          <created date="2025-06-23"/>
+          <revised modified="2025-06-23"/>
+        </critdates>
+        <metadata/>
+        <othermeta name="tocIndex" content="4.4"/>
+        <othermeta name="foldout" content="false"/>
+        <othermeta name="tdm" content="false"/>
+      </topicmeta>
+      <topicref href="topics/topic_ac7a01224227.dita" locktitle="yes">
+        <topicmeta>
+          <navtitle>Première installation :</navtitle>
+          <critdates>
+            <created date="2025-06-23"/>
+            <revised modified="2025-06-23"/>
+          </critdates>
+          <metadata/>
+          <othermeta name="tocIndex" content="4.4.1"/>
+          <othermeta name="foldout" content="false"/>
+          <othermeta name="tdm" content="false"/>
+        </topicmeta>
+      </topicref>
+      <topicref href="topics/topic_bc89542c6e38.dita" locktitle="yes">
+        <topicmeta>
+          <navtitle>Procédure après mise à jour :</navtitle>
+          <critdates>
+            <created date="2025-06-23"/>
+            <revised modified="2025-06-23"/>
+          </critdates>
+          <metadata/>
+          <othermeta name="tocIndex" content="4.4.2"/>
+          <othermeta name="foldout" content="false"/>
+          <othermeta name="tdm" content="false"/>
+        </topicmeta>
+      </topicref>
+      <topicref href="topics/topic_1b30c28da1b3.dita" locktitle="yes">
+        <topicmeta>
+          <navtitle>Versions des customisations :</navtitle>
+          <critdates>
+            <created date="2025-06-23"/>
+            <revised modified="2025-06-23"/>
+          </critdates>
+          <metadata/>
+          <othermeta name="tocIndex" content="4.4.3"/>
+          <othermeta name="foldout" content="false"/>
+          <othermeta name="tdm" content="false"/>
+        </topicmeta>
+      </topicref>
+      <topicref href="topics/topic_02c2e7d2b801.dita" locktitle="yes">
+        <topicmeta>
+          <navtitle>Procédure en cas d’erreur, de bug ou d’améliorations :</navtitle>
+          <critdates>
+            <created date="2025-06-23"/>
+            <revised modified="2025-06-23"/>
+          </critdates>
+          <metadata/>
+          <othermeta name="tocIndex" content="4.4.4"/>
+          <othermeta name="foldout" content="false"/>
+          <othermeta name="tdm" content="false"/>
+        </topicmeta>
+      </topicref>
+    </topicref>
+    <topicref href="topics/topic_cb80e8336bc4.dita" locktitle="yes">
+      <topicmeta>
+        <navtitle>GOODREADER</navtitle>
+        <critdates>
+          <created date="2025-06-23"/>
+          <revised modified="2025-06-23"/>
+        </critdates>
+        <metadata/>
+        <othermeta name="tocIndex" content="4.5"/>
+        <othermeta name="foldout" content="false"/>
+        <othermeta name="tdm" content="false"/>
+      </topicmeta>
+    </topicref>
+    <topicref href="topics/topic_5463f3efc1f1.dita" locktitle="yes">
+      <topicmeta>
+        <navtitle>eWAS</navtitle>
+        <critdates>
+          <created date="2025-06-23"/>
+          <revised modified="2025-06-23"/>
+        </critdates>
+        <metadata/>
+        <othermeta name="tocIndex" content="4.6"/>
+        <othermeta name="foldout" content="false"/>
+        <othermeta name="tdm" content="false"/>
+      </topicmeta>
+    </topicref>
+  </topichead>
+  <topichead>
+    <topicmeta>
+      <navtitle>SUIVI HARDWARE EFB</navtitle>
+      <critdates>
+        <created date="2025-06-23"/>
+        <revised modified="2025-06-23"/>
+      </critdates>
+      <metadata/>
+      <othermeta name="tocIndex" content="5"/>
+    </topicmeta>
+    <topicref href="topics/topic_c9478e044362.dita" locktitle="yes">
+      <topicmeta>
+        <navtitle>DÉTECTION &amp; ALERTE DE PANNE</navtitle>
+        <critdates>
+          <created date="2025-06-23"/>
+          <revised modified="2025-06-23"/>
+        </critdates>
+        <metadata/>
+        <othermeta name="tocIndex" content="5.1"/>
+        <othermeta name="foldout" content="false"/>
+        <othermeta name="tdm" content="false"/>
+      </topicmeta>
+    </topicref>
+    <topicref href="topics/topic_552f94efea94.dita" locktitle="yes">
+      <topicmeta>
+        <navtitle>TRAITEMENT DE LA PANNE</navtitle>
+        <critdates>
+          <created date="2025-06-23"/>
+          <revised modified="2025-06-23"/>
+        </critdates>
+        <metadata/>
+        <othermeta name="tocIndex" content="5.2"/>
+        <othermeta name="foldout" content="false"/>
+        <othermeta name="tdm" content="false"/>
+      </topicmeta>
+      <topicref href="topics/topic_21bb2ad8f5d8.dita" locktitle="yes">
+        <topicmeta>
+          <navtitle>Panne software</navtitle>
+          <critdates>
+            <created date="2025-06-23"/>
+            <revised modified="2025-06-23"/>
+          </critdates>
+          <metadata/>
+          <othermeta name="tocIndex" content="5.2.1"/>
+          <othermeta name="foldout" content="false"/>
+          <othermeta name="tdm" content="false"/>
+        </topicmeta>
+      </topicref>
+      <topicref href="topics/topic_69a5b28c439b.dita" locktitle="yes">
+        <topicmeta>
+          <navtitle>Pannes hardware (iPad avion ou support de fixation)</navtitle>
+          <critdates>
+            <created date="2025-06-23"/>
+            <revised modified="2025-06-23"/>
+          </critdates>
+          <metadata/>
+          <othermeta name="tocIndex" content="5.2.2"/>
+          <othermeta name="foldout" content="false"/>
+          <othermeta name="tdm" content="false"/>
+        </topicmeta>
+      </topicref>
+      <topicref href="topics/topic_d69fa6443e32.dita" locktitle="yes">
+        <topicmeta>
+          <navtitle>Alimentation électrique HS</navtitle>
+          <critdates>
+            <created date="2025-06-23"/>
+            <revised modified="2025-06-23"/>
+          </critdates>
+          <metadata/>
+          <othermeta name="tocIndex" content="5.2.3"/>
+          <othermeta name="foldout" content="false"/>
+          <othermeta name="tdm" content="false"/>
+        </topicmeta>
+      </topicref>
+    </topicref>
+    <topicref href="topics/topic_cd99f3f295a5.dita" locktitle="yes">
+      <topicmeta>
+        <navtitle>NETTOYAGE ET ENTRETIEN DES EFB</navtitle>
+        <critdates>
+          <created date="2025-06-23"/>
+          <revised modified="2025-06-23"/>
+        </critdates>
+        <metadata/>
+        <othermeta name="tocIndex" content="5.3"/>
+        <othermeta name="foldout" content="false"/>
+        <othermeta name="tdm" content="false"/>
+      </topicmeta>
+    </topicref>
+    <topicref href="topics/topic_81b54f1eb469.dita" locktitle="yes">
+      <topicmeta>
+        <navtitle>PROBLÈME HARDWARE</navtitle>
+        <critdates>
+          <created date="2025-06-23"/>
+          <revised modified="2025-06-23"/>
+        </critdates>
+        <metadata/>
+        <othermeta name="tocIndex" content="5.4"/>
+        <othermeta name="foldout" content="false"/>
+        <othermeta name="tdm" content="false"/>
+      </topicmeta>
+    </topicref>
+    <topicref href="topics/topic_d11b0f2b7494.dita" locktitle="yes">
+      <topicmeta>
+        <navtitle>PROBLEME SOFTWARE</navtitle>
+        <critdates>
+          <created date="2025-06-23"/>
+          <revised modified="2025-06-23"/>
+        </critdates>
+        <metadata/>
+        <othermeta name="tocIndex" content="5.5"/>
+        <othermeta name="foldout" content="false"/>
+        <othermeta name="tdm" content="false"/>
+      </topicmeta>
+    </topicref>
+  </topichead>
+  <topichead>
+    <topicmeta>
+      <navtitle>ANN.1. FICHE DE SUIVI MISE A JOUR EFB</navtitle>
+      <critdates>
+        <created date="2025-06-23"/>
+        <revised modified="2025-06-23"/>
+      </critdates>
+      <metadata/>
+      <othermeta name="tocIndex" content="6"/>
+    </topicmeta>
+  </topichead>
+  <topichead>
+    <topicmeta>
+      <navtitle>ANN.2. CATALOGUE CORSAIR</navtitle>
+      <critdates>
+        <created date="2025-06-23"/>
+        <revised modified="2025-06-23"/>
+      </critdates>
+      <metadata/>
+      <othermeta name="tocIndex" content="7"/>
+    </topicmeta>
+  </topichead>
+</map>

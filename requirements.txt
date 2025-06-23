@@ -10,7 +10,4 @@ python-docx
 Pillow
 
 # Pour le thème visuel moderne de l'interface
-sv-ttk
-
-# Pour la manipulation des fichiers docx
-docx2python 
+sv-ttk 

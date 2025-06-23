@@ -18,7 +18,6 @@ if SRC_PATH not in sys.path:
 
 from logger_config import setup_logging
 from main import OrlandoToolkit
-from dtd_package import dtd_package_path
 
 def main():
     """
@@ -47,10 +46,7 @@ def main():
     except ImportError:
         print("Avertissement : Le thème 'sv-ttk' n'est pas installé.")
 
-    # Définir le chemin vers le package DTD
-    dtd_package_path = os.path.join(SRC_PATH, 'dtd_package')
-    
-    app = OrlandoToolkit(root, dtd_path=dtd_package_path)
+    app = OrlandoToolkit(root)
     
     root.mainloop()
 
