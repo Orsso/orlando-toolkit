@@ -1,105 +1,143 @@
-#  ![output-onlinepngtools](https://github.com/user-attachments/assets/15f610f5-52c0-43c3-93fc-37ae5be11d13) Orlando Toolkit 
+# Orlando Toolkit
+
+![Orlando Toolkit](https://github.com/user-attachments/assets/15f610f5-52c0-43c3-93fc-37ae5be11d13)
 
 **Convert Word documents to DITA archives for Orlando**
 
-This tool converts Microsoft Word (.docx) files into DITA archives that work with Orlando specifications.
+---
 
-## What does it do?
+## Overview
 
-Orlando Toolkit takes your Word documents and converts them to DITA format (Darwin Information Typing Architecture). It preserves your text, images, and tables while making sure everything follows Orlando's technical requirements.
+Orlando Toolkit converts Microsoft Word (.docx) files into DITA archives that comply with Orlando specifications. It preserves your text, images, and tables while ensuring everything follows Orlando's technical requirements.
 
-## Features
+### Key Features
 
-- Converts DOCX content (text, formatting, images, tables, lists)
-- Follows Orlando DITA conventions
-- Handles images automatically
-- Simple GUI for configuration
+- **DOCX to DITA conversion** - Text, formatting, images, tables, and lists
+- **Orlando compliance** - Follows Orlando-specific DITA conventions  
+- **Automatic image handling** - Extracts and processes images correctly
+- **User-friendly interface** - Simple GUI for metadata configuration
 
-## Recent Fix: Image Layout
+### Recent Improvements
 
-Fixed issues where images appeared in wrong places:
-- Images are now separated from text properly
-- Content order is preserved
-- XML structure follows Orlando standards
+✅ **Fixed image layout issues** - Images now appear in correct positions  
+✅ **Preserved content order** - Logical flow maintained during conversion  
+✅ **Orlando-compliant XML** - Generated structure follows standards  
 
-## Installation
+---
 
-### Download Ready-to-Use Version
+## Quick Start
 
-**Don't want to install Python?** Download the latest pre-built executable from the [Releases page](https://github.com/Orsso/Orlando-Toolkit/releases).
+### Option 1: Download Pre-built Version (Recommended)
 
-The `.exe` file works on Windows 10/11 without any installation.
+**No Python installation required**
 
-### Requirements
-- Python 3.8+
-- Windows, macOS, or Linux
+1. Go to [Releases](https://github.com/Orsso/orlando-toolkit/releases)
+2. Download the latest `.exe` file
+3. Run directly on Windows 10/11
 
-### Setup
+### Option 2: Install from Source
 
-1. **Get the code**
-   ```bash
-   git clone https://github.com/Orsso/Orlando-Toolkit
-   cd orlando-dita-packager
-   ```
+**For developers or customization**
 
-2. **Create virtual environment**
-   ```bash
-   python -m venv venv
-   ```
+#### Installation Steps
 
-3. **Activate it**
-   - Linux/macOS: `source venv/bin/activate`
-   - Windows: `venv\Scripts\activate`
+**Requirements:** Python 3.8+, Windows/macOS/Linux
 
-4. **Install packages**
-   ```bash
-   pip install -r requirements.txt
-   ```
+```bash
+# 1. Clone repository
+git clone https://github.com/Orsso/orlando-toolkit
+cd orlando-dita-packager
+
+# 2. Create virtual environment
+python -m venv venv
+
+# 3. Activate environment
+source venv/bin/activate    # Linux/macOS
+# venv\Scripts\activate     # Windows
+
+# 4. Install dependencies
+pip install -r requirements.txt
+```
+
+---
 
 ## Usage
 
+### Starting the Application
+
 ```bash
+# Activate environment (if using source install)
 source venv/bin/activate  # Linux/macOS only
+
+# Run application
 python run.py
-``` 
+```
 
-1. Select your DOCX file
-2. Fill in metadata (title, manual code, dates)
-3. Set image settings (prefix, naming)
-4. Generate archive
+### Conversion Process
 
-The tool creates a ZIP file with everything Orlando needs.
+1. **📁 Select DOCX file** - Choose your Word document
+2. **📝 Configure metadata** - Title, manual code, dates
+3. **🖼️ Set image options** - Prefix and naming conventions
+4. **⚡ Generate archive** - Creates ZIP with all Orlando files
 
-## Building Your Own Executable
+**Output**: Complete DITA archive ready for Orlando import
 
-If you want to build the executable yourself (requires Python):
+---
+
+## Advanced Usage
+
+### Building Executable
+
+Create an exe from source code.
 
 ```cmd
 build.bat
 ```
 
-Find `OrlandoToolkit.exe` in the `release/` folder.
+Output: `release/OrlandoToolkit.exe`
 
-## For Developers
+### Project Structure
 
-### Archive Structure
-- `DATA/topics/` - DITA topic files
-- `DATA/media/` - Images and media
-- `DATA/dtd/` - Document type definitions
+```
+orlando-dita-packager/
+├── src/
+│   ├── docx_to_dita_converter.py  # Main conversion engine
+│   ├── docx_parser.py             # DOCX content extraction
+│   ├── main.py                    # Application entry point
+│   └── ui/                        # GUI components
+├── logs/                          # Conversion logs
+└── release/                       # Built executables
+```
 
-### Key Files
-- `docx_to_dita_converter.py` - Main conversion logic
-- `docx_parser.py` - Extracts content from DOCX
-- `main.py` - Application entry point
-- `ui/` - GUI components
+### Orlando DITA Specifications
 
-### Technical Details
-- Auto-generates unique XML IDs
-- Uses `outputclass` attributes for styling
+| Component | Purpose |
+|-----------|---------|
+| `DATA/topics/` | DITA topic files |
+| `DATA/media/` | Images and media assets |
+| `DATA/dtd/` | Document type definitions |
+
+**Technical Features:**
+- Auto-generated unique XML IDs
+- `outputclass` attribute styling
 - Cell-level table formatting
 - Dedicated image paragraphs
 
-## Troubleshooting
+---
 
-Check `logs/` folder for detailed conversion information if something goes wrong.
+## Support
+
+### Troubleshooting
+
+**Conversion issues?** Check the `logs/` folder for detailed diagnostic information.
+
+**Common solutions:**
+- Ensure DOCX file is not corrupted
+- Verify all required metadata is provided
+- Check image file formats are supported
+
+
+---
+
+*Orlando Toolkit - Streamlining DITA conversion workflows*
 
