@@ -26,11 +26,12 @@ This version addresses critical image placement issues:
 
 ### Setup
     ```bash
-git clone [repository-url]
+git clone httpd://github.com/Orsso/Orlando-Toolkit
 cd orlando-dita-packager
     python -m venv venv
 source venv/bin/activate  # Linux/macOS: venv\Scripts\activate on Windows
     pip install -r requirements.txt
+    
     ```
 
 ## Usage
