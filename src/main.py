@@ -315,7 +315,7 @@ class OrlandoToolkit:
 if __name__ == '__main__':
     root = tk.Tk()
     root.title("Boîte à Outils Orlando - Test Direct")
-    root.geometry("1100x800")
+    root.geometry("600x700")
     
     try:
         # Tenter d'importer et d'appliquer le thème sombre

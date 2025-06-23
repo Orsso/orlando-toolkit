@@ -27,7 +27,7 @@ def main():
     
     root = tk.Tk()
     root.title("Orlando Toolkit")
-    root.geometry("1200x800")
+    root.geometry("600x700")
 
     # Application icon configuration
     try:
