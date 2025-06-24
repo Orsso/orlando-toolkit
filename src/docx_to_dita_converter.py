@@ -114,6 +114,91 @@ def generate_dita_id():
     """Génère un ID unique pour les éléments DITA."""
     return f"id-{uuid.uuid4()}"
 
+def convert_color_to_outputclass(color_value):
+    """
+    Convertit une couleur (hex, theme, etc.) en classe outputclass Orlando.
+    Ne retourne que les couleurs supportées par Orlando : color-red et color-green pour l'instant.
+    """
+    if not color_value:
+        return None
+    
+    # Mapping STRICT des couleurs vers les classes Orlando confirmées
+    color_mappings = {
+        # Rouge - différentes nuances (Word utilise souvent des nuances spécifiques)
+        '#ff0000': 'color-red',  # Rouge pur
+        '#dc143c': 'color-red',  # Crimson
+        '#b22222': 'color-red',  # FireBrick
+        '#8b0000': 'color-red',  # DarkRed
+        '#ff4500': 'color-red',  # OrangeRed
+        '#cd5c5c': 'color-red',  # IndianRed
+        '#c0504d': 'color-red',  # Rouge de thème Word fréquent
+        '#da0000': 'color-red',  # Rouge vif utilisé par Word
+        '#ff1d1d': 'color-red',  # Rouge clair de Word
+        '#8b0000': 'color-red',  # Rouge sombre
+        '#a60000': 'color-red',  # Rouge moyen
+        '#cc0000': 'color-red',  # Rouge standard
+        '#800000': 'color-red',  # Maroon
+        '#e74c3c': 'color-red',  # Rouge moderne
+        '#ee0000': 'color-red',  # Rouge détecté dans vos logs
+        
+        # Vert - différentes nuances (Word utilise souvent des nuances spécifiques)
+        '#008000': 'color-green',  # Vert standard
+        '#00ff00': 'color-green',  # Lime
+        '#32cd32': 'color-green',  # LimeGreen
+        '#228b22': 'color-green',  # ForestGreen
+        '#006400': 'color-green',  # DarkGreen
+        '#adff2f': 'color-green',  # GreenYellow
+        '#9acd32': 'color-green',  # YellowGreen
+        '#00b050': 'color-green',  # Vert de thème Word fréquent
+        '#00a300': 'color-green',  # Vert vif utilisé par Word
+        '#1d7d1d': 'color-green',  # Vert sombre de Word
+        '#2e8b57': 'color-green',  # SeaGreen
+        '#27ae60': 'color-green',  # Vert moderne
+    }
+    
+    # Convertir en minuscules pour la comparaison
+    color_lower = color_value.lower()
+    
+    # Vérifier les couleurs hex exactes
+    if color_lower in color_mappings:
+        return color_mappings[color_lower]
+    
+    # Pour les couleurs de thème, mapper vers rouge/vert si possible
+    if color_value.startswith('theme-'):
+        theme_name = color_value[6:]  # Enlever "theme-"
+        # Mapping conservateur : seulement les thèmes qu'on peut mapper vers rouge/vert
+        theme_mappings = {
+            'accent_1': 'color-red',    # Souvent rouge dans les thèmes
+            'accent_6': 'color-green',  # Souvent vert dans les thèmes
+        }
+        return theme_mappings.get(theme_name, None)  # Retourne None si pas supporté
+    
+    # Pour les couleurs inconnues, essayer de déduire rouge ou vert
+    if color_lower.startswith('#'):
+        try:
+            r = int(color_lower[1:3], 16)
+            g = int(color_lower[3:5], 16) 
+            b = int(color_lower[5:7], 16)
+            
+            # Critères plus souples pour détecter rouge ou vert
+            # Rouge : composant rouge dominant (critères assouplis)
+            if r > g and r > b and r > 100:  # Rouge dominant et suffisamment intense
+                # Vérifier que c'est bien du rouge et pas de l'orange/jaune
+                if r > g + 20 or g < 150:  # Éviter les oranges/jaunes
+                    return 'color-red'
+            
+            # Vert : composant vert dominant (critères assouplis)
+            if g > r and g > b and g > 100:  # Vert dominant et suffisamment intense
+                # Vérifier que c'est bien du vert et pas du cyan/jaune
+                if g > r + 20 or r < 150:  # Éviter les cyans/jaunes
+                    return 'color-green'
+                    
+        except ValueError:
+            pass
+    
+    # Si on ne peut pas mapper vers rouge/vert, ne pas appliquer de couleur
+    return None
+
 # --- Fonctions de Création DITA ---
 
 def create_dita_table(table: Table, image_map: Dict[str, str]) -> ET.Element:
@@ -151,17 +236,28 @@ def create_dita_table(table: Table, image_map: Dict[str, str]) -> ET.Element:
                 p_element = ET.SubElement(entry, 'p', id=generate_dita_id())
                 process_paragraph_content_and_images(p_element, block, image_map, None)
 
-    # Les autres lignes vont dans le <tbody>
-    tbody = ET.SubElement(tgroup, 'tbody', id=generate_dita_id())
-    for row in table.rows[1:]: # On commence à la deuxième ligne
+    # Les autres lignes vont dans le <tbody> 
+    # IMPORTANT : En DITA, si on a un <thead>, on DOIT avoir un <tbody> avec au moins une row
+    data_rows = table.rows[1:]  # On commence à la deuxième ligne
+    if data_rows:  # Ne créer le tbody que s'il y a réellement des lignes de données
+        tbody = ET.SubElement(tgroup, 'tbody', id=generate_dita_id())
+        for row in data_rows:
+            row_element = ET.SubElement(tbody, 'row', id=generate_dita_id())
+            for cell in row.cells:
+                entry = ET.SubElement(row_element, 'entry', id=generate_dita_id(), colsep='1', rowsep='1')
+                # Traiter le contenu de la cellule
+                for block in iter_block_items(cell):
+                    if isinstance(block, Paragraph):
+                        p_element = ET.SubElement(entry, 'p', id=generate_dita_id())
+                        process_paragraph_content_and_images(p_element, block, image_map, None)
+    else:
+        # Si pas de lignes de données, créer un tbody avec une ligne vide pour respecter DITA
+        tbody = ET.SubElement(tgroup, 'tbody', id=generate_dita_id())
         row_element = ET.SubElement(tbody, 'row', id=generate_dita_id())
-        for cell in row.cells:
+        for i in range(len(table.columns)):
             entry = ET.SubElement(row_element, 'entry', id=generate_dita_id(), colsep='1', rowsep='1')
-            # Traiter le contenu de la cellule
-            for block in iter_block_items(cell):
-                if isinstance(block, Paragraph):
-                    p_element = ET.SubElement(entry, 'p', id=generate_dita_id())
-                    process_paragraph_content_and_images(p_element, block, image_map, None)
+            p_element = ET.SubElement(entry, 'p', id=generate_dita_id())
+            p_element.text = ""  # Cellule vide
     return dita_table
 
 def create_dita_concept(title, topic_id, revision_date):
@@ -239,15 +335,140 @@ def process_paragraph_content_and_images(p_element, paragraph, image_map, conbod
 
 def process_paragraph_runs(p_element, paragraph, image_map, exclude_images=False):
     """
-    Reconstruit le contenu d'un paragraphe (texte, formatage, images) en préservant l'ordre.
+    Reconstruit le contenu d'un paragraphe (texte, formatage, images, hyperliens) en préservant l'ordre.
     Si exclude_images=True, ignore les images (utilisé pour séparer texte et images).
+    Gère maintenant les formatages multiples, les hyperliens et consolide les runs adjacents identiques.
     """
     last_element = None
+    
+    # Utiliser iter_inner_content() pour gérer les hyperliens
+    try:
+        content_items = list(paragraph.iter_inner_content())
+    except AttributeError:
+        # Fallback pour les versions plus anciennes de python-docx
+        content_items = paragraph.runs
+    
+    # Traiter chaque élément dans l'ordre séquentiel
+    # Grouper les runs adjacents pour éviter la fragmentation
+    current_group = []
+    current_formatting = None
 
-    for run in paragraph.runs:
+    def process_current_group():
+        """Traite et ajoute le groupe de runs en cours"""
+        nonlocal last_element, current_group, current_formatting
+        
+        if not current_group:
+            return
+            
+        consolidated_text = ''.join(current_group)
+        
+        # Extraire le formatage et la couleur
+        formatting_tuple = current_formatting[0] if current_formatting else ()
+        run_color = current_formatting[1] if current_formatting and len(current_formatting) > 1 else None
+        
+        if formatting_tuple or run_color:
+            # Créer l'imbrication des formatages
+            # Si on a une couleur, on commence par un <ph> avec style
+            target_element = None
+            innermost_element = None
+            
+            # Si on a une couleur, créer un élément <ph> au niveau le plus haut
+            if run_color:
+                target_element = ET.Element('ph', id=generate_dita_id())
+                target_element.set('class', '- topic/ph ')
+                # Utiliser outputclass au lieu de style pour Orlando
+                color_class = convert_color_to_outputclass(run_color)
+                if color_class:
+                    target_element.set('outputclass', color_class)
+                innermost_element = target_element
+            
+            # Créer l'imbrication des formatages à l'intérieur du <ph> (ordre : bold > italic > underline)
+            if 'bold' in formatting_tuple:
+                bold_element = ET.Element('b', id=generate_dita_id())
+                bold_element.set('class', '+ topic/ph hi-d/b ')
+                if innermost_element is not None:
+                    innermost_element.append(bold_element)
+                    innermost_element = bold_element
+                else:
+                    target_element = bold_element
+                    innermost_element = bold_element
+            
+            if 'italic' in formatting_tuple:
+                italic_element = ET.Element('i', id=generate_dita_id())
+                italic_element.set('class', '+ topic/ph hi-d/i ')
+                if innermost_element is not None:
+                    innermost_element.append(italic_element)
+                    innermost_element = italic_element
+                else:
+                    target_element = italic_element
+                    innermost_element = italic_element
+            
+            if 'underline' in formatting_tuple:
+                underline_element = ET.Element('u', id=generate_dita_id())
+                underline_element.set('class', '+ topic/ph hi-d/u ')
+                if innermost_element is not None:
+                    innermost_element.append(underline_element)
+                    innermost_element = underline_element
+                else:
+                    target_element = underline_element
+                    innermost_element = underline_element
+            
+            # Ajouter le texte à l'élément le plus profond
+            if innermost_element is not None:
+                innermost_element.text = consolidated_text
+                p_element.append(target_element)
+                last_element = target_element
+        else:
+            # Texte sans formatage
+            if last_element is not None:
+                last_element.tail = (last_element.tail or '') + consolidated_text
+            else:
+                p_element.text = (p_element.text or '') + consolidated_text
+        
+        # Réinitialiser le groupe
+        current_group = []
+        current_formatting = None
+
+    for item in content_items:
+        # Gérer les hyperliens
+        if hasattr(item, 'address'):  # C'est un hyperlink
+            # Finaliser le groupe en cours avant l'hyperlien
+            process_current_group()
+            
+            # Créer l'élément xref pour l'hyperlien
+            if item.address or item.url:  # Liens externes ou avec URL
+                xref_element = ET.Element('xref', id=generate_dita_id())
+                xref_element.set('class', '- topic/xref ')
+                xref_element.set('format', 'html')
+                xref_element.set('scope', 'external')
+                xref_element.set('href', item.url or item.address)
+                xref_element.text = item.text
+                
+                # Ajouter l'hyperlien à la bonne position
+                if last_element is not None:
+                    # Utiliser l'attribut tail pour placer l'hyperlien après l'élément précédent
+                    # Mais comme c'est un élément, on doit l'insérer dans le parent
+                    p_element.append(xref_element)
+                else:
+                    p_element.append(xref_element)
+                last_element = xref_element
+            else:
+                # Lien interne (fragment seulement), traiter comme du texte normal
+                if last_element is not None:
+                    last_element.tail = (last_element.tail or '') + item.text
+                else:
+                    p_element.text = (p_element.text or '') + item.text
+            continue
+        
+        # Si ce n'est pas un hyperlien, c'est un run normal
+        run = item
         # --- Gestion des images ---
         r_ids = run.element.xpath(".//@r:embed")
         if r_ids:
+            # Finaliser le groupe en cours avant l'image
+            process_current_group()
+            
+            # Ajouter l'image comme élément isolé
             if not exclude_images and r_ids[0] in image_map:
                 img_filename = os.path.basename(image_map[r_ids[0]])
                 image_element = ET.Element('image', href=f'../media/{img_filename}', id=generate_dita_id())
@@ -260,26 +481,100 @@ def process_paragraph_runs(p_element, paragraph, image_map, exclude_images=False
         if not run_text:
             continue
 
-        # Gérer le formatage simple. Une gestion plus complexe
-        # (imbrication, couleurs) nécessiterait une arborescence plus détaillée.
-        target_element = None
+        # Identifier tous les formatages du run
+        run_formatting = []
         if run.bold:
-            target_element = ET.Element('b', id=generate_dita_id())
-        elif run.italic:
-            target_element = ET.Element('i', id=generate_dita_id())
-        elif run.underline:
-            target_element = ET.Element('u', id=generate_dita_id())
-
-        if target_element is not None:
-            target_element.text = run_text
-            p_element.append(target_element)
-            last_element = target_element
+            run_formatting.append('bold')
+        if run.italic:
+            run_formatting.append('italic')  
+        if run.underline:
+            run_formatting.append('underline')
+            
+        # Gestion des couleurs de texte
+        run_color = None
+        try:
+            if run.font.color.type is not None:
+                if run.font.color.type == 1:  # MSO_COLOR_TYPE.RGB
+                    rgb = run.font.color.rgb
+                    if rgb is not None:
+                        # Méthode d'extraction robuste pour RGBColor
+                        try:
+                            # Méthode 1: Utiliser l'API interne de l'objet RGBColor
+                            if hasattr(rgb, '_color_val'):
+                                color_val = rgb._color_val
+                                if color_val is not None:
+                                    r = (color_val >> 16) & 0xFF
+                                    g = (color_val >> 8) & 0xFF
+                                    b = color_val & 0xFF
+                                    run_color = f"#{r:02x}{g:02x}{b:02x}"
+                        except Exception:
+                            pass
+                        
+                        # Méthode 2: Parsing de la représentation string
+                        if run_color is None:
+                            try:
+                                rgb_str = str(rgb)
+                                
+                                # Cas 1: Format RGBColor(0x.., 0x.., 0x..)
+                                hex_match = re.search(r'RGBColor\(0x([0-9a-fA-F]+),\s*0x([0-9a-fA-F]+),\s*0x([0-9a-fA-F]+)\)', rgb_str)
+                                if hex_match:
+                                    r, g, b = [int(val, 16) for val in hex_match.groups()]
+                                    run_color = f"#{r:02x}{g:02x}{b:02x}"
+                                else:
+                                    # Cas 2: Format direct comme "EE0000" (6 caractères hex)
+                                    if re.match(r'^[0-9a-fA-F]{6}$', rgb_str):
+                                        run_color = f"#{rgb_str.lower()}"
+                                    # Cas 3: Format avec préfixe comme "0xEE0000"
+                                    elif rgb_str.startswith('0x') and len(rgb_str) == 8:
+                                        run_color = f"#{rgb_str[2:].lower()}"
+                                        
+                            except Exception:
+                                pass
+                        
+                        # Méthode 3: Essayer d'accéder directement aux propriétés
+                        if run_color is None:
+                            try:
+                                for attr_set in [('red', 'green', 'blue'), ('r', 'g', 'b')]:
+                                    if all(hasattr(rgb, attr) for attr in attr_set):
+                                        r = getattr(rgb, attr_set[0])
+                                        g = getattr(rgb, attr_set[1])
+                                        b = getattr(rgb, attr_set[2])
+                                        run_color = f"#{r:02x}{g:02x}{b:02x}"
+                                        break
+                            except Exception:
+                                pass
+                                
+                elif run.font.color.type == 2:  # MSO_COLOR_TYPE.THEME
+                    # Pour les couleurs de thème
+                    theme_color = getattr(run.font.color, 'theme_color', None)
+                    if theme_color is not None:
+                        # Nettoyer la valeur theme_color qui peut contenir des parenthèses et espaces
+                        theme_str = str(theme_color)
+                        # Extraire juste le nom de la couleur avant les parenthèses
+                        theme_name = theme_str.split(' ')[0] if ' ' in theme_str else theme_str
+                        # Convertir en minuscules pour la classe CSS
+                        run_color = f"theme-{theme_name.lower()}"
+                        
+        except Exception:
+            # Ne pas faire crasher la conversion en cas d'erreur de couleur
+            pass
+        
+        # Convertir en tuple pour pouvoir comparer (inclure la couleur)
+        run_formatting_tuple = (tuple(run_formatting), run_color)
+        
+        # Si le formatage ET la couleur sont identiques au groupe en cours, ajouter au groupe
+        if current_formatting == run_formatting_tuple:
+            current_group.append(run_text)
         else:
-            # Si c'est du texte normal
-            if last_element is not None:
-                last_element.tail = (last_element.tail or '') + run_text
-            else:
-                p_element.text = (p_element.text or '') + run_text
+            # Finaliser le groupe précédent s'il existe
+            process_current_group()
+            
+            # Commencer un nouveau groupe
+            current_group = [run_text]
+            current_formatting = run_formatting_tuple
+    
+    # Finaliser le dernier groupe
+    process_current_group()
 
 # --- Fonction Principale (Modifiée) ---
 def convert_docx_to_dita(file_path: str, metadata: Dict[str, Any]) -> DitaContext:
@@ -358,22 +653,9 @@ def convert_docx_to_dita(file_path: str, metadata: Dict[str, Any]) -> DitaContex
                         heading_counters[i] = 0
                     toc_index = ".".join(str(c) for c in heading_counters[:level] if c > 0)
 
-                    # 2. Logique de Ditamap avec <topichead>
+                    # 2. Logique de Ditamap - créer d'abord le topic
                     parent_level = level - 1
                     parent_element = parent_elements.get(parent_level, map_root)
-                    
-                    if level == 1: # Les titres de niveau 1 sont des conteneurs
-                        current_container = ET.SubElement(parent_element, 'topichead')
-                        topicmeta = ET.SubElement(current_container, 'topicmeta')
-                        navtitle = ET.SubElement(topicmeta, 'navtitle')
-                        navtitle.text = text
-                        # Ajout des éléments manquants
-                        critdates = ET.SubElement(topicmeta, 'critdates')
-                        ET.SubElement(critdates, 'created', date=context.metadata.get('revision_date'))
-                        ET.SubElement(critdates, 'revised', modified=context.metadata.get('revision_date'))
-                        ET.SubElement(topicmeta, 'metadata') # Metadata vide
-                        ET.SubElement(topicmeta, 'othermeta', name='tocIndex', content=toc_index)
-                        parent_elements[level] = current_container
                     
                     # 3. Création du fichier de topic dans tous les cas
                     # --- Nomenclature temporaire des topics ---
@@ -387,23 +669,23 @@ def convert_docx_to_dita(file_path: str, metadata: Dict[str, Any]) -> DitaContex
                         context.metadata.get('revision_date', datetime.now().strftime('%Y-%m-%d'))
                     )
                     
-                    if level > 1:
-                        topicref = ET.SubElement(parent_element, 'topicref', {
-                            'href': f'topics/{file_name}',
-                            'locktitle': 'yes'
-                        })
-                        topicmeta_ref = ET.SubElement(topicref, 'topicmeta')
-                        navtitle_ref = ET.SubElement(topicmeta_ref, 'navtitle')
-                        navtitle_ref.text = text
-                        # Ajout des éléments manquants
-                        critdates_ref = ET.SubElement(topicmeta_ref, 'critdates')
-                        ET.SubElement(critdates_ref, 'created', date=context.metadata.get('revision_date'))
-                        ET.SubElement(critdates_ref, 'revised', modified=context.metadata.get('revision_date'))
-                        ET.SubElement(topicmeta_ref, 'metadata') # Metadata vide
-                        ET.SubElement(topicmeta_ref, 'othermeta', name='tocIndex', content=toc_index)
-                        ET.SubElement(topicmeta_ref, 'othermeta', name='foldout', content='false')
-                        ET.SubElement(topicmeta_ref, 'othermeta', name='tdm', content='false')
-                        parent_elements[level] = topicref
+                    # 4. Créer toujours un topicref pour tous les niveaux (y compris niveau 1)
+                    topicref = ET.SubElement(parent_element, 'topicref', {
+                        'href': f'topics/{file_name}',
+                        'locktitle': 'yes'
+                    })
+                    topicmeta_ref = ET.SubElement(topicref, 'topicmeta')
+                    navtitle_ref = ET.SubElement(topicmeta_ref, 'navtitle')
+                    navtitle_ref.text = text
+                    # Ajout des éléments manquants
+                    critdates_ref = ET.SubElement(topicmeta_ref, 'critdates')
+                    ET.SubElement(critdates_ref, 'created', date=context.metadata.get('revision_date'))
+                    ET.SubElement(critdates_ref, 'revised', modified=context.metadata.get('revision_date'))
+                    ET.SubElement(topicmeta_ref, 'metadata') # Metadata vide
+                    ET.SubElement(topicmeta_ref, 'othermeta', name='tocIndex', content=toc_index)
+                    ET.SubElement(topicmeta_ref, 'othermeta', name='foldout', content='false')
+                    ET.SubElement(topicmeta_ref, 'othermeta', name='tdm', content='false')
+                    parent_elements[level] = topicref
                     
                     # 4. Réinitialisation
                     keys_to_delete = [l for l in parent_elements if l > level]
