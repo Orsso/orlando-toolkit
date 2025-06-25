@@ -960,3 +960,9 @@
 2025-06-25 23:50:41,827 - PIL.PngImagePlugin - DEBUG - Compression method 0
 2025-06-25 23:50:41,827 - PIL.PngImagePlugin - DEBUG - STREAM b'eXIf' 3203 56
 2025-06-25 23:50:41,827 - PIL.PngImagePlugin - DEBUG - STREAM b'IDAT' 3271 10251
+2025-06-25 23:50:46,697 - PIL.PngImagePlugin - DEBUG - STREAM b'IHDR' 16 13
+2025-06-25 23:50:46,697 - PIL.PngImagePlugin - DEBUG - STREAM b'sRGB' 41 1
+2025-06-25 23:50:46,698 - PIL.PngImagePlugin - DEBUG - STREAM b'gAMA' 54 4
+2025-06-25 23:50:46,698 - PIL.PngImagePlugin - DEBUG - STREAM b'pHYs' 70 9
+2025-06-25 23:50:46,698 - PIL.PngImagePlugin - DEBUG - STREAM b'IDAT' 91 6184
+2025-06-25 23:50:54,572 - root - INFO - ===== Application terminated =====
