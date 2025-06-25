@@ -46,8 +46,6 @@ python run.py
 # Windows
 build.bat
 
-# Cross-platform
-python build_exe.py
 ```
 
 ---
