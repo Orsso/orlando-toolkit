@@ -22,6 +22,8 @@ from docx.oxml.ns import qn
 from lxml import etree as ET
 from PIL import Image
 
+from src.style_analyzer import build_style_heading_map
+
 logger = logging.getLogger(__name__)
 
 # --- Configuration du Mapping des Styles ---
@@ -52,7 +54,6 @@ def extract_images_to_context(doc, context: DitaContext):
             try:
                 img = Image.open(io.BytesIO(image_data))
                 img_format = img.format.lower() if img.format else 'png'
-                # Le nom de fichier sera finalisé plus tard, on utilise un nom temporaire
                 image_filename = f"image_{image_counter}.{img_format}"
                 context.images[image_filename] = image_data
                 image_map_rid[rel_id] = image_filename
@@ -68,21 +69,35 @@ def slugify(text):
     return text
 
 def iter_block_items(parent):
-    """
-    Génère les objets Paragraph et Table d'un document ou d'une cellule de tableau, dans l'ordre.
-    """
-    if isinstance(parent, _Document):
-        parent_elm = parent.element.body
-    elif isinstance(parent, _Cell):
-        parent_elm = parent._tc
-    else:
-        raise ValueError("Type de parent non supporté")
+    """Yield Paragraph and Table objects in the order they appear, **recursively**.
 
-    for child in parent_elm.iterchildren():
-        if isinstance(child, CT_P):
-            yield Paragraph(child, parent)
-        elif isinstance(child, CT_Tbl):
-            yield Table(child, parent)
+    Word documents like *Easy Access …* wrap sections in content controls
+    (`<w:sdt>`).  These extra XML layers prevent the previous implementation
+    (which only looked at direct children of the body) from seeing the real
+    paragraphs.  We now traverse recursively so that paragraphs and tables
+    nested in any container are discovered.
+    """
+
+    if isinstance(parent, _Document):
+        root_elm = parent.element.body
+        parent_obj = parent  # _Document for Paragraph/Table constructors
+    elif isinstance(parent, _Cell):
+        root_elm = parent._tc
+        parent_obj = parent  # _Cell
+    else:
+        raise ValueError("Unsupported parent type for iter_block_items")
+
+    def _walk(element):
+        for child in element.iterchildren():
+            if isinstance(child, CT_P):
+                yield Paragraph(child, parent_obj)
+            elif isinstance(child, CT_Tbl):
+                yield Table(child, parent_obj)
+            else:
+                # Recurse into unknown containers (e.g., w:sdt, w:txbxContent)
+                yield from _walk(child)
+
+    yield from _walk(root_elm)
 
 def save_xml_file(element, path, doctype_str, pretty=True):
     """
@@ -616,84 +631,86 @@ def convert_docx_to_dita(file_path: str, metadata: Dict[str, Any]) -> DitaContex
         current_list = None # Pour suivre la liste <ol> ou <ul> en cours
         current_sl = None # Pour suivre la liste <sl> d'images en cours
 
+        # Build automatic style->level map from document styles (outline + numbered styles)
+        style_heading_map = build_style_heading_map(doc)
+
+        # Merge with global STYLE_MAP overrides (global constants win in case of conflict)
+        style_heading_map.update(STYLE_MAP)
+
+        # Finally, merge any map coming from metadata (advanced use-case)
+        if 'style_heading_map' in metadata and isinstance(metadata['style_heading_map'], dict):
+            style_heading_map.update(metadata['style_heading_map'])
+
         for block in iter_block_items(doc):
             if isinstance(block, Table):
-                if current_conbody is None: continue
-                current_list = None # Un tableau arrête les listes
+                if current_conbody is None:
+                    continue
+                current_list = None  # A table ends normal/bullet lists
                 current_sl = None
 
-                # La référence montre la table dans un <p>
                 p_for_table = ET.SubElement(current_conbody, 'p', id=generate_dita_id())
                 dita_table = create_dita_table(block, all_images_map_rid)
                 p_for_table.append(dita_table)
 
             elif isinstance(block, Paragraph):
-                style_name = ""
-                if block.style and block.style.name:
-                    style_name = block.style.name
-                
-                is_list_item = block._p.pPr is not None and block._p.pPr.numPr is not None
-                is_heading = style_name.startswith('Heading')
+                heading_level = get_heading_level(block, style_heading_map)
+                is_heading = heading_level is not None
+
+                # A paragraph is considered part of a list only if it is *not* a heading.
+                is_list_item = (not is_heading) and (block._p.pPr is not None and block._p.pPr.numPr is not None)
+
                 text = block.text.strip()
                 is_image_para = any(run.element.xpath(".//@r:embed") for run in block.runs) and not text
 
                 if is_heading and text:
                     current_list = None
                     current_sl = None
-                    level = int(style_name.split(' ')[-1])
+                    level = heading_level
 
                     if current_concept is not None:
-                        # add_unique_ids(current_concept) # On ne veut plus d'ID partout
                         context.topics[old_file_name] = current_concept
 
-                    # --- Toute la logique de titre doit être ICI ---
-                    # 1. Générer le numéro de section pour tocIndex
+                    # Génération du tocIndex
                     heading_counters[level - 1] += 1
                     for i in range(level, len(heading_counters)):
                         heading_counters[i] = 0
                     toc_index = ".".join(str(c) for c in heading_counters[:level] if c > 0)
 
-                    # 2. Logique de Ditamap - créer d'abord le topic
+                    # Création du nouveau topic et topicref
                     parent_level = level - 1
                     parent_element = parent_elements.get(parent_level, map_root)
-                    
-                    # 3. Création du fichier de topic dans tous les cas
-                    # --- Nomenclature temporaire des topics ---
                     file_name = f"topic_{uuid.uuid4().hex[:10]}.dita"
                     topic_id = file_name.replace('.dita', '')
-                    # ------------------------------------------
-                    
+
                     current_concept, current_conbody = create_dita_concept(
-                        text, 
+                        text,
                         topic_id,
-                        context.metadata.get('revision_date', datetime.now().strftime('%Y-%m-%d'))
+                        context.metadata.get('revision_date', datetime.now().strftime('%Y-%m-%d')),
                     )
-                    
-                    # 4. Créer toujours un topicref pour tous les niveaux (y compris niveau 1)
-                    topicref = ET.SubElement(parent_element, 'topicref', {
-                        'href': f'topics/{file_name}',
-                        'locktitle': 'yes'
-                    })
+
+                    topicref = ET.SubElement(
+                        parent_element,
+                        'topicref',
+                        {'href': f'topics/{file_name}', 'locktitle': 'yes'},
+                    )
                     topicmeta_ref = ET.SubElement(topicref, 'topicmeta')
                     navtitle_ref = ET.SubElement(topicmeta_ref, 'navtitle')
                     navtitle_ref.text = text
-                    # Ajout des éléments manquants
                     critdates_ref = ET.SubElement(topicmeta_ref, 'critdates')
                     ET.SubElement(critdates_ref, 'created', date=context.metadata.get('revision_date'))
                     ET.SubElement(critdates_ref, 'revised', modified=context.metadata.get('revision_date'))
-                    ET.SubElement(topicmeta_ref, 'metadata') # Metadata vide
+                    ET.SubElement(topicmeta_ref, 'metadata')
                     ET.SubElement(topicmeta_ref, 'othermeta', name='tocIndex', content=toc_index)
                     ET.SubElement(topicmeta_ref, 'othermeta', name='foldout', content='false')
                     ET.SubElement(topicmeta_ref, 'othermeta', name='tdm', content='false')
                     parent_elements[level] = topicref
-                    
-                    # 4. Réinitialisation
-                    keys_to_delete = [l for l in parent_elements if l > level]
-                    for k in keys_to_delete:
+
+                    # Nettoyer les niveaux plus profonds
+                    for k in [l for l in parent_elements if l > level]:
                         del parent_elements[k]
-                    
+
                     old_file_name = file_name
-                
+            
                 # --- NOUVELLE LOGIQUE POUR LE CONTENU ---
                 elif current_conbody is not None:
                     # A. Gestion des paragraphes contenant uniquement une image
@@ -910,3 +927,73 @@ def update_topic_references_and_names(context: DitaContext):
     context.topics = new_topics_dict
     logger.info("Mise à jour des topics terminée.")
     return context 
+
+# NEW HELPER ---------------------------------------------------------------
+
+def get_heading_level(paragraph: Paragraph, style_map: dict | None = None) -> int | None:
+    """Return heading level for *paragraph* or None if it is not a heading.
+
+    Strategy (hybrid):
+    1. Explicit *style_map* provided by the user {style_name: level}.
+    2. Word outline level (<w:outlineLvl val="n"/>): level = n+1.
+    3. Numbered paragraph with decimal/roman/alpha format: level = ilvl+1.
+       Bullet formats are ignored.
+    """
+    try:
+        # 1) Style-name mapping -------------------------------------------------
+        style_name = ""
+        if paragraph.style is not None and paragraph.style.name:
+            style_name = paragraph.style.name
+            if style_map and style_name in style_map:
+                return int(style_map[style_name])
+            # Classic "Heading X" catch-all
+            if style_name.startswith("Heading ") and style_name.split(" ")[-1].isdigit():
+                return int(style_name.split(" ")[-1])
+
+        # 2) Outline level -----------------------------------------------------
+        ns = {"w": "http://schemas.openxmlformats.org/wordprocessingml/2006/main"}
+        outline_vals = paragraph._p.xpath("./w:pPr/w:outlineLvl/@w:val", namespaces=ns)
+        if outline_vals:
+            try:
+                return int(outline_vals[0]) + 1  # Word stores 0-based levels
+            except ValueError:
+                pass
+
+        # 3) Numbering heuristic ----------------------------------------------
+        if paragraph._p.pPr is not None and paragraph._p.pPr.numPr is not None:
+            numPr = paragraph._p.pPr.numPr
+            ilvl = getattr(numPr.ilvl, "val", None)
+            numId = getattr(numPr.numId, "val", None)
+            if ilvl is not None and numId is not None:
+                # Try to inspect numbering.xml to reject bullet formats
+                try:
+                    numbering_part = paragraph._p.part.numbering_part
+                    num_root = numbering_part._element  # lxml element
+                    # Resolve abstractNumId for this numId
+                    abs_ids = num_root.xpath(
+                        f'.//w:num[@w:numId="{numId}"]/w:abstractNumId/@w:val', namespaces=ns
+                    )
+                    if abs_ids:
+                        abs_id = abs_ids[0]
+                        # Get numFmt for the current level
+                        numfmts = num_root.xpath(
+                            f'.//w:abstractNum[@w:abstractNumId="{abs_id}"]/w:lvl[@w:ilvl="{ilvl}"]/w:numFmt/@w:val',
+                            namespaces=ns,
+                        )
+                        if numfmts:
+                            numfmt = numfmts[0]
+                            if numfmt in {"bullet", "none"}:
+                                return None  # ignore bullet lists
+                    # Default: treat as heading
+                    return int(ilvl) + 1
+                except Exception:
+                    # Fallback: treat any numbered list as heading level ilvl+1
+                    try:
+                        return int(ilvl) + 1
+                    except Exception:
+                        pass
+    except Exception:
+        # We intentionally swallow exceptions here to avoid breaking conversion.
+        pass
+
+    return None 

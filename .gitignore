@@ -1,1 +1,16 @@
-venv/\n__pycache__/\n*.pyc\n*.pyo\n*.pyd\n*.log\n*.egg-info/\ndist/\nbuild/\n.pytest_cache/\n.mypy_cache/\n.env\n/site\nlogs/\nReference/
+﻿# build artefacts
+__pycache__/
+*.py[cod]
+
+# runtime logs
+logs/*.log
+
+# sample / reference documents
+*.docx
+Reference/
+verification_output/
+
+# OS & editor files
+.DS_Store
+*.swp
+.cursor/
