@@ -1,6 +1,4 @@
-#  ![Orlando Toolkit](https://github.com/user-attachments/assets/15f610f5-52c0-43c3-93fc-37ae5be11d13) Orlando Toolkit
-
-
+# ![Orlando Toolkit](https://github.com/user-attachments/assets/15f610f5-52c0-43c3-93fc-37ae5be11d13) Orlando Toolkit
 
 **Convert Word documents to DITA archives for Orlando**
 
@@ -8,136 +6,92 @@
 
 ## Overview
 
-Orlando Toolkit converts Microsoft Word (.docx) files into DITA archives that comply with Orlando specifications. It preserves your text, images, and tables while ensuring everything follows Orlando's technical requirements.
+Orlando Toolkit converts Microsoft Word (.docx) files into DITA archives that comply with Orlando specifications. The tool preserves document structure, formatting, images, and tables while generating the required XML markup and metadata.
 
 ### Key Features
 
-- **DOCX to DITA conversion** - Text, formatting, images, tables, and lists
-- **Orlando compliance** - Follows Orlando-specific DITA conventions  
-- **Automatic image handling** - Extracts and processes images correctly
-- **User-friendly interface** - Simple GUI for metadata configuration
-
-### Recent Improvements
-
-✅ **Fixed image layout issues** - Images now appear in correct positions  
-✅ **Preserved content order** - Logical flow maintained during conversion  
-✅ **Orlando-compliant XML** - Generated structure follows standards  
+- **DOCX to DITA conversion** - Processes text, formatting, images, tables, and lists
+- **Orlando compliance** - Follows Orlando-specific DITA conventions and DTD requirements
+- **Automatic image handling** - Extracts and processes embedded images with proper references
+- **Metadata configuration** - User-friendly interface for document properties and revision tracking
+- **Package generation** - Creates complete ZIP archives ready for Orlando import
 
 ---
 
-## Quick Start
+## Getting Started
 
-### Option 1: Download Pre-built Version (Recommended)
+### Option 1: Pre-built Executable (Windows)
 
-**No Python installation required**
+1. Download the latest `OrlandoToolkit.exe` from the **Releases** section
+2. Run the executable directly - no installation required
+3. Compatible with Windows 10/11
 
-1. Go to [Releases](https://github.com/Orsso/orlando-toolkit/releases)
-2. Download the latest `.exe` file
-3. Run directly on Windows 10/11
-
-### Option 2: Install from Source
-
-**For developers or customization**
-
-#### Installation Steps
+### Option 2: Run from Source
 
 **Requirements:** Python 3.8+, Windows/macOS/Linux
 
 ```bash
-# 1. Clone repository
+# Clone and setup
 git clone https://github.com/Orsso/orlando-toolkit
-cd orlando-dita-packager
+cd orlando-toolkit
+python -m pip install -r requirements.txt
 
-# 2. Create virtual environment
-python -m venv venv
+# Launch application
+python run.py
+```
 
-# 3. Activate environment
-source venv/bin/activate    # Linux/macOS
-# venv\Scripts\activate     # Windows
+### Option 3: Build Executable
 
-# 4. Install dependencies
-pip install -r requirements.txt
+```bash
+# Windows
+build.bat
+
+# Cross-platform
+python build_exe.py
 ```
 
 ---
 
 ## Usage
 
-### Starting the Application
+1. **Load Document** - Select your Word (.docx) file
+2. **Configure Metadata** - Set manual title, codes, and revision information
+3. **Review Images** - Adjust image naming and organization
+4. **Generate Package** - Export complete DITA archive as ZIP
 
-```bash
-# Activate environment (if using source install)
-source venv/bin/activate  # Linux/macOS only
-
-# Run application
-python run.py
-```
-
-### Conversion Process
-
-1. **📁 Select DOCX file** - Choose your Word document
-2. **📝 Configure metadata** - Title, manual code, dates
-3. **🖼️ Set image options** - Prefix and naming conventions
-4. **⚡ Generate archive** - Creates ZIP with all Orlando files
-
-**Output**: Complete DITA archive ready for Orlando import
+**Output Structure:**
+- `DATA/topics/` - DITA concept files
+- `DATA/media/` - Extracted images and assets
+- `DATA/dtd/` - Document type definitions
+- Root ditamap with proper Orlando metadata
 
 ---
 
-## Advanced Usage
+## Technical Details
 
-### Building Executable
-
-Create an exe from source code.
-
-```cmd
-build.bat
+### Architecture
+```
+orlando_toolkit/
+├── core/              # Conversion engine
+│   ├── converter/     # DOCX to DITA transformation
+│   ├── parser/        # Document analysis and extraction
+│   ├── generators/    # DITA XML builders
+│   └── services/      # High-level conversion orchestration
+├── ui/                # Tkinter GUI components
+└── dtd_package/       # Bundled DITA DTDs and catalogs
 ```
 
-Output: `release/OrlandoToolkit.exe`
-
-### Project Structure
-
-```
-orlando-dita-packager/
-├── src/
-│   ├── docx_to_dita_converter.py  # Main conversion engine
-│   ├── docx_parser.py             # DOCX content extraction
-│   ├── main.py                    # Application entry point
-│   └── ui/                        # GUI components
-├── logs/                          # Conversion logs
-└── release/                       # Built executables
-```
-
-### Orlando DITA Specifications
-
-| Component | Purpose |
-|-----------|---------|
-| `DATA/topics/` | DITA topic files |
-| `DATA/media/` | Images and media assets |
-| `DATA/dtd/` | Document type definitions |
-
-**Technical Features:**
-- Auto-generated unique XML IDs
-- `outputclass` attribute styling
-- Cell-level table formatting
-- Dedicated image paragraphs
+### Supported Elements
+- Paragraphs with alignment and styling
+- Ordered and unordered lists
+- Tables with formatting preservation
+- Inline formatting (bold, italic, underline)
+- Color coding (red, green, blue, amber, cyan, yellow)
+- Background highlighting
+- Hyperlinks and cross-references
+- Embedded images
 
 ---
 
-## Support
-
-### Troubleshooting
-
-**Conversion issues?** Check the `logs/` folder for detailed diagnostic information.
-
-**Common solutions:**
-- Ensure DOCX file is not corrupted
-- Verify all required metadata is provided
-- Check image file formats are supported
-
-
----
-
-*Orlando Toolkit - Streamlining DITA conversion workflows*
+For detailed architecture documentation, see `docs/architecture_overview.md`.
 

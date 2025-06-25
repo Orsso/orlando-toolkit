@@ -9,15 +9,8 @@ import os
 import tkinter as tk
 import logging
 
-# Add 'src' folder to sys.path to allow absolute imports
-# from source code root, regardless of where the script is launched.
-# This resolves ImportError issues with relative imports.
-SRC_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'src')
-if SRC_PATH not in sys.path:
-    sys.path.insert(0, SRC_PATH)
-
-from src.logger_config import setup_logging
-from src.main import OrlandoToolkit
+from orlando_toolkit.logging_config import setup_logging
+from orlando_toolkit.app import OrlandoToolkit
 
 def main():
     """
@@ -28,7 +21,7 @@ def main():
     root = tk.Tk()
     root.title("Orlando Toolkit")
     # Desired window size
-    window_width, window_height = 435, 535
+    window_width, window_height = 413, 589
     # Calculate position to center the window
     screen_width = root.winfo_screenwidth()
     screen_height = root.winfo_screenheight()

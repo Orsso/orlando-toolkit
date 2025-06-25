@@ -33,9 +33,8 @@ def main():
     # Clean previous builds
     dist_dir = project_root / "dist"
     build_dir = project_root / "build"
-    spec_file = project_root / "OrlandoToolkit.spec"
     
-    for clean_path in [dist_dir, build_dir, spec_file]:
+    for clean_path in [dist_dir, build_dir]:
         if clean_path.exists():
             if clean_path.is_file():
                 clean_path.unlink()
@@ -46,12 +45,18 @@ def main():
     
     # Define the build command
     icon_path = project_root / "assets" / "app_icon.ico"
+    version_path = project_root / "version_info.txt"
     if not icon_path.exists():
         print(f"⚠️  Warning: Icon file not found at {icon_path}")
         icon_option = []
     else:
         icon_option = ["--icon", str(icon_path)]
         print(f"🎨 Using icon: {icon_path}")
+    
+    version_option = []
+    if version_path.exists():
+        version_option = ["--version-file", str(version_path)]
+        print(f"📋 Using version info: {version_path}")
     
     # PyInstaller command
     cmd = [
@@ -60,18 +65,12 @@ def main():
         "--windowed",                   # No console window
         "--name", "OrlandoToolkit",     # Executable name
         "--add-data", f"{project_root / 'assets'};assets",  # Include assets folder
-        "--add-data", f"{project_root / 'src' / 'dtd_package'};src/dtd_package",  # Include DTD files
+        "--add-data", f"{project_root / 'orlando_toolkit' / 'dtd_package'};orlando_toolkit/dtd_package",  # Include DTD files
         "--hidden-import", "PIL._tkinter_finder",  # Pillow support
         "--hidden-import", "sv_ttk",    # sv-ttk theme
-        "--hidden-import", "src.logger_config",  # Logger config module
-        "--hidden-import", "src.main",  # Main application module
-        "--hidden-import", "src.docx_parser",  # DOCX parser
-        "--hidden-import", "src.docx_to_dita_converter",  # Converter
-        "--hidden-import", "src.ui.metadata_tab",  # UI modules
-        "--hidden-import", "src.ui.image_tab",
-        "--hidden-import", "src.ui.custom_widgets",
         "--collect-all", "sv_ttk",      # Include all sv-ttk files
         *icon_option,                   # Add icon if available
+        *version_option,                # Add version info if available
         "run.py"                        # Entry point
     ]
     
