@@ -1,9 +1,5 @@
 # Orlando Toolkit – Architecture Overview
 
-> **Audience** New contributors, maintainers, build engineers.
->
-> **Last updated** 2025-07-xx (Phase 8 completion)
-
 ---
 
 ## 1 Introduction
@@ -12,13 +8,13 @@ Orlando Toolkit converts structured Microsoft Word manuals to standalone DITA pr
 
 ```mermaid
 flowchart TD
-    A[GUI (Tkinter)] -->|Facade| B(ConversionService)
-    B --> C(Core Converter)
-    C --> D(Parser & Helpers)
-    C --> E(Generators)
-    C --> F(Config Manager)
-    C --> G(Resources (DTD package))
-    B --> H[Packaging I/O]
+    A["GUI (Tkinter)"] -->|"Facade"| B("ConversionService")
+    B --> C["Core Converter"]
+    C --> D["Parser & Helpers"]
+    C --> E["Generators"]
+    C --> F["Config Manager"]
+    C --> G["Resources (DTD package)"]
+    B --> H["Packaging I/O"]
 ```
 
 Each layer is import-only towards those below it, giving us clear dependency boundaries and facilitating unit-testing.
@@ -121,4 +117,3 @@ DITA 1.3 DTDs plus vendor extensions are bundled inside `orlando_toolkit.dtd_pac
 
 ---
 
-*End of document* 
