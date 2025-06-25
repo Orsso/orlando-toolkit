@@ -27,7 +27,14 @@ def main():
     
     root = tk.Tk()
     root.title("Orlando Toolkit")
-    root.geometry("600x700")
+    # Desired window size
+    window_width, window_height = 435, 535
+    # Calculate position to center the window
+    screen_width = root.winfo_screenwidth()
+    screen_height = root.winfo_screenheight()
+    pos_x = (screen_width // 2) - (window_width // 2)
+    pos_y = (screen_height // 2) - (window_height // 2)
+    root.geometry(f"{window_width}x{window_height}+{pos_x}+{pos_y}")
 
     # Application icon configuration
     try:
