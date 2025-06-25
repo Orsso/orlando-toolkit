@@ -217,62 +217,131 @@ def convert_color_to_outputclass(color_value):
 # --- Fonctions de Création DITA ---
 
 def create_dita_table(table: Table, image_map: Dict[str, str]) -> ET.Element:
-    """Crée un élément de table DITA à partir d'un objet Table de docx."""
+    """Create a CALS DITA table from *table* handling complex merges (grid reconstruction)."""
+
+    from docx.oxml.ns import qn as _qn
+    from dataclasses import dataclass
+
+    def _grid_span(tc):
+        gs = tc.tcPr.find(_qn('w:gridSpan')) if tc.tcPr is not None else None
+        return int(gs.get(_qn('w:val'))) if gs is not None else 1
+
+    def _vmerge_type(tc):
+        vm = tc.tcPr.find(_qn('w:vMerge')) if tc.tcPr is not None else None
+        if vm is None:
+            return None  # no vertical merge
+        val = vm.get(_qn('w:val'))
+        return 'restart' if val in ('restart', 'Restart') else 'continue'
+
+    @dataclass
+    class CellInfo:
+        cell: _Cell  # python-docx cell object for content extraction
+        rowspan: int = 1
+        colspan: int = 1
+        is_start: bool = True
+
+    # ---------- build logical grid --------------------------------------
+    grid: list[list[CellInfo | None]] = []
+    vertical_tracker: dict[int, CellInfo] = {}
+    max_cols = len(table.columns)
+
+    for r_idx, row in enumerate(table.rows):
+        grid_row: list[CellInfo | None] = [None] * max_cols
+        c_idx = 0
+        phys_idx = 0  # index in row.cells (physical order)
+        for tc in row._tr.tc_lst:
+            # Skip filled columns (due to previous rowspans)
+            while c_idx < max_cols and grid_row[c_idx] is not None:
+                c_idx += 1
+            if c_idx >= max_cols:
+                break
+
+            colspan = _grid_span(tc)
+            v_type = _vmerge_type(tc)
+
+            if v_type == 'continue':
+                # Link to tracker from previous row
+                if c_idx in vertical_tracker:
+                    starter = vertical_tracker[c_idx]
+                    starter.rowspan += 1
+                # Mark placeholders
+                for span_col in range(colspan):
+                    if c_idx + span_col < max_cols:
+                        grid_row[c_idx + span_col] = None
+                c_idx += colspan
+                phys_idx += colspan
+                continue
+
+            # New cell (normal or vertical restart)
+            cell_info = CellInfo(cell=row.cells[phys_idx], colspan=colspan)
+            # Register for vertical continuation
+            if v_type == 'restart':
+                vertical_tracker[c_idx] = cell_info
+            else:
+                # clear tracker for this column if no continuation
+                vertical_tracker.pop(c_idx, None)
+
+            for span_col in range(colspan):
+                if c_idx + span_col < max_cols:
+                    grid_row[c_idx + span_col] = cell_info if span_col == 0 else None
+            c_idx += colspan
+            phys_idx += 1
+
+        # Clean trackers when no continue in this row
+        for col_key in list(vertical_tracker.keys()):
+            if grid_row[col_key] is not None:  # we placed a real cell here
+                continue  # still a restart
+            # else continuation expected next row
+        grid.append(grid_row)
+
+    # ---------- emit CALS ----------------------------------------------
     dita_table = ET.Element('table', id=generate_dita_id())
-    
-    # L'attribut frame="all" est retiré pour correspondre à la nouvelle référence
-    # dita_table.set('frame', 'all')
+    tgroup = ET.SubElement(dita_table, 'tgroup', id=generate_dita_id(), cols=str(max_cols))
+    for idx in range(max_cols):
+        ET.SubElement(
+            tgroup,
+            'colspec',
+            id=generate_dita_id(),
+            colname=f'c{idx+1}',
+            colwidth='1*',
+            colsep='1',
+            rowsep='1',
+        )
 
-    tgroup = ET.SubElement(dita_table, 'tgroup', {
-        'id': generate_dita_id(),
-        'cols': str(len(table.columns))
-        # Les attributs colsep et rowsep sont déplacés sur les 'entry' et 'colspec'
-    })
-
-    # Définir la largeur des colonnes
-    for i in range(len(table.columns)):
-        ET.SubElement(tgroup, 'colspec', {
-            'id': generate_dita_id(),
-            'colname': f'c{i+1}',
-            'colwidth': '1*',
-            'colsep': '1',
-            'rowsep': '1'
-        })
-
-    # --- NOUVELLE LOGIQUE a THEAD/TBODY ---
-    # La première ligne du tableau Word est traitée comme un <thead>
-    header_row = table.rows[0]
     thead = ET.SubElement(tgroup, 'thead', id=generate_dita_id())
-    row_element_head = ET.SubElement(thead, 'row', id=generate_dita_id())
-    for cell in header_row.cells:
-        entry = ET.SubElement(row_element_head, 'entry', id=generate_dita_id(), colsep='1', rowsep='1')
-        for block in iter_block_items(cell):
-            if isinstance(block, Paragraph):
-                p_element = ET.SubElement(entry, 'p', id=generate_dita_id())
-                process_paragraph_content_and_images(p_element, block, image_map, None)
+    tbody = ET.SubElement(tgroup, 'tbody', id=generate_dita_id())
 
-    # Les autres lignes vont dans le <tbody> 
-    # IMPORTANT : En DITA, si on a un <thead>, on DOIT avoir un <tbody> avec au moins une row
-    data_rows = table.rows[1:]  # On commence à la deuxième ligne
-    if data_rows:  # Ne créer le tbody que s'il y a réellement des lignes de données
-        tbody = ET.SubElement(tgroup, 'tbody', id=generate_dita_id())
-        for row in data_rows:
-            row_element = ET.SubElement(tbody, 'row', id=generate_dita_id())
-            for cell in row.cells:
-                entry = ET.SubElement(row_element, 'entry', id=generate_dita_id(), colsep='1', rowsep='1')
-                # Traiter le contenu de la cellule
-                for block in iter_block_items(cell):
-                    if isinstance(block, Paragraph):
-                        p_element = ET.SubElement(entry, 'p', id=generate_dita_id())
-                        process_paragraph_content_and_images(p_element, block, image_map, None)
-    else:
-        # Si pas de lignes de données, créer un tbody avec une ligne vide pour respecter DITA
-        tbody = ET.SubElement(tgroup, 'tbody', id=generate_dita_id())
-        row_element = ET.SubElement(tbody, 'row', id=generate_dita_id())
-        for i in range(len(table.columns)):
-            entry = ET.SubElement(row_element, 'entry', id=generate_dita_id(), colsep='1', rowsep='1')
-            p_element = ET.SubElement(entry, 'p', id=generate_dita_id())
-            p_element.text = ""  # Cellule vide
+    for r_idx, grid_row in enumerate(grid):
+        # Determine if this row has any starting cells
+        starters = [ci for ci in grid_row if ci and ci.is_start]
+        if not starters:
+            continue  # skip empty logical rows
+
+        row_parent = thead if r_idx == 0 else tbody
+        row_el = ET.SubElement(row_parent, 'row', id=generate_dita_id())
+
+        col_position = 0
+        for c_idx, ci in enumerate(grid_row):
+            if ci is None or not ci.is_start:
+                continue
+            attrs = {'id': generate_dita_id(), 'colsep': '1', 'rowsep': '1'}
+            if ci.colspan > 1:
+                attrs['namest'] = f'c{c_idx+1}'
+                attrs['nameend'] = f'c{c_idx+ci.colspan}'
+            if ci.rowspan > 1:
+                attrs['morerows'] = str(ci.rowspan - 1)
+
+            entry_el = ET.SubElement(row_el, 'entry', attrs)
+            for block in iter_block_items(ci.cell):
+                if isinstance(block, Paragraph):
+                    p_el = ET.SubElement(entry_el, 'p', id=generate_dita_id())
+                    process_paragraph_content_and_images(p_el, block, image_map, None)
+
+    # Ensure tbody not empty
+    if not tbody.findall('row'):
+        r = ET.SubElement(tbody, 'row', id=generate_dita_id())
+        ET.SubElement(r, 'entry', id=generate_dita_id())
+
     return dita_table
 
 def create_dita_concept(title, topic_id, revision_date):
