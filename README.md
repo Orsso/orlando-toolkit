@@ -1,6 +1,6 @@
-# Orlando Toolkit
+#  ![Orlando Toolkit](https://github.com/user-attachments/assets/15f610f5-52c0-43c3-93fc-37ae5be11d13) Orlando Toolkit
 
-![Orlando Toolkit](https://github.com/user-attachments/assets/15f610f5-52c0-43c3-93fc-37ae5be11d13)
+
 
 **Convert Word documents to DITA archives for Orlando**
 
