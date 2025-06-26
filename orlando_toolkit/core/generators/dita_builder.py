@@ -35,6 +35,8 @@ def create_dita_table(table: Table, image_map: Dict[str, str]) -> ET.Element:
     grid: list[list[CellInfo | None]] = []
     vertical_tracker: dict[int, CellInfo] = {}
     max_cols = len(table.columns)
+    # Track maximum width per column (in twips)
+    col_widths = [0] * max_cols
 
     for r_idx, row in enumerate(table.rows):
         grid_row: list[CellInfo | None] = [None] * max_cols
@@ -47,6 +49,15 @@ def create_dita_table(table: Table, image_map: Dict[str, str]) -> ET.Element:
                 break
 
             colspan = _grid_span(tc)
+            # Capture cell width for the starting column only (Word stores per-cell)
+            try:
+                tcW = tc.tcPr.tcW  # type: ignore[attr-defined]
+                if tcW is not None and tcW.type == 'dxa':  # width in twips
+                    width_twips = int(tcW.w)
+                    if width_twips > col_widths[c_idx]:
+                        col_widths[c_idx] = width_twips
+            except Exception:
+                pass
             v_type = _vmerge_type(tc)
 
             if v_type == 'continue':
@@ -80,16 +91,24 @@ def create_dita_table(table: Table, image_map: Dict[str, str]) -> ET.Element:
     dita_table = ET.Element('table', id=generate_dita_id())
     tgroup = ET.SubElement(dita_table, 'tgroup', id=generate_dita_id(), cols=str(max_cols))
 
+    # Create <colspec> with colwidth if available (convert twips→mm)
     for i in range(max_cols):
-        ET.SubElement(tgroup, 'colspec', colname=f'col{i+1}')
+        col_attrs = {'colname': f'col{i+1}'}
+        if col_widths[i]:
+            mm = col_widths[i] / 1440 * 25.4
+            col_attrs['colwidth'] = f"{mm:.1f}mm"
+        ET.SubElement(tgroup, 'colspec', **col_attrs)
 
-    thead = ET.SubElement(tgroup, 'thead', id=generate_dita_id())
+    # Only create <thead> when the source table has more than one row; otherwise
+    # the first (and only) row belongs in <tbody>.  Creating an empty <thead>
+    # violates the DITA DTD (must contain at least one <row>).
+    use_header = len(grid) > 1
+
+    thead = ET.SubElement(tgroup, 'thead', id=generate_dita_id()) if use_header else None
     tbody = ET.SubElement(tgroup, 'tbody', id=generate_dita_id())
 
-    use_header = len(grid) > 1  # only create thead if more than one row
-
     for r_idx, grid_row in enumerate(grid):
-        row_parent = thead if (use_header and r_idx == 0) else tbody
+        row_parent = thead if (use_header and r_idx == 0 and thead is not None) else tbody
         row_el = ET.SubElement(row_parent, 'row', id=generate_dita_id())
 
         for c_idx, cell_info in enumerate(grid_row):
@@ -109,5 +128,13 @@ def create_dita_table(table: Table, image_map: Dict[str, str]) -> ET.Element:
                 p_el = ET.SubElement(entry_el, 'p', id=generate_dita_id())
                 # Reuse helper so images inside tables are preserved
                 process_paragraph_content_and_images(p_el, p, image_map, None)
+
+            # Detect vertical (rotated) text direction
+            try:
+                td = cell_info.cell._tc.tcPr.find('.//w:textDirection', namespaces={'w': 'http://schemas.openxmlformats.org/wordprocessingml/2006/main'})
+                if td is not None and td.get('{http://schemas.openxmlformats.org/wordprocessingml/2006/main}val') in ('tbRl', 'btLr'):
+                    entry_el.set('outputclass', (entry_el.get('outputclass', '') + ' rotate-90').strip())
+            except Exception:
+                pass
 
     return dita_table 

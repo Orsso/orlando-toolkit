@@ -44,6 +44,7 @@ class OrlandoToolkit:
         self.notebook: Optional[ttk.Notebook] = None
         self.metadata_tab: Optional[MetadataTab] = None
         self.image_tab: Optional[ImageTab] = None
+        self.structure_tab = None  # will be StructureTab
         self.main_actions_frame: Optional[ttk.Frame] = None
         self.generation_progress: Optional[ttk.Progressbar] = None
 
@@ -82,6 +83,15 @@ class OrlandoToolkit:
         self.status_label = ttk.Label(center, text="", font=("Arial", 10))
         self.status_label.pack(pady=10)
 
+        # Attach logging→GUI bridge the first time the home screen is built
+        if not hasattr(self, "_log_to_status"):
+            self._log_to_status = _TkStatusHandler(self.status_label)
+            fmt = logging.Formatter("%(message)s")
+            self._log_to_status.setFormatter(fmt)
+            # Attach to converter & service hierarchies only
+            logging.getLogger("orlando_toolkit.core").addHandler(self._log_to_status)
+            logging.getLogger("orlando_toolkit.core").setLevel(logging.INFO)
+
         self.progress_bar = ttk.Progressbar(center, mode="indeterminate")
 
     # ------------------------------------------------------------------
@@ -104,7 +114,9 @@ class OrlandoToolkit:
         initial_metadata = {
             "manual_title": Path(filepath).stem,
             "revision_date": datetime.now().strftime("%Y-%m-%d"),
-            "revision_number": "1.0",
+            # Default topic depth: split up to Heading 3
+            "topic_depth": 3,
+            # No default revision_number so the generated package is treated as an edition.
         }
 
         threading.Thread(target=self.run_conversion_thread, args=(filepath, initial_metadata), daemon=True).start()
@@ -125,10 +137,22 @@ class OrlandoToolkit:
         self.dita_context = context
         if self.home_frame:
             self.home_frame.destroy()
+        # Resize main window to a wider, more comfortable workspace
+        try:
+            screen_w = self.root.winfo_screenwidth()
+            screen_h = self.root.winfo_screenheight()
+            width, height = min(1100, screen_w - 100), min(700, screen_h - 100)
+            pos_x = (screen_w // 2) - (width // 2)
+            pos_y = (screen_h // 2) - (height // 2)
+            self.root.geometry(f"{width}x{height}+{pos_x}+{pos_y}")
+        except Exception:
+            pass
+
         self.setup_main_ui()
-        if self.metadata_tab and self.image_tab:
+        if self.metadata_tab and self.image_tab and self.structure_tab:
             self.metadata_tab.load_context(context)
             self.image_tab.load_context(context)
+            self.structure_tab.load_context(context)
 
     def on_conversion_failure(self, error: Exception) -> None:
         if self.progress_bar:
@@ -156,6 +180,11 @@ class OrlandoToolkit:
 
         self.image_tab = ImageTab(self.notebook)
         self.notebook.add(self.image_tab, text="Images")
+
+        # New Structure/Config tab
+        from orlando_toolkit.ui.structure_tab import StructureTab
+        self.structure_tab = StructureTab(self.notebook, None)
+        self.notebook.add(self.structure_tab, text="Structure")
 
         self.metadata_tab.set_metadata_change_callback(self.on_metadata_change)
 
@@ -238,4 +267,100 @@ class OrlandoToolkit:
 
     def on_close(self):
         if messagebox.askokcancel("Quit", "Really quit?"):
-            self.root.destroy() 
+            self.root.destroy()
+
+    # ------------------------------------------------------------------
+    # Topic depth re-conversion
+    # ------------------------------------------------------------------
+
+    def on_topic_depth_change(self, new_depth: int):
+        """Update metadata with new depth; no re-parse needed."""
+        if self.dita_context:
+            self.dita_context.metadata["topic_depth"] = new_depth
+        # No further action: Structure tab already filtered in real time
+
+    def on_metadata_change(self) -> None:
+        if self.image_tab:
+            self.image_tab.update_image_names()
+
+    # ------------------------------------------------------------------
+    # Package generation
+    # ------------------------------------------------------------------
+
+    def generate_package(self) -> None:
+        if not self.dita_context:
+            messagebox.showerror("Error", "No DITA context is loaded.")
+            return
+
+        manual_code = (self.dita_context.metadata.get("manual_code") or "dita_project") if self.dita_context else "dita_project"
+        save_path = filedialog.asksaveasfilename(
+            title="Save DITA archive",
+            defaultextension=".zip",
+            filetypes=(("ZIP", "*.zip"),),
+            initialfile=f"{manual_code}.zip",
+        )
+        if not save_path:
+            return
+
+        self.show_generation_progress()
+        threading.Thread(target=self.run_generation_thread, args=(save_path,), daemon=True).start()
+
+    def show_generation_progress(self):
+        dlg = tk.Toplevel(self.root)
+        dlg.title("Generating package…")
+        dlg.geometry("300x90")
+        dlg.transient(self.root)
+        dlg.grab_set()
+        ttk.Label(dlg, text="Generating DITA package, please wait…").pack(pady=10)
+        prog = ttk.Progressbar(dlg, mode="indeterminate")
+        prog.pack(fill="x", padx=20, pady=10)
+        prog.start()
+        self.generation_progress = prog
+        self._progress_dialog = dlg
+
+    def run_generation_thread(self, save_path: str):
+        try:
+            ctx = self.service.prepare_package(self.dita_context)  # type: ignore[arg-type]
+            self.service.write_package(ctx, save_path)
+            self.root.after(0, self.on_generation_success, save_path)
+        except Exception as exc:
+            logger.error("Package generation failed", exc_info=True)
+            self.root.after(0, self.on_generation_failure, exc)
+
+    def on_generation_success(self, save_path: str):
+        if self.generation_progress:
+            self.generation_progress.stop()
+            self._progress_dialog.destroy()
+        messagebox.showinfo("Success", f"Archive written to\n{save_path}")
+
+    def on_generation_failure(self, error: Exception):
+        if self.generation_progress:
+            self.generation_progress.stop()
+            self._progress_dialog.destroy()
+        messagebox.showerror("Generation error", str(error))
+
+    # ------------------------------------------------------------------
+    # Exit handling
+    # ------------------------------------------------------------------
+
+    def on_close(self):
+        if messagebox.askokcancel("Quit", "Really quit?"):
+            self.root.destroy()
+
+# ----------------------------------------------------------------------
+# Utility: bridge Python logging to a Tkinter label for user feedback.
+# ----------------------------------------------------------------------
+
+
+class _TkStatusHandler(logging.Handler):
+    """Logging handler that pushes log messages to a Tkinter label."""
+
+    def __init__(self, target_label: ttk.Label, *, level=logging.INFO):
+        super().__init__(level=level)
+        self._label = target_label
+
+    def emit(self, record: logging.LogRecord) -> None:  # noqa: D401
+        # Use .after to ensure thread-safe update from background threads.
+        msg = self.format(record)
+        if self._label.winfo_exists():
+            self._label.after(0, lambda m=msg: self._label.config(text=m)) 

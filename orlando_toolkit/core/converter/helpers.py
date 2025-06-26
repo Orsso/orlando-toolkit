@@ -66,8 +66,19 @@ def add_orlando_topicmeta(map_root: ET.Element, metadata: Dict[str, Any]) -> Non
 
     ET.SubElement(topicmeta, "othermeta", name="manualCode", content=manual_code)
     ET.SubElement(topicmeta, "othermeta", name="manual_reference", content=manual_ref)
-    ET.SubElement(topicmeta, "othermeta", name="revNumber", content=metadata.get("revision_number", "1.0"))
-    ET.SubElement(topicmeta, "othermeta", name="isRevNumberNull", content="false")
+
+    # Revision number handling: if the calling code specifies a revision_number we
+    # embed it exactly.  Otherwise we explicitly mark it as null so downstream
+    # systems (Orlando CMS) treat this package as an *edition* rather than an
+    # *operator* (revision) release.
+    rev_num = metadata.get("revision_number")
+    if rev_num:
+        ET.SubElement(topicmeta, "othermeta", name="revNumber", content=str(rev_num))
+        ET.SubElement(topicmeta, "othermeta", name="isRevNumberNull", content="false")
+    # When no revision_number is supplied we omit both revNumber and
+    # isRevNumberNull so the CMS can apply its own default semantics (edition
+    # upload).  Empirically this prevents the "operator release" error that
+    # appears when the element is present with *content="true"*.
 
     title_element = map_root.find("title")
     insert_index = list(map_root).index(title_element) + 1 if title_element is not None else 0

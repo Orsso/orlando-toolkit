@@ -36,7 +36,6 @@ def save_dita_package(context: DitaContext, output_dir: str) -> None:
     Behaviour reproduced from legacy implementation.  Uses helpers from
     core.utils for XML output.
     """
-    import shutil
     from pathlib import Path
 
     from orlando_toolkit.core.utils import save_xml_file, save_minified_xml_file, slugify
@@ -47,19 +46,11 @@ def save_dita_package(context: DitaContext, output_dir: str) -> None:
     media_dir = os.path.join(data_dir, "media")
     dtd_dir = os.path.join(data_dir, "dtd")
 
+    # Directory for assets – we deliberately *do not* embed the DTD files
+    # anymore, but we keep the variable in case relative paths are still used
+    # in DOCTYPE system identifiers.
     os.makedirs(topics_dir, exist_ok=True)
     os.makedirs(media_dir, exist_ok=True)
-
-    # Copy bundled DTDs shipped with the package
-    from orlando_toolkit.dtd_package import get_dtd_root
-
-    reference_dtd_dir = str(get_dtd_root())
-    shutil.copytree(
-        reference_dtd_dir,
-        dtd_dir,
-        dirs_exist_ok=True,
-        ignore=shutil.ignore_patterns("__pycache__", "*.pyc", "__init__.py"),
-    )
 
     # Ensure manual_code
     if not context.metadata.get("manual_code"):
@@ -67,20 +58,17 @@ def save_dita_package(context: DitaContext, output_dir: str) -> None:
 
     manual_code = context.metadata.get("manual_code")
     ditamap_path = os.path.join(data_dir, f"{manual_code}.ditamap")
-    doctype_str = '<!DOCTYPE map PUBLIC "-//OASIS//DTD DITA Map//EN" "./dtd/technicalContent/dtd/map.dtd">'
+    # The system identifier is reduced to a simple filename so that Orlando's
+    # own catalog (or any resolver in the target environment) can map the
+    # PUBLIC ID without relying on the embedded dtd folder.
+    doctype_str = '<!DOCTYPE map PUBLIC "-//OASIS//DTD DITA Map//EN" "map.dtd">'
     save_xml_file(context.ditamap_root, ditamap_path, doctype_str)
 
-    # Basic ditaval file (exact content preserved)
-    ditaval_path = os.path.join(data_dir, f"{manual_code}.ditaval")
-    ditaval_content = (
-        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
-        "<val>\n  <revprop val=\"20250528\" action=\"flag\" changebar=\"solid\" color=\"#32cd32\"/>\n"
-        "  <revprop val=\"20250528-tr\" action=\"flag\" changebar=\"dotted\" color=\"#32cd32\"/>\n</val>\n"
-    )
-    Path(ditaval_path).write_text(ditaval_content, encoding="utf-8")
-
     # Save topics (minified)
-    doctype_concept = '<!DOCTYPE concept PUBLIC "-//OASIS//DTD DITA Concept//EN" "../dtd/technicalContent/dtd/concept.dtd">'
+    # The system identifier is reduced to a simple filename so that Orlando's
+    # own catalog (or any resolver in the target environment) can map the
+    # PUBLIC ID without relying on the embedded dtd folder.
+    doctype_concept = '<!DOCTYPE concept PUBLIC "-//OASIS//DTD DITA Concept//EN" "concept.dtd">'
     for filename, topic_el in context.topics.items():
         save_minified_xml_file(topic_el, os.path.join(topics_dir, filename), doctype_concept)
 

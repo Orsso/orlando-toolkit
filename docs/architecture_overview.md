@@ -93,9 +93,9 @@ If PyYAML is missing, built-in defaults guarantee the application still runs.
 
 ---
 
-## 6 Resources (DTD package)
+## 6 Resources
 
-DITA 1.3 DTDs plus vendor extensions are bundled inside `orlando_toolkit.dtd_package`. `converter.save_dita_package()` copies them to the output folder so users need no external toolchain to validate topics.
+As of Phase-9 the generated ZIP is **self-contained without embedded DTDs or ditaval files**.  All public identifiers remain intact so any downstream toolchain (incl. Orlando CMS) can resolve them through its own catalog. The legacy `dtd_package` folder is still shipped for backward compatibility but is no longer copied during packaging.
 
 ---
 

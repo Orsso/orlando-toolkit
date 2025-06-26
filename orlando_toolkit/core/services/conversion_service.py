@@ -42,12 +42,37 @@ class ConversionService:
     def convert(self, docx_path: str | Path, metadata: Dict[str, Any]) -> DitaContext:
         """Convert the Word document at *docx_path* to an in-memory DitaContext."""
         docx_path = str(docx_path)
-        self.logger.info("Converting DOCX → DITA: %s", docx_path)
+        self.logger.info("Parsing document…")
+        self.logger.debug("Converting DOCX → DITA: %s", docx_path)
         context = convert_docx_to_dita(docx_path, dict(metadata))
         return context
 
     def prepare_package(self, context: DitaContext) -> DitaContext:
         """Apply final renaming of topics and images inside *context*."""
+        self.logger.info("Preparing content for packaging…")
+        # 1) Prune topics & topicrefs deeper than user-selected depth
+        depth_limit = int(context.metadata.get("topic_depth", 3))
+
+        if context.ditamap_root is not None:
+            from lxml import etree as _ET
+
+            def _prune(node: _ET.Element, level: int = 1):
+                for tref in list(node.findall("topicref")):
+                    if level >= depth_limit:
+                        node.remove(tref)
+                    else:
+                        _prune(tref, level + 1)
+
+            _prune(context.ditamap_root)
+
+            # Remove unreferenced topics
+            hrefs = {
+                tref.get("href").split("/")[-1]
+                for tref in context.ditamap_root.xpath(".//topicref[@href]")
+            }
+            context.topics = {fn: el for fn, el in context.topics.items() if fn in hrefs}
+
+        # 2) Rename items
         context = update_topic_references_and_names(context)
         context = update_image_references_and_names(context)
         return context
@@ -60,7 +85,8 @@ class ConversionService:
         there for inspection.
         """
         output_zip = Path(output_zip)
-        self.logger.info("Writing DITA package → %s", output_zip)
+        self.logger.info("Writing ZIP package…")
+        self.logger.debug("Destination: %s", output_zip)
 
         with tempfile.TemporaryDirectory(prefix="orlando_packager_") as tmp_dir:
             save_dita_package(context, tmp_dir)

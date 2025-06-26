@@ -50,4 +50,11 @@ gantt
     Purge remaining src folder          :done, p8e, 26, 27
     Update run.py imports               :done, p8f, 27, 28
     Final cleanup and validation        :done, p8g, 28, 29
-```
+
+    section Phase 9 - Instant Depth Filtering
+    Parse all heading levels (remove depth gate)         :done, p9a, 29, 30
+    Annotate topics with data-level attribute            :done, p9b, after p9a, 1
+    Remove re-parse thread in GUI                        :done, p9c, after p9b, 1
+    Update Structure tab to client-side filter only      :done, p9d, after p9c, 1
+    Implement packaging pruner by topic_depth            :done, p9e, after p9d, 1
+    Regression & UX testing                              :active, p9f, after p9e, 1

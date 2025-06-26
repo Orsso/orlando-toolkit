@@ -10,6 +10,7 @@ from datetime import datetime
 import logging
 import os
 import uuid
+import re
 from typing import Any, Dict
 
 from docx import Document  # type: ignore
@@ -52,8 +53,11 @@ def convert_docx_to_dita(file_path: str, metadata: Dict[str, Any]) -> DitaContex
     context = DitaContext(metadata=dict(metadata))
 
     try:
+        logger.info("Loading DOCX file…")
         doc = Document(file_path)
         all_images_map_rid = extract_images_to_context(doc, context)
+
+        logger.info("Extracting images…")
 
         map_root = ET.Element("map")
         map_root.set("{http://www.w3.org/XML/1998/namespace}lang", "en-US")
@@ -75,9 +79,29 @@ def convert_docx_to_dita(file_path: str, metadata: Dict[str, Any]) -> DitaContex
 
         style_heading_map = build_style_heading_map(doc)
         style_heading_map.update(STYLE_MAP)
+
+        # Optional user override mapping provided via metadata
         if isinstance(metadata.get("style_heading_map"), dict):
             style_heading_map.update(metadata["style_heading_map"])  # type: ignore[arg-type]
 
+        # Generic heading-name detection (e.g., "HEADING 5 GM"). Enabled by
+        # default but can be disabled with metadata["generic_heading_match"] = False.
+        if metadata.get("generic_heading_match", True):
+            heading_rx = re.compile(r"\b(?:heading|titre)\\s*(\\d)\b", re.IGNORECASE)
+            for sty in doc.styles:  # type: ignore[attr-defined]
+                try:
+                    name = sty.name  # type: ignore[attr-defined]
+                except Exception:
+                    continue
+                m = heading_rx.search(name or "")
+                if m and name not in style_heading_map:
+                    try:
+                        lvl = int(m.group(1))
+                        style_heading_map[name] = lvl
+                    except ValueError:
+                        pass
+
+        logger.info("Building topics…")
         for block in iter_block_items(doc):
             if isinstance(block, Table):
                 if current_conbody is None:
@@ -122,6 +146,9 @@ def convert_docx_to_dita(file_path: str, metadata: Dict[str, Any]) -> DitaContex
                         topic_id,
                         context.metadata.get("revision_date", datetime.now().strftime("%Y-%m-%d")),
                     )
+
+                    # Persist heading level for later filtering (data-level)
+                    current_concept.set("data-level", str(level))
 
                     topicref = ET.SubElement(
                         parent_element,
@@ -190,5 +217,5 @@ def convert_docx_to_dita(file_path: str, metadata: Dict[str, Any]) -> DitaContex
         logger.error("Conversion failed: %s", exc, exc_info=True)
         raise
 
-    logger.info("DOCX→DITA conversion finished (core.converter).")
+    logger.info("Conversion finished.")
     return context 

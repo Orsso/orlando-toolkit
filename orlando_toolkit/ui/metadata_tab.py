@@ -30,11 +30,15 @@ class MetadataTab(ttk.Frame):
         title_label = ttk.Label(form_frame, text="Document Metadata", font=("Arial", 16, "bold"))
         title_label.grid(row=0, column=0, columnspan=2, sticky="w", pady=(0, 20))
 
+        # The Orlando CMS distinguishes *edition* uploads (no revision number)
+        # from *operator* releases (have a revNumber).  To avoid accidental
+        # operator uploads we stop exposing the "Revision Number" field.  The
+        # value can still be provided programmatically via metadata if ever
+        # needed.
         metadata_fields = {
             "manual_title": "Manual Title:",
             "manual_code": "Manual Code:",
             "revision_date": "Revision Date:",
-            "revision_number": "Revision Number:",
         }
 
         for i, (key, label) in enumerate(metadata_fields.items(), start=1):
