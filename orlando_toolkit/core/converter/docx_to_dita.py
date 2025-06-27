@@ -87,7 +87,7 @@ def convert_docx_to_dita(file_path: str, metadata: Dict[str, Any]) -> DitaContex
         # Generic heading-name detection (e.g., "HEADING 5 GM"). Enabled by
         # default but can be disabled with metadata["generic_heading_match"] = False.
         if metadata.get("generic_heading_match", True):
-            heading_rx = re.compile(r"\b(?:heading|titre)\\s*(\\d)\b", re.IGNORECASE)
+            heading_rx = re.compile(r"\b(?:heading|titre)[ _]?(\\d)\\b", re.IGNORECASE)
             for sty in doc.styles:  # type: ignore[attr-defined]
                 try:
                     name = sty.name  # type: ignore[attr-defined]
@@ -130,6 +130,9 @@ def convert_docx_to_dita(file_path: str, metadata: Dict[str, Any]) -> DitaContex
                     if current_concept is not None:
                         context.topics[old_file_name] = current_concept
 
+                    # Ensure dynamic accommodation of uncommon heading levels
+                    if level > len(heading_counters):
+                        heading_counters.extend([0] * (level - len(heading_counters)))
                     heading_counters[level - 1] += 1  # type: ignore[index]
                     for i in range(level, len(heading_counters)):
                         heading_counters[i] = 0
@@ -147,21 +150,18 @@ def convert_docx_to_dita(file_path: str, metadata: Dict[str, Any]) -> DitaContex
                         context.metadata.get("revision_date", datetime.now().strftime("%Y-%m-%d")),
                     )
 
-                    # Persist heading level for later filtering (data-level)
-                    current_concept.set("data-level", str(level))
-
                     topicref = ET.SubElement(
                         parent_element,
                         "topicref",
                         {"href": f"topics/{file_name}", "locktitle": "yes"},
                     )
+                    topicref.set("data-level", str(level))
                     topicmeta_ref = ET.SubElement(topicref, "topicmeta")
                     navtitle_ref = ET.SubElement(topicmeta_ref, "navtitle")
                     navtitle_ref.text = text
                     critdates_ref = ET.SubElement(topicmeta_ref, "critdates")
                     ET.SubElement(critdates_ref, "created", date=context.metadata.get("revision_date"))
                     ET.SubElement(critdates_ref, "revised", modified=context.metadata.get("revision_date"))
-                    ET.SubElement(topicmeta_ref, "metadata")
                     ET.SubElement(topicmeta_ref, "othermeta", name="tocIndex", content=toc_index)
                     ET.SubElement(topicmeta_ref, "othermeta", name="foldout", content="false")
                     ET.SubElement(topicmeta_ref, "othermeta", name="tdm", content="false")

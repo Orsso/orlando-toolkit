@@ -22,6 +22,7 @@ from orlando_toolkit.core.converter import (
     save_dita_package,
     update_image_references_and_names,
     update_topic_references_and_names,
+    prune_empty_topics,
 )
 
 logger = logging.getLogger(__name__)
@@ -50,9 +51,19 @@ class ConversionService:
     def prepare_package(self, context: DitaContext) -> DitaContext:
         """Apply final renaming of topics and images inside *context*."""
         self.logger.info("Preparing content for packaging…")
-        # 1) Prune topics & topicrefs deeper than user-selected depth
         depth_limit = int(context.metadata.get("topic_depth", 3))
 
+        # ----------------------------------------------------------------
+        # 1) Merge deeper topics when not already done (realtime toggle off)
+        # ----------------------------------------------------------------
+        from orlando_toolkit.core.merge import merge_topics_below_depth  # local import to avoid circulars
+
+        if context.metadata.get("merged_depth") != depth_limit:
+            merge_topics_below_depth(context, depth_limit)
+
+        # ---------------------------------------------------------------
+        # 2) Prune now-empty topicrefs below depth_limit (structure only)
+        # ---------------------------------------------------------------
         if context.ditamap_root is not None:
             from lxml import etree as _ET
 
@@ -65,16 +76,24 @@ class ConversionService:
 
             _prune(context.ditamap_root)
 
-            # Remove unreferenced topics
+            # Remove unreferenced topics (already handled in merge, but safe)
             hrefs = {
                 tref.get("href").split("/")[-1]
                 for tref in context.ditamap_root.xpath(".//topicref[@href]")
             }
             context.topics = {fn: el for fn, el in context.topics.items() if fn in hrefs}
 
-        # 2) Rename items
+        # 3) Convert empty topics into structural headings
+        context = prune_empty_topics(context)
+
+        # 4) Rename items
         context = update_topic_references_and_names(context)
         context = update_image_references_and_names(context)
+
+        # 5) Strip helper attributes (e.g., data-level) that are not valid DITA
+        if context.ditamap_root is not None:
+            for el in context.ditamap_root.xpath(".//*[@data-level]"):
+                el.attrib.pop("data-level", None)
         return context
 
     def write_package(self, context: DitaContext, output_zip: str | Path, *,
@@ -111,4 +130,15 @@ class ConversionService:
         context = self.convert(docx_path, metadata)
         context = self.prepare_package(context)
         self.write_package(context, output_zip, debug_copy_dir=debug_copy_dir)
-        return Path(output_zip) 
+        return Path(output_zip)
+
+    # ------------------------------------------------------------------
+    # XML preview helper (Phase-10)
+    # ------------------------------------------------------------------
+
+    def compile_preview(self, context: DitaContext, tref_element) -> str:  # noqa: D401
+        """Return compiled XML string for *tref_element* inside *context*."""
+
+        from orlando_toolkit.core.preview.xml_compiler import compile_topic_fragment
+
+        return compile_topic_fragment(context, tref_element, pretty=True) 

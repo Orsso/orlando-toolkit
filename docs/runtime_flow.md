@@ -12,6 +12,7 @@ sequenceDiagram
     GUI->>Service: "convert(path, metadata)"
     Service->>Converter: "convert_docx_to_dita()"
     Converter-->>Service: "DitaContext"
+    Note over GUI,Service: Optional real-time merge (toggle)
     Service-->>GUI: "context ready"
     User->>GUI: "Click Generate Package"
     GUI->>Service: "prepare_package()"

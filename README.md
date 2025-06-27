@@ -10,11 +10,19 @@ Orlando Toolkit converts Microsoft Word (.docx) files into DITA archives that co
 
 ### Key Features
 
-- **DOCX to DITA conversion** - Processes text, formatting, images, tables, and lists
-- **Orlando compliance** - Follows Orlando-specific DITA conventions and DTD requirements
-- **Automatic image handling** - Extracts and processes embedded images with proper references
-- **Metadata configuration** - User-friendly interface for document properties and revision tracking
-- **Package generation** - Creates complete ZIP archives ready for Orlando import
+- **DOCX to DITA conversion** – Processes text, formatting, images, tables, and lists
+- **Orlando compliance** – Follows Orlando-specific DITA conventions and DTD requirements
+- **Automatic image handling** – Extracts every embedded picture and normalises all formats to **PNG** for 100 % preview fidelity
+- **Depth-aware topic merging** – Collapse deep hierarchies with one click; deeper topics are merged into their parent so no information is lost (toggle-able in the *Structure* tab)
+- **Metadata configuration** – User-friendly interface for manual properties and revision tracking
+- **Package generation** – Creates complete ZIP archives ready for Orlando import
+
+## Recent highlights
+
+* **Word-consistent heading detection** – Parser now respects Word's outline-level inheritance.
+* **Real-time depth merge** – Live preview shows exactly what the final ZIP will contain; enable/disable with a checkbox.
+* **PNG image normalisation** – WMF/EMF and other exotic formats are converted to PNG to ensure consistent rendering.
+* **One-click Python install in `build.bat`** – If Python 3.13 is missing, the build script installs it silently via `winget`.
 
 ---
 
@@ -28,7 +36,9 @@ Orlando Toolkit converts Microsoft Word (.docx) files into DITA archives that co
 
 ### Option 2: Run from Source
 
-**Requirements:** Python 3.8+, Windows/macOS/Linux
+**Requirements:** Python 3.13+ (Windows/macOS/Linux)
+
+> ⚠️ On Windows the provided `build.bat` will silently install Python 3.13 via **winget** if it is not detected, so you can run the build out-of-the-box.
 
 ```bash
 # Clone and setup

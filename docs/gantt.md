@@ -57,4 +57,34 @@ gantt
     Remove re-parse thread in GUI                        :done, p9c, after p9b, 1
     Update Structure tab to client-side filter only      :done, p9d, after p9c, 1
     Implement packaging pruner by topic_depth            :done, p9e, after p9d, 1
-    Regression & UX testing                              :active, p9f, after p9e, 1
+    Regression & UX testing                              :done, p9f, after p9e, 1
+
+    %% ------------------------------------------------------------------
+    %% PHASE 10 – Word-consistent Heading Detection
+    %% ------------------------------------------------------------------
+    section Phase 10 - Heading Detection Parity
+    Design outline-level inheritance algorithm         :done, p10a, after p9f, 1
+    Implement _inherit_outline_level helper            :done, p10b, after p10a, 1
+    Integrate helper in build_style_heading_map        :done, p10c, after p10b, 1
+    Extend generic Heading/Titre regex                 :done, p10d, after p10c, 1
+    Add unit tests for inheritance & regex             :done, p10e, after p10d, 1
+    Regression test with sample DOCX set               :done, p10f, after p10e, 1
+    Update docs & README                               :done, p10g, after p10f, 1
+    Final code review & merge                          :done, p10h, after p10g, 1
+
+    %% ------------------------------------------------------------------
+    %% PHASE 11 – Depth-Merge of Sub-topics
+    %% ------------------------------------------------------------------
+    section Phase 11 - Depth Merge Behaviour
+    Specs & architecture notes                       :done, p11a, after p10h, 1
+    Implement merge_topics_below_depth() helper      :done, p11b, after p11a, 2
+    Integrate helper in ConversionService.prepare    :done, p11c_core, after p11b, 1
+    Hook merge into StructureTab depth change        :done, p11d_gui, after p11c_core, 1
+    Add toggle switch (real-time merge on/off)       :done, p11e_gui_toggle, after p11d_gui, 1
+    Busy-indicator / disable UI during merge         :done, p11f_gui, after p11e_gui_toggle, 1
+    Fix cross-refs / ID deduplication                :done, p11g, after p11f_gui, 1
+    Replace live context on depth change           :done, p11g2, after p11g, 1
+    Unit tests (core + GUI functional)               :p11h, after p11g, 1
+    Update docs & user guide                         :p11i, after p11h, 1
+    Regression & performance testing                 :p11j, after p11i, 1
+    Final review & release                           :p11k, after p11j, 1

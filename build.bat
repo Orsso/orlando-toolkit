@@ -7,12 +7,38 @@ echo    Orlando Toolkit - Windows Build
 echo =========================================
 echo.
 
-:: Check if Python is available
+:: Check if Python is available -----------------------------------------------------------------
 python --version >nul 2>&1
 if %errorlevel% neq 0 (
-    echo Error: Python is not installed or not in PATH
-    pause
-    exit /b 1
+    echo Python is not detected. Attempting silent install via winget…
+
+    :: Ensure winget is available
+    winget --version >nul 2>&1
+    if %errorlevel% neq 0 (
+        echo Error: winget CLI not found. Please install Python 3.13 manually then re-run this script.
+        pause
+        exit /b 1
+    )
+
+    :: Install latest stable Python 3.13 from Microsoft Store repository
+    echo Installing Python 3.13… this may take a few minutes.
+    winget install --id "Python.Python.3.13" -e --silent --accept-package-agreements --accept-source-agreements
+
+    if %errorlevel% neq 0 (
+        echo Error: winget failed to install Python. Please install it manually.
+        pause
+        exit /b 1
+    )
+
+    :: Refresh PATH for current session
+    set "PATH=%PATH%;%LOCALAPPDATA%\\Microsoft\\WindowsApps"
+
+    python --version >nul 2>&1
+    if %errorlevel% neq 0 (
+        echo Error: Python still not found after installation. Open a new terminal and try again.
+        pause
+        exit /b 1
+    )
 )
 
 :: Check if PyInstaller is available

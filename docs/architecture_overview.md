@@ -78,6 +78,7 @@ Errors propagate as exceptions. The GUI shows message boxes; future CLI wrappers
 | `converter.helpers`  | Small utilities migrated from legacy script to keep `docx_to_dita` lean. |
 | `generators.dita_builder` | XML builders for tables (Phase 3 extraction). |
 | `services.conversion_service` | Orchestrates end-to-end workflow and filesystem I/O. |
+| `merge.merge_topics_below_depth` | Merges deep topics into parent when depth is limited (used by GUI & packaging). |
 
 ---
 
@@ -104,7 +105,7 @@ As of Phase-9 the generated ZIP is **self-contained without embedded DTDs or dit
 * **Windows executable** – `build_exe.py` calls PyInstaller with
   single-file, windowed mode, bundling assets and DTDs.
 * **Source distribution** – `python -m build` produces a PEP 517 wheel; no C-extensions.
-* **CI** (road-map) – Phase 6 will add pytest + GitHub Actions.
+
 
 ---
 
@@ -112,8 +113,7 @@ As of Phase-9 the generated ZIP is **self-contained without embedded DTDs or dit
 
 * Headless CLI wrapper (non-Tk).
 * Plugin system for custom image naming schemes.
-* Live preview server for generated topics.
-* Automated regression test suite (Phase 6).
+
 
 ---
 

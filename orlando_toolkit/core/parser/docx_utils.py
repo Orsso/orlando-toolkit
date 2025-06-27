@@ -74,11 +74,28 @@ def extract_images_to_context(doc: _Document, context: DitaContext) -> Dict[str,
             image_data = rel.target_part.blob
             try:
                 img = Image.open(io.BytesIO(image_data))
-                img_format = (img.format or "png").lower()
-                image_filename = f"image_{image_counter}.{img_format}"
-                context.images[image_filename] = image_data
+
+                # Convert everything to PNG for uniformity (fixes WMF issues)
+                png_buf = io.BytesIO()
+                # Ensure RGB(A) mode for safer conversion
+                if img.mode in ("P", "RGBA", "LA"):
+                    img = img.convert("RGBA")
+                else:
+                    img = img.convert("RGB")
+
+                img.save(png_buf, format="PNG")
+                png_bytes = png_buf.getvalue()
+
+                image_filename = f"image_{image_counter}.png"
+                context.images[image_filename] = png_bytes
                 image_map_rid[rel_id] = image_filename
                 image_counter += 1
             except Exception as exc:
-                logger.error("Unable to process an image: %s", exc, exc_info=True)
+                # Fallback: keep original bytes/format if Pillow cannot read (e.g., unsupported WMF)
+                logger.warning("Image conversion to PNG failed – keeping original: %s", exc)
+                ext = rel.target_ref.split('.')[-1].lower()
+                image_filename = f"image_{image_counter}.{ext}"
+                context.images[image_filename] = image_data
+                image_map_rid[rel_id] = image_filename
+                image_counter += 1
     return image_map_rid 

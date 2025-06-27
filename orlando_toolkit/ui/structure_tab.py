@@ -9,6 +9,7 @@ and preview the resulting topic hierarchy extracted from the current
 from __future__ import annotations
 
 from typing import Optional
+import copy
 import tkinter as tk
 from tkinter import ttk
 from lxml import etree as ET
@@ -27,6 +28,7 @@ class StructureTab(ttk.Frame):
 
         self.context: Optional["DitaContext"] = None
         self._depth_var = tk.IntVar(value=3)
+        self._merge_enabled_var = tk.BooleanVar(value=True)
         self._depth_change_callback = depth_change_callback
 
         # --- UI ---------------------------------------------------------
@@ -43,6 +45,20 @@ class StructureTab(ttk.Frame):
             command=self._on_depth_spin,
         )
         depth_spin.grid(row=0, column=1, sticky="w", padx=(5, 0))
+
+        # Real-time merge toggle
+        merge_chk = ttk.Checkbutton(
+            config_frame,
+            text="Merge deeper topics into parent (accurate preview)",
+            variable=self._merge_enabled_var,
+            command=self._on_merge_toggle,
+        )
+        merge_chk.grid(row=1, column=0, columnspan=3, sticky="w", pady=(5, 0))
+
+        # Progress bar (hidden by default)
+        self._progress = ttk.Progressbar(config_frame, mode="indeterminate")
+        self._progress.grid(row=2, column=0, columnspan=3, sticky="we", pady=(4, 0))
+        self._progress.grid_remove()
 
         # --- Toolbar for structural editing --------------------------------
         toolbar = ttk.Frame(config_frame)
@@ -66,8 +82,8 @@ class StructureTab(ttk.Frame):
 
         # Prevent collapsing: re-open any item that tries to close
         self.tree.bind("<<TreeviewClose>>", self._on_close_attempt)
-        self.tree.bind("<Double-1>", self._on_item_double_click)
         self.tree.bind("<<TreeviewSelect>>", self._update_toolbar_state)
+        self.tree.bind("<Double-1>", self._on_item_preview)
 
         # Global shortcuts for undo/redo
         self.bind_all("<Control-z>", self._undo)
@@ -77,23 +93,41 @@ class StructureTab(ttk.Frame):
         self._undo_stack: list[bytes] = []
         self._redo_stack: list[bytes] = []
 
+        # Journal of structural edits so they can be replayed after depth rebuild
+        self._edit_journal: list[dict] = []
+
         yscroll = ttk.Scrollbar(preview_frame, orient="vertical", command=self.tree.yview)
         yscroll.pack(side="right", fill="y")
+
+        # Enable horiz. scrolling with Shift+MouseWheel without a visible scrollbar
         self.tree.configure(yscrollcommand=yscroll.set)
+
+        def _on_shift_wheel(event):
+            self.tree.xview_scroll(int(-1 * (event.delta / 120)), "units")
+            return "break"
+
+        self.tree.bind("<Shift-MouseWheel>", _on_shift_wheel)
 
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
 
     def load_context(self, context: "DitaContext") -> None:
-        self.context = context
+        # Keep an immutable copy so we can rebuild when depth changes up/down
+        self._orig_context = copy.deepcopy(context)
+        self.context = copy.deepcopy(context)
         self._depth_var.set(int(context.metadata.get("topic_depth", 3)))
+        self._merge_enabled_var.set(bool(context.metadata.get("realtime_merge", True)))
         self._rebuild_preview()
         self._update_toolbar_state()
 
-        # Reset history when new context loaded
+        # Reset history and journal when new context loaded
         self._undo_stack.clear()
         self._redo_stack.clear()
+        self._edit_journal.clear()
+
+        # Ensure original context retains realtime flag
+        self._orig_context.metadata.setdefault("realtime_merge", True)
 
     # ------------------------------------------------------------------
     # Internals
@@ -109,13 +143,17 @@ class StructureTab(ttk.Frame):
         # Mapping tree item id -> topicref element for inline editing
         self._item_map = {}
 
+        def _clean(txt: str) -> str:
+            return " ".join(txt.split())
+
         def _add_topicref(node: ET.Element, level: int, parent_id=""):
-            for tref in node.findall("topicref"):
+            for tref in [el for el in list(node) if el.tag in ("topicref", "topichead")]:
                 t_level = int(tref.get("data-level", level))
                 if t_level > max_depth:
                     continue
                 navtitle_el = tref.find("topicmeta/navtitle")
-                title = navtitle_el.text if navtitle_el is not None else "(untitled)"
+                raw_title = navtitle_el.text if navtitle_el is not None else "(untitled)"
+                title = _clean(raw_title)
                 item_id = self.tree.insert(parent_id, "end", text=title)
                 self._item_map[item_id] = tref
                 _add_topicref(tref, t_level + 1, item_id)
@@ -138,7 +176,49 @@ class StructureTab(ttk.Frame):
         new_depth = int(self._depth_var.get())
         if self.context:
             self.context.metadata["topic_depth"] = new_depth
-            self._rebuild_preview()
+            self._maybe_merge_and_refresh()
+
+    def _on_merge_toggle(self):
+        if self.context is None:
+            return
+        self.context.metadata["realtime_merge"] = bool(self._merge_enabled_var.get())
+        # Recompute preview to reflect potential content change
+        self._maybe_merge_and_refresh()
+
+    def _maybe_merge_and_refresh(self):
+        if self.context is None:
+            return
+
+        # Always start from pristine copy to allow depth increases
+        if hasattr(self, "_orig_context"):
+            self.context = copy.deepcopy(self._orig_context)
+
+        depth_limit = int(self._depth_var.get())
+        realtime = bool(self._merge_enabled_var.get())
+        self.context.metadata["realtime_merge"] = realtime
+
+        if realtime:
+            self._progress.grid()
+            self._progress.start()
+            self.update_idletasks()
+
+            from orlando_toolkit.core.merge import merge_topics_below_depth
+
+            if self.context.metadata.get("merged_depth") != depth_limit:
+                merge_topics_below_depth(self.context, depth_limit)
+
+            self._progress.stop()
+            self._progress.grid_remove()
+
+        else:
+            # Ensure merged_depth flag cleared so export merges later
+            self.context.metadata.pop("merged_depth", None)
+            self.context.metadata["realtime_merge"] = False
+
+        # Replay structural edits on refreshed context
+        self._replay_edits()
+
+        self._rebuild_preview()
 
     # ------------------------------------------------------------------
     # Helpers
@@ -155,46 +235,45 @@ class StructureTab(ttk.Frame):
             self.tree.item(item, open=True)
         return "break"
 
-    # ------------------------------------------------------------------
-    # Inline rename handling
-    # ------------------------------------------------------------------
-
-    def _on_item_double_click(self, event):
+    def _on_item_preview(self, event):
         item = self.tree.focus()
-        if not item:
+        if not item or item not in self._item_map:
             return
 
-        x, y, width, height = self.tree.bbox(item)
-        if width == "":
-            return
+        tref_el = self._item_map[item]
 
-        entry = tk.Entry(self.tree)
-        entry.place(x=x, y=y, width=width, height=height)
-        entry.insert(0, self.tree.item(item, "text"))
-        entry.focus()
+        # --- Build preview window -----------------------------------
+        from tkinter import scrolledtext as _stxt
+        import tempfile, webbrowser, pathlib
 
-        def _on_commit(event=None):
-            new_text = entry.get().strip()
-            if new_text:
-                self.tree.item(item, text=new_text)
-                # Update underlying XML
-                tref_el = self._item_map.get(item)
-                if tref_el is not None:
-                    navtitle_el = tref_el.find("topicmeta/navtitle")
-                    if navtitle_el is not None:
-                        navtitle_el.text = new_text
-                    href = tref_el.get("href")
-                    if href and self.context and "topics/" in href:
-                        fname = href.split("/")[-1]
-                        concept = self.context.topics.get(fname)
-                        if concept is not None:
-                            title_el = concept.find("title")
-                            if title_el is not None:
-                                title_el.text = new_text
-            entry.destroy()
+        preview_win = tk.Toplevel(self)
+        preview_win.title("XML Preview")
+        preview_win.geometry("700x500")
 
-        entry.bind("<Return>", _on_commit)
-        entry.bind("<FocusOut>", _on_commit)
+        # Toolbar with "Open in browser" button
+        toolbar = ttk.Frame(preview_win)
+        toolbar.pack(fill="x")
+
+        def _open_browser():
+            """Render HTML preview to a temporary file and open it externally."""
+            from orlando_toolkit.core.preview.xml_compiler import render_html_preview  # type: ignore
+
+            html = render_html_preview(self.context, tref_el) if self.context else "<p>No preview</p>"
+            tmp = tempfile.NamedTemporaryFile(delete=False, suffix='.html', prefix='orlando_preview_', mode='w', encoding='utf-8')
+            tmp.write(html)
+            tmp.flush()
+            webbrowser.open_new_tab(pathlib.Path(tmp.name).as_uri())
+
+        ttk.Button(toolbar, text="Open HTML in Browser", command=_open_browser).pack(side="left", padx=5, pady=2)
+
+        # Raw XML display
+        raw_txt = _stxt.ScrolledText(preview_win, wrap="none")
+        raw_txt.pack(fill="both", expand=True)
+
+        from orlando_toolkit.core.preview.xml_compiler import get_raw_topic_xml  # type: ignore
+        xml_str = get_raw_topic_xml(self.context, tref_el) if self.context else ""
+        raw_txt.insert("1.0", xml_str)
+        raw_txt.yview_moveto(0)
 
     def _update_toolbar_state(self, event=None):
         """Enable/disable toolbar buttons based on current selection."""
@@ -256,6 +335,11 @@ class StructureTab(ttk.Frame):
             self._rebuild_preview()
             self._restore_selection(selected_trefs)
 
+            # Record move in journal
+            for tref in selected_trefs:
+                href = tref.get("href", "")
+                self._edit_journal.append({"op": "move", "href": href, "dir": direction})
+
     def _delete_selected(self):
         selected = list(self.tree.selection())
         removed = False
@@ -273,6 +357,10 @@ class StructureTab(ttk.Frame):
         if removed:
             self._rebuild_preview()
             # after delete nothing selected
+
+            for t in removed_trefs:
+                href = t.get("href", "")
+                self._edit_journal.append({"op": "delete", "href": href})
 
     # ------------------------------------------------------------------
     # Undo / Redo helpers
@@ -332,4 +420,51 @@ class StructureTab(ttk.Frame):
                 sel_items.append(item)
         self.tree.selection_set(sel_items)
         if sel_items:
-            self.tree.focus(sel_items[0]) 
+            self.tree.focus(sel_items[0])
+
+    # ------------------------------------------------------------------
+    # Journal replay helpers
+    # ------------------------------------------------------------------
+
+    def _find_tref_by_href(self, root: ET.Element, href: str):
+        if not href:
+            return None
+        return root.xpath(f'.//topicref[@href="{href}"]')
+
+    def _replay_edits(self):
+        if self.context is None or self.context.ditamap_root is None:
+            return
+        root = self.context.ditamap_root
+        for rec in self._edit_journal:
+            op = rec.get("op")
+            href = rec.get("href", "")
+            matches = self._find_tref_by_href(root, href)
+            if not matches:
+                continue
+            tref = matches[0]
+            if op == "delete":
+                parent = tref.getparent()
+                if parent is not None:
+                    parent.remove(tref)
+            elif op == "move":
+                direction = rec.get("dir")
+                parent = tref.getparent()
+                if parent is None:
+                    continue
+                siblings = list(parent)
+                idx = siblings.index(tref)
+                if direction == "up" and idx > 0:
+                    parent.remove(tref)
+                    parent.insert(idx - 1, tref)
+                elif direction == "down" and idx < len(siblings) - 1:
+                    parent.remove(tref)
+                    parent.insert(idx + 1, tref)
+                elif direction == "promote" and parent.tag == "topicref":
+                    grand = parent.getparent()
+                    if grand is not None:
+                        pidx = list(grand).index(parent)
+                        parent.remove(tref)
+                        grand.insert(pidx + 1, tref)
+                elif direction == "demote" and idx > 0:
+                    left = siblings[idx - 1]
+                    left.append(tref) 

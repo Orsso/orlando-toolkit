@@ -8,12 +8,16 @@ which Word styles should be treated as headings.
 """
 
 from typing import Dict
+import re
 
 from docx.document import Document  # type: ignore
 from docx.enum.style import WD_STYLE_TYPE  # type: ignore
 
 # Namespaces used in WordprocessingML
 _NS = {"w": "http://schemas.openxmlformats.org/wordprocessingml/2006/main"}
+
+# Generic heading-style name regex (optional safeguard)
+_GENERIC_RX = re.compile(r"\b(?:heading|titre)[ _]?(\d)\b", re.IGNORECASE)
 
 # Numbering formats that clearly denote ordered headings (bullets are excluded)
 _HEADING_NUMFMTS = {
@@ -52,6 +56,17 @@ def build_style_heading_map(doc: Document) -> Dict[str, int]:  # noqa: D401
     except Exception:
         numbering_root = None
 
+    # Build quick lookup of style name → element for inheritance walk-up
+    _style_el_map = {}
+    for _s in doc.styles:  # type: ignore[attr-defined]
+        try:
+            _style_el_map[_s.name] = _s._element  # type: ignore[attr-defined]
+        except Exception:
+            pass
+
+    # ------------------------------------------------------------------
+    # Main pass over styles
+    # ------------------------------------------------------------------
     for style in doc.styles:  # type: ignore[attr-defined]
         try:
             if style.type != WD_STYLE_TYPE.PARAGRAPH:  # type: ignore[attr-defined]
@@ -60,7 +75,7 @@ def build_style_heading_map(doc: Document) -> Dict[str, int]:  # noqa: D401
             name = style.name  # type: ignore[attr-defined]
 
             # 1) Outline level -------------------------------------------------
-            outline_vals = style_el.xpath("./w:pPr/w:outlineLvl/@w:val", namespaces=_NS)
+            outline_vals = _xp(style_el, "./w:pPr/w:outlineLvl/@w:val")
             if outline_vals:
                 try:
                     lvl = int(outline_vals[0]) + 1
@@ -69,12 +84,50 @@ def build_style_heading_map(doc: Document) -> Dict[str, int]:  # noqa: D401
                 except ValueError:
                     pass  # fall through to numbering detection
 
-            # 2) Numbering-based heading detection ---------------------------
-            numId_vals = style_el.xpath("./w:pPr/w:numPr/w:numId/@w:val", namespaces=_NS)
+            # 2) Inheritance walk-up ----------------------------------------
+            def _inherit_lvl(st_el):
+                seen = set()
+                while st_el is not None:
+                    # Prevent infinite loops
+                    sid = id(st_el)
+                    if sid in seen:
+                        break
+                    seen.add(sid)
+
+                    outline_vals = _xp(st_el, "./w:pPr/w:outlineLvl/@w:val")
+                    if outline_vals:
+                        try:
+                            return int(outline_vals[0]) + 1
+                        except ValueError:
+                            break
+
+                    based_vals = _xp(st_el, "./w:basedOn/@w:val")
+                    if not based_vals:
+                        break
+                    parent_name = based_vals[0]
+                    st_el = _style_el_map.get(parent_name)
+                return None
+
+            inherited_lvl = _inherit_lvl(style_el)
+            if inherited_lvl:
+                style_map[name] = inherited_lvl
+                continue
+
+            # 3) Name-based heuristic (generic regex)
+            m = _GENERIC_RX.search(name or "")
+            if m:
+                try:
+                    style_map[name] = int(m.group(1))
+                    continue
+                except ValueError:
+                    pass
+
+            # 4) Numbering-based heading detection ---------------------------
+            numId_vals = _xp(style_el, "./w:pPr/w:numPr/w:numId/@w:val")
             if not numId_vals or numbering_root is None:
                 continue
             numId = numId_vals[0]
-            ilvl_vals = style_el.xpath("./w:pPr/w:numPr/w:ilvl/@w:val", namespaces=_NS)
+            ilvl_vals = _xp(style_el, "./w:pPr/w:numPr/w:ilvl/@w:val")
             ilvl = ilvl_vals[0] if ilvl_vals else "0"
 
             # Resolve abstractNumId for this numId
@@ -101,3 +154,26 @@ def build_style_heading_map(doc: Document) -> Dict[str, int]:  # noqa: D401
             continue
 
     return style_map 
+
+# ---------------------------------------------------------------------------
+# Internal helpers
+# ---------------------------------------------------------------------------
+
+
+def _xp(el, path: str):  # noqa: D401
+    """Namespace-agnostic XPath helper.
+
+    python-docx proxies sometimes raise ``TypeError`` when the *namespaces*
+    keyword is supplied.  This helper first tries the project-wide ``_NS``
+    mapping and falls back to the element's own ``nsmap`` to stay compatible
+    with all library versions.
+    """
+
+    try:
+        return el.xpath(path, namespaces=_NS)
+    except TypeError:
+        try:
+            return el.xpath(path, namespaces=getattr(el, "nsmap", None))
+        except Exception:
+            # Last-chance: run without namespaces (works with local-name())
+            return el.xpath(path) 

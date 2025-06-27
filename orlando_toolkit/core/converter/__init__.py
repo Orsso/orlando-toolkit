@@ -22,6 +22,7 @@ __all__ = [
     "save_dita_package",
     "update_image_references_and_names",
     "update_topic_references_and_names",
+    "prune_empty_topics",
 ]
 
 logger = logging.getLogger(__name__)
@@ -134,4 +135,59 @@ def update_topic_references_and_names(context: DitaContext) -> DitaContext:
         new_topics[new_filename] = topic_el
 
     context.topics = new_topics
+    return context
+
+
+# ---------------------------------------------------------------------------
+# Post-processing helper: remove empty topics and convert their refs to topichead
+# ---------------------------------------------------------------------------
+
+
+def prune_empty_topics(context: "DitaContext") -> "DitaContext":
+    """Convert topicrefs pointing to empty concepts into pure structural nodes.
+
+    A *module* must contain some body content.  If a generated <concept>
+    has an empty <conbody> (no child elements and no meaningful text) we
+    treat the corresponding heading as a *sub-section* instead of a module.
+
+    Implementation:
+    1.  Detect empty topics.
+    2.  Replace the <topicref href="…"> with a <topichead> (or a topicref
+        without @href) so that the map keeps the heading but no longer
+        references a topic file.
+    3.  Remove the topic from *context.topics* so it is not written.
+    """
+
+    if context.ditamap_root is None:
+        return context
+
+    empty_filenames: list[str] = []
+
+    # Detect empties -----------------------------------------------------
+    for fname, topic_el in context.topics.items():
+        conbody = topic_el.find("conbody")
+        if conbody is None:
+            continue
+
+        has_children = len(list(conbody)) > 0
+        has_text = (conbody.text or "").strip() != ""
+
+        if not has_children and not has_text:
+            empty_filenames.append(fname)
+
+    if not empty_filenames:
+        return context
+
+    # Transform refs & prune topics -------------------------------------
+
+    for fname in empty_filenames:
+        # Find corresponding topicref
+        tref = context.ditamap_root.find(f".//topicref[@href='topics/{fname}']")
+        if tref is not None:
+            # Convert to structural <topichead> node (no href needed)
+            tref.tag = "topichead"
+            tref.attrib.pop("href", None)
+        # Remove topic
+        context.topics.pop(fname, None)
+
     return context 
