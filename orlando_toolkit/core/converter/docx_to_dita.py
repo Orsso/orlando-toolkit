@@ -167,6 +167,10 @@ def convert_docx_to_dita(file_path: str, metadata: Dict[str, Any]) -> DitaContex
                     ET.SubElement(topicmeta_ref, "othermeta", name="tdm", content="false")
                     parent_elements[level] = topicref  # type: ignore[assignment]
 
+                    # Preserve original paragraph style for fine-grain filtering
+                    if block.style and block.style.name:
+                        topicref.set("data-style", block.style.name)
+
                     for k in [l for l in parent_elements if l > level]:
                         del parent_elements[k]
 

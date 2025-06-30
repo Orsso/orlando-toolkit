@@ -13,6 +13,7 @@ import copy
 import tkinter as tk
 from tkinter import ttk
 from lxml import etree as ET
+from orlando_toolkit.ui.dialogs import CenteredDialog
 
 if False:  # TYPE_CHECKING pragma
     from orlando_toolkit.core.models import DitaContext
@@ -26,6 +27,8 @@ class StructureTab(ttk.Frame):
     def __init__(self, parent, depth_change_callback=None, *args, **kwargs):
         super().__init__(parent, *args, **kwargs)
 
+        # Store reference to parent app so we can access the master context
+        self._main_app = parent.master if hasattr(parent, 'master') else None
         self.context: Optional["DitaContext"] = None
         self._depth_var = tk.IntVar(value=3)
         self._merge_enabled_var = tk.BooleanVar(value=True)
@@ -46,15 +49,6 @@ class StructureTab(ttk.Frame):
         )
         depth_spin.grid(row=0, column=1, sticky="w", padx=(5, 0))
 
-        # Real-time merge toggle
-        merge_chk = ttk.Checkbutton(
-            config_frame,
-            text="Merge deeper topics into parent (accurate preview)",
-            variable=self._merge_enabled_var,
-            command=self._on_merge_toggle,
-        )
-        merge_chk.grid(row=1, column=0, columnspan=3, sticky="w", pady=(5, 0))
-
         # Progress bar (hidden by default)
         self._progress = ttk.Progressbar(config_frame, mode="indeterminate")
         self._progress.grid(row=2, column=0, columnspan=3, sticky="we", pady=(4, 0))
@@ -72,6 +66,31 @@ class StructureTab(ttk.Frame):
 
         for i, b in enumerate((self._btn_up, self._btn_down, self._btn_left, self._btn_right, self._btn_del)):
             b.grid(row=0, column=i, padx=1)
+
+        # --- Search bar --------------------------------------------------
+        search_frame = ttk.Frame(config_frame)
+        search_frame.grid(row=0, column=3, padx=(20, 0))
+        ttk.Label(search_frame, text="Search:").pack(side="left")
+        self._search_var = tk.StringVar()
+        search_entry = ttk.Entry(search_frame, textvariable=self._search_var, width=18)
+        search_entry.pack(side="left")
+        search_entry.bind("<KeyRelease>", self._on_search_change)
+        ttk.Button(search_frame, text="⟲", width=2, command=lambda: self._search_nav(-1)).pack(side="left", padx=1)
+        ttk.Button(search_frame, text="⟳", width=2, command=lambda: self._search_nav(1)).pack(side="left", padx=1)
+
+        # --- Heading filter ---------------------------------------------
+        ttk.Button(config_frame, text="Heading filter…", command=self._open_heading_filter).grid(row=0, column=4, padx=(20, 0))
+
+        # Internal search state
+        self._search_matches: list[str] = []  # tree item IDs
+        self._search_index: int = -1
+
+        # Excluded styles state
+        self._excluded_styles: dict[int, set[str]] = {}
+
+        # Remember geometry of auxiliary dialogs for consistent placement
+        self._filter_geom: str | None = None
+        self._occ_geom: str | None = None
 
         # --- Preview ----------------------------------------------------
         preview_frame = ttk.LabelFrame(self, text="Topic preview", padding=10)
@@ -113,11 +132,21 @@ class StructureTab(ttk.Frame):
     # ------------------------------------------------------------------
 
     def load_context(self, context: "DitaContext") -> None:
-        # Keep an immutable copy so we can rebuild when depth changes up/down
+        # Keep reference to the *original* context so we can propagate changes
+        self._main_context = context  # Original object owned by main app
+
+        # Deep-copies for safe preview/undo operations
         self._orig_context = copy.deepcopy(context)
         self.context = copy.deepcopy(context)
         self._depth_var.set(int(context.metadata.get("topic_depth", 3)))
-        self._merge_enabled_var.set(bool(context.metadata.get("realtime_merge", True)))
+        self._merge_enabled_var.set(True)
+
+        # Restore previously excluded style map if present
+        self._excluded_styles = {int(k): set(v) for k, v in context.metadata.get("exclude_style_map", {}).items()}
+
+        # Force realtime_merge flag
+        context.metadata["realtime_merge"] = True
+
         self._rebuild_preview()
         self._update_toolbar_state()
 
@@ -140,8 +169,21 @@ class StructureTab(ttk.Frame):
 
         max_depth = int(self._depth_var.get())
 
-        # Mapping tree item id -> topicref element for inline editing
+        # Reset caches ---------------------------------------------------
         self._item_map = {}
+
+        # Build heading cache from the *original* context so excluded styles remain visible
+        self._heading_cache = {}
+        source_root = getattr(self, "_orig_context", self.context).ditamap_root if hasattr(self, "_orig_context") else None
+        if source_root is not None:
+            for tref in source_root.xpath(".//topicref|.//topichead"):
+                lvl = int(tref.get("data-level", 1))
+                style_name = tref.get("data-style", f"Heading {lvl}")
+                nav = tref.find("topicmeta/navtitle")
+                title = nav.text.strip() if nav is not None and nav.text else "(untitled)"
+                self._heading_cache.setdefault(lvl, {}).setdefault(style_name, []).append(title)
+        else:
+            self._heading_cache = {}
 
         def _clean(txt: str) -> str:
             return " ".join(txt.split())
@@ -176,12 +218,24 @@ class StructureTab(ttk.Frame):
         new_depth = int(self._depth_var.get())
         if self.context:
             self.context.metadata["topic_depth"] = new_depth
+
+            # Keep pristine copy & main context in sync so exporter sees update
+            if hasattr(self, "_orig_context") and self._orig_context:
+                self._orig_context.metadata["topic_depth"] = new_depth
+            if hasattr(self, "_main_context") and self._main_context:
+                self._main_context.metadata["topic_depth"] = new_depth
             self._maybe_merge_and_refresh()
 
     def _on_merge_toggle(self):
         if self.context is None:
             return
-        self.context.metadata["realtime_merge"] = bool(self._merge_enabled_var.get())
+        new_val = bool(self._merge_enabled_var.get())
+        self.context.metadata["realtime_merge"] = new_val
+
+        if hasattr(self, "_orig_context") and self._orig_context:
+            self._orig_context.metadata["realtime_merge"] = new_val
+        if hasattr(self, "_main_context") and self._main_context:
+            self._main_context.metadata["realtime_merge"] = new_val
         # Recompute preview to reflect potential content change
         self._maybe_merge_and_refresh()
 
@@ -194,8 +248,14 @@ class StructureTab(ttk.Frame):
             self.context = copy.deepcopy(self._orig_context)
 
         depth_limit = int(self._depth_var.get())
-        realtime = bool(self._merge_enabled_var.get())
+        realtime = True
         self.context.metadata["realtime_merge"] = realtime
+
+        # Persist heading exclusions
+        if self._excluded_styles:
+            self.context.metadata["exclude_style_map"] = {str(k): list(v) for k, v in self._excluded_styles.items()}
+        else:
+            self.context.metadata.pop("exclude_style_map", None)
 
         if realtime:
             self._progress.grid()
@@ -207,13 +267,13 @@ class StructureTab(ttk.Frame):
             if self.context.metadata.get("merged_depth") != depth_limit:
                 merge_topics_below_depth(self.context, depth_limit)
 
+            # Apply heading exclusions on the fly
+            if self._excluded_styles and not self.context.metadata.get("merged_exclude_styles"):
+                from orlando_toolkit.core.merge import merge_topics_by_styles
+                merge_topics_by_styles(self.context, self._excluded_styles)
+
             self._progress.stop()
             self._progress.grid_remove()
-
-        else:
-            # Ensure merged_depth flag cleared so export merges later
-            self.context.metadata.pop("merged_depth", None)
-            self.context.metadata["realtime_merge"] = False
 
         # Replay structural edits on refreshed context
         self._replay_edits()
@@ -246,7 +306,7 @@ class StructureTab(ttk.Frame):
         from tkinter import scrolledtext as _stxt
         import tempfile, webbrowser, pathlib
 
-        preview_win = tk.Toplevel(self)
+        preview_win = CenteredDialog(self, "XML Preview", (700, 500), "xml_preview")
         preview_win.title("XML Preview")
         preview_win.geometry("700x500")
 
@@ -287,6 +347,13 @@ class StructureTab(ttk.Frame):
     # ------------------------------------------------------------------
 
     def _move(self, direction: str):
+        def _shift_levels(tref_el: ET.Element, delta: int):
+            """Recursively adjust data-level on *tref_el* and its descendants."""
+            new_lvl = max(1, int(tref_el.get("data-level", 1)) + delta)
+            tref_el.set("data-level", str(new_lvl))
+            for child in tref_el.xpath('.//topicref|.//topichead'):
+                _shift_levels(child, delta)
+
         selected = list(self.tree.selection())
         if not selected:
             return
@@ -297,41 +364,79 @@ class StructureTab(ttk.Frame):
         changed = False
         selected_trefs: list[ET.Element] = []
 
+        # Build groups of contiguous selections per parent
+        by_parent: dict[ET.Element, list[tuple[int, ET.Element]]] = {}
         for sel in selected:
-            if sel not in self._item_map:
+            tref = self._item_map.get(sel)
+            if tref is None or tref.getparent() is None:
                 continue
-            tref = self._item_map[sel]
             parent = tref.getparent()
-            if parent is None:
-                continue
-            siblings = list(parent)
-            idx = siblings.index(tref)
+            idx = list(parent).index(tref)
+            by_parent.setdefault(parent, []).append((idx, tref))
 
-            if direction == "up" and idx > 0:
-                parent.remove(tref)
-                parent.insert(idx - 1, tref)
-                changed = True
-                selected_trefs.append(tref)
-            elif direction == "down" and idx < len(siblings) - 1:
-                parent.remove(tref)
-                parent.insert(idx + 1, tref)
-                changed = True
-                selected_trefs.append(tref)
-            elif direction == "promote" and parent.tag == "topicref":
+        # Process each parent group separately
+        for parent, items in by_parent.items():
+            # Sort by index (visual order within parent)
+            items.sort(key=lambda t: t[0])
+
+            if direction in ("up", "promote"):
+                forward_iter = items
+            else:  # down/demote process from bottom to top
+                forward_iter = list(reversed(items))
+
+            if direction in ("up", "down"):
+                for idx, tref in forward_iter:
+                    sibs = list(parent)
+                    cur_idx = sibs.index(tref)
+                    if direction == "up" and cur_idx > 0:
+                        parent.remove(tref)
+                        parent.insert(cur_idx - 1, tref)
+                        changed = True
+                        selected_trefs.append(tref)
+                    elif direction == "down" and cur_idx < len(sibs) - 1:
+                        parent.remove(tref)
+                        parent.insert(cur_idx + 1, tref)
+                        changed = True
+                        selected_trefs.append(tref)
+            elif direction == "promote":
                 grand = parent.getparent()
-                if grand is not None:
-                    parent_idx = list(grand).index(parent)
+                if grand is None:
+                    continue
+                insert_pos = list(grand).index(parent) + 1
+                for _, tref in forward_iter:
                     parent.remove(tref)
-                    grand.insert(parent_idx + 1, tref)
+                    grand.insert(insert_pos, tref)
+                    insert_pos += 1
                     changed = True
                     selected_trefs.append(tref)
-            elif direction == "demote" and idx > 0:
-                left_sibling = siblings[idx - 1]
-                left_sibling.append(tref)
-                changed = True
-                selected_trefs.append(tref)
+                    _shift_levels(tref, -1)
+            elif direction == "demote":
+                # Use the left sibling of the *first* item as new parent
+                first_idx, tref_sample = items[0]
+                # Abort when no left sibling exists (cannot demote)
+                if first_idx == 0:
+                    continue
+
+                # Abort if new level would exceed current depth preview
+                cur_level = int(tref_sample.get("data-level", 1))
+                max_depth = int(self._depth_var.get())
+                if cur_level + 1 > max_depth:
+                    continue
+
+                anchor = list(parent)[first_idx - 1]
+                for _, tref in items:  # append in original visual order
+                    parent.remove(tref)
+                    anchor.append(tref)
+                    changed = True
+                    selected_trefs.append(tref)
+                    _shift_levels(tref, +1)
 
         if changed:
+            # Keep pristine context in sync so heading cache rebuild sees nodes
+            if hasattr(self, "_orig_context") and self._orig_context:
+                import copy as _cpy
+                self._orig_context.ditamap_root = _cpy.deepcopy(self.context.ditamap_root)
+
             self._rebuild_preview()
             self._restore_selection(selected_trefs)
 
@@ -342,25 +447,73 @@ class StructureTab(ttk.Frame):
 
     def _delete_selected(self):
         selected = list(self.tree.selection())
-        removed = False
-        removed_trefs = []
-        for sel in selected:
-            tref = self._item_map.get(sel)
-            if tref is None:
-                continue
-            parent = tref.getparent()
-            if parent is None:
-                continue
-            parent.remove(tref)
-            removed_trefs.append(tref)
-            removed = True
-        if removed:
-            self._rebuild_preview()
-            # after delete nothing selected
+        if not selected:
+            return
 
-            for t in removed_trefs:
-                href = t.get("href", "")
-                self._edit_journal.append({"op": "delete", "href": href})
+        # Confirmation dialog with merge options
+        dlg = CenteredDialog(self, "Delete module", (350, 200), "delete_confirm")
+        ttk.Label(dlg, text="Delete selected module(s):", font=("Arial", 11, "bold")).pack(anchor="w", padx=10, pady=(10, 4))
+
+        choice = tk.StringVar(value="delete")
+        ttk.Radiobutton(dlg, text="Delete permanently", variable=choice, value="delete").pack(anchor="w", padx=20)
+        ttk.Radiobutton(dlg, text="Merge content into previous sibling", variable=choice, value="prev").pack(anchor="w", padx=20)
+        ttk.Radiobutton(dlg, text="Merge content into parent module", variable=choice, value="parent").pack(anchor="w", padx=20)
+
+        btn_frm = ttk.Frame(dlg)
+        btn_frm.pack(pady=10)
+
+        def _do_ok():
+            dlg.grab_release()
+            dlg.destroy()
+
+            from orlando_toolkit.core.merge import _copy_content  # type: ignore
+
+            removed_trefs = []
+            changed = False
+
+            # process in visual order bottom-to-top to avoid index shift when removing
+            for sel in reversed(selected):
+                tref = self._item_map.get(sel)
+                if tref is None:
+                    continue
+                parent = tref.getparent()
+                if parent is None:
+                    continue
+
+                if choice.get() == "prev":
+                    idx = list(parent).index(tref)
+                    if idx == 0:
+                        target = parent  # fallback to parent if no previous
+                    else:
+                        sib = list(parent)[idx - 1]
+                        href = sib.get("href")
+                        target = self.context.topics.get(href.split("/")[-1]) if href else None
+                        if target is None:
+                            target = parent
+                elif choice.get() == "parent":
+                    href = parent.get("href")
+                    target = self.context.topics.get(href.split("/")[-1]) if href else None
+                else:
+                    target = None
+
+                # merge if target topic element exists and tref has topic
+                if target is not None and tref.get("href"):
+                    topic_el = self.context.topics.get(tref.get("href").split("/")[-1])
+                    if topic_el is not None:
+                        _copy_content(topic_el, target)
+
+                parent.remove(tref)
+                removed_trefs.append(tref)
+                changed = True
+
+            if changed:
+                self._rebuild_preview()
+                for t in removed_trefs:
+                    href = t.get("href", "")
+                    self._edit_journal.append({"op": "delete", "href": href})
+
+        ttk.Button(btn_frm, text="OK", command=_do_ok).pack(side="right", padx=10)
+        ttk.Button(btn_frm, text="Cancel", command=dlg.destroy).pack(side="right")
 
     # ------------------------------------------------------------------
     # Undo / Redo helpers
@@ -467,4 +620,156 @@ class StructureTab(ttk.Frame):
                         grand.insert(pidx + 1, tref)
                 elif direction == "demote" and idx > 0:
                     left = siblings[idx - 1]
-                    left.append(tref) 
+                    left.append(tref)
+
+    # ------------------------------------------------------------------
+    # Search helpers
+    # ------------------------------------------------------------------
+
+    def _on_search_change(self, event=None):
+        term = self._search_var.get().strip().lower()
+        self._search_matches.clear()
+        self._search_index = -1
+        if not term:
+            return
+
+        for item_id, tref in self._item_map.items():
+            title = self.tree.item(item_id, "text").lower()
+            if term in title:
+                self._search_matches.append(item_id)
+
+        self._search_nav(1)
+
+    def _search_nav(self, delta: int):
+        if not self._search_matches:
+            return
+        self._search_index = (self._search_index + delta) % len(self._search_matches)
+        target = self._search_matches[self._search_index]
+        self.tree.selection_set(target)
+        self.tree.focus(target)
+        self.tree.see(target)
+
+    # ------------------------------------------------------------------
+    # Heading filter dialog
+    # ------------------------------------------------------------------
+
+    def _collect_headings(self):
+        """Return cached heading dict built during preview rebuild."""
+        return getattr(self, "_heading_cache", {})
+
+    def _open_heading_filter(self):
+        headings = self._collect_headings()
+        if not headings:
+            return
+
+        dlg = CenteredDialog(self, "Heading filter", (483, 520), "heading_filter")
+
+        # Paned window: left = style checklist; right = occurrences list
+        paned = ttk.Panedwindow(dlg, orient="horizontal")
+        paned.pack(fill="both", expand=True)
+
+        # ---------------- Left: checklist -----------------
+        left_frm = ttk.Frame(paned)
+        paned.add(left_frm, weight=1)
+
+        canvas = tk.Canvas(left_frm, highlightthickness=0)
+        vscroll = ttk.Scrollbar(left_frm, orient="vertical", command=canvas.yview)
+        canvas.configure(yscrollcommand=vscroll.set)
+
+        canvas.pack(side="left", fill="both", expand=True)
+        vscroll.pack(side="right", fill="y")
+        frame = ttk.Frame(canvas)
+        canvas.create_window((0, 0), window=frame, anchor="nw")
+
+        def _on_frame_config(event=None):
+            canvas.configure(scrollregion=canvas.bbox("all"))
+
+        frame.bind("<Configure>", _on_frame_config)
+
+        # ---------------- Right: occurrence list ----------------
+        right_frm = ttk.Frame(paned)
+        paned.add(right_frm, weight=1)
+
+        occ_lbl = ttk.Label(right_frm, text="Occurrences", font=("Arial", 10, "bold"))
+        occ_lbl.pack(anchor="w", padx=5, pady=(5, 2))
+
+        occ_scroll = ttk.Scrollbar(right_frm, orient="vertical")
+        occ_list = tk.Listbox(right_frm, yscrollcommand=occ_scroll.set, height=15)
+        occ_scroll.config(command=occ_list.yview)
+        occ_list.pack(side="left", fill="both", expand=True, padx=(5, 0), pady=5)
+        occ_scroll.pack(side="right", fill="y", pady=5)
+
+        row_idx = 0
+        vars_map = {}
+        for lvl in sorted(headings.keys()):
+            styles_dict = headings[lvl]
+            # Label for level
+            lvl_lbl = ttk.Label(frame, text=f"Level {lvl}", font=("Arial", 10, "bold"))
+            lvl_lbl.grid(row=row_idx, column=0, sticky="w", padx=5, pady=(6, 2))
+            row_idx += 1
+
+            for style_name, titles in sorted(styles_dict.items()):
+                row_frm = ttk.Frame(frame)
+                row_frm.grid(row=row_idx, column=0, sticky="w", padx=15, pady=1)
+
+                key = (lvl, style_name)
+                var = tk.BooleanVar(value=(style_name not in getattr(self, "_excluded_styles", {}).get(lvl, set())))
+
+                def _on_toggle(l=lvl, s=style_name, v=var):
+                    # update exclusion map
+                    if v.get():
+                        if l in self._excluded_styles and s in self._excluded_styles[l]:
+                            self._excluded_styles[l].discard(s)
+                            if not self._excluded_styles[l]:
+                                self._excluded_styles.pop(l)
+                    else:
+                        self._excluded_styles.setdefault(l, set()).add(s)
+
+                    # Sync metadata in all contexts
+                    for ctx in (self.context, getattr(self, "_orig_context", None), getattr(self, "_main_context", None)):
+                        if ctx is None:
+                            continue
+                        if self._excluded_styles:
+                            ctx.metadata["exclude_style_map"] = {str(k): list(v) for k, v in self._excluded_styles.items()}
+                        else:
+                            ctx.metadata.pop("exclude_style_map", None)
+                        ctx.metadata.pop("merged_exclude_styles", None)
+
+                    self._maybe_merge_and_refresh()
+
+                titles_copy = list(titles)  # local copy for closure
+
+                def _on_select(event, lst=titles_copy, sty=style_name):
+                    # Ignore clicks that originate on the Checkbutton itself
+                    if isinstance(event.widget, tk.Checkbutton):
+                        return
+                    occ_list.delete(0, "end")
+                    occ_lbl.config(text=f"Occurrences – {sty}")
+                    for t in lst:
+                        occ_list.insert("end", t)
+
+                chk = ttk.Checkbutton(row_frm, variable=var, command=_on_toggle, width=2)
+                chk.pack(side="left", anchor="w")
+
+                lbl = ttk.Label(row_frm, text=f"{style_name} ({len(titles)})")
+                lbl.pack(side="left", anchor="w")
+
+                lbl.bind("<Button-1>", _on_select)
+
+                vars_map[key] = var
+                row_idx += 1
+
+        # Mouse wheel scrolling when pointer over left list
+        def _on_mousewheel(event):
+            canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+
+        canvas.bind_all("<MouseWheel>", _on_mousewheel)
+
+    # ------------------------------------------------------------------
+    # Context sync helper
+    # ------------------------------------------------------------------
+
+    def _context_modified_sync(self, key: str, value):
+        for ctx in (getattr(self, "_orig_context", None), getattr(self, "_main_context", None)):
+            if ctx:
+                ctx.metadata[key] = value 

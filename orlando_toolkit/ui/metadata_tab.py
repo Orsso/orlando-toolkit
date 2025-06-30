@@ -73,11 +73,23 @@ class MetadataTab(ttk.Frame):
             if key in self.context.metadata and self.context.metadata[key] != new_value:
                 self.context.metadata[key] = new_value
                 logger.info("Context updated: %s = %s", key, new_value)
+                # Forward metadata update to structure tab context copies so
+                # that generate_package uses the latest value.
+                if hasattr(self.master.master, "structure_tab") and self.master.master.structure_tab:
+                    st = self.master.master.structure_tab
+                    for ctx_attr in ("context", "_orig_context", "_main_context"):
+                        if hasattr(st, ctx_attr) and getattr(st, ctx_attr):
+                            getattr(st, ctx_attr).metadata[key] = new_value
                 if self.on_metadata_change_callback:
                     self.on_metadata_change_callback()
             elif key not in self.context.metadata:
                 self.context.metadata[key] = new_value
                 logger.info("Context updated: %s = %s", key, new_value)
+                if hasattr(self.master.master, "structure_tab") and self.master.master.structure_tab:
+                    st = self.master.master.structure_tab
+                    for ctx_attr in ("context", "_orig_context", "_main_context"):
+                        if hasattr(st, ctx_attr) and getattr(st, ctx_attr):
+                            getattr(st, ctx_attr).metadata[key] = new_value
                 if self.on_metadata_change_callback:
                     self.on_metadata_change_callback()
 

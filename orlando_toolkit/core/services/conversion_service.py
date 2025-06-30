@@ -56,10 +56,37 @@ class ConversionService:
         # ----------------------------------------------------------------
         # 1) Merge deeper topics when not already done (realtime toggle off)
         # ----------------------------------------------------------------
-        from orlando_toolkit.core.merge import merge_topics_below_depth  # local import to avoid circulars
+        from orlando_toolkit.core.merge import (
+            merge_topics_below_depth,
+            merge_topics_by_titles,
+            merge_topics_by_levels,
+            merge_topics_by_styles,
+        )
 
         if context.metadata.get("merged_depth") != depth_limit:
             merge_topics_below_depth(context, depth_limit)
+
+        # Heading style exclusions (e.g., exclude 'Heading 2')
+        excl_lvls = set(context.metadata.get("exclude_styles", []))
+        if excl_lvls and not context.metadata.get("merged_exclude_levels"):
+            merge_topics_by_levels(context, {int(l) for l in excl_lvls})
+
+        # (Legacy title-based exclusions kept for compatibility)
+        exclude_titles = set(context.metadata.get("exclude_headings", []))
+        if exclude_titles and not context.metadata.get("merged_exclude"):
+            merge_topics_by_titles(context, exclude_titles)
+
+        # Fine-grain style exclusions per level
+        style_excl_map: dict[int, set[str]] = {}
+        for key, val in context.metadata.get("exclude_style_map", {}).items():
+            try:
+                lvl = int(key)
+                style_excl_map.setdefault(lvl, set()).update(val)
+            except ValueError:
+                continue
+
+        if style_excl_map and not context.metadata.get("merged_exclude_styles"):
+            merge_topics_by_styles(context, style_excl_map)
 
         # ---------------------------------------------------------------
         # 2) Prune now-empty topicrefs below depth_limit (structure only)
@@ -69,7 +96,7 @@ class ConversionService:
 
             def _prune(node: _ET.Element, level: int = 1):
                 for tref in list(node.findall("topicref")):
-                    if level >= depth_limit:
+                    if level > depth_limit:
                         node.remove(tref)
                     else:
                         _prune(tref, level + 1)
@@ -92,8 +119,9 @@ class ConversionService:
 
         # 5) Strip helper attributes (e.g., data-level) that are not valid DITA
         if context.ditamap_root is not None:
-            for el in context.ditamap_root.xpath(".//*[@data-level]"):
-                el.attrib.pop("data-level", None)
+            for el in context.ditamap_root.xpath('.//*[@data-level or @data-style]'):
+                el.attrib.pop('data-level', None)
+                el.attrib.pop('data-style', None)
         return context
 
     def write_package(self, context: DitaContext, output_zip: str | Path, *,

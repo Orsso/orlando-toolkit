@@ -65,7 +65,6 @@ def main():
         "--windowed",                   # No console window
         "--name", "OrlandoToolkit",     # Executable name
         "--add-data", f"{project_root / 'assets'};assets",  # Include assets folder
-        "--add-data", f"{project_root / 'orlando_toolkit' / 'dtd_package'};orlando_toolkit/dtd_package",  # Include DTD files
         "--hidden-import", "PIL._tkinter_finder",  # Pillow support
         "--hidden-import", "sv_ttk",    # sv-ttk theme
         "--collect-all", "sv_ttk",      # Include all sv-ttk files
@@ -98,37 +97,6 @@ def main():
             shutil.copy2(exe_path, release_exe)
             print(f"📦 Release copy created: {release_exe}")
             
-            # Create a simple README for the release
-            readme_content = """Orlando Toolkit - DOCX to DITA Converter
-=============================================
-
-This is a beta release of Orlando Toolkit.
-
-INSTALLATION:
-- No installation required
-- Simply run OrlandoToolkit.exe
-
-USAGE:
-1. Launch OrlandoToolkit.exe
-2. Click "Load Document (.docx)" 
-3. Select your Word document
-4. Fill in the metadata information
-5. Review and rename images if needed
-6. Click "Generate DITA Package" to export
-
-REQUIREMENTS:
-- Windows 10/11
-- No additional dependencies required
-
-For support or issues, please visit:
-https://github.com/Orsso/Orlando-Toolkit
-
-Version: Beta 1.0
-"""
-            
-            readme_path = release_dir / "README.txt"
-            readme_path.write_text(readme_content, encoding='utf-8')
-            print(f"📄 README created: {readme_path}")
             
             return True
             

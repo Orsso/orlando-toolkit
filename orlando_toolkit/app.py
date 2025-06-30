@@ -14,6 +14,7 @@ import tempfile
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
+from copy import deepcopy
 
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
@@ -22,6 +23,7 @@ from orlando_toolkit.core.models import DitaContext
 from orlando_toolkit.core.services import ConversionService
 from orlando_toolkit.ui.metadata_tab import MetadataTab
 from orlando_toolkit.ui.image_tab import ImageTab
+from orlando_toolkit.ui.dialogs import CenteredDialog
 
 logger = logging.getLogger(__name__)
 
@@ -139,11 +141,20 @@ class OrlandoToolkit:
             self.home_frame.destroy()
         # Resize main window to a wider, more comfortable workspace
         try:
-            screen_w = self.root.winfo_screenwidth()
-            screen_h = self.root.winfo_screenheight()
-            width, height = min(1100, screen_w - 100), min(700, screen_h - 100)
-            pos_x = (screen_w // 2) - (width // 2)
-            pos_y = (screen_h // 2) - (height // 2)
+            # Expand by 10 % but enforce a comfortable minimum size
+            cur_x, cur_y = self.root.winfo_rootx(), self.root.winfo_rooty()
+            cur_w, cur_h = self.root.winfo_width(), self.root.winfo_height()
+
+            width = max(int(cur_w * 1.10), 1100)
+            height = max(int(cur_h * 1.05), 700)
+
+            # Do not exceed screen bounds (leave a 50-px margin)
+            sw, sh = self.root.winfo_screenwidth(), self.root.winfo_screenheight()
+            width = min(width, sw - 50)
+            height = min(height, sh - 50)
+
+            pos_x = cur_x + (cur_w - width) // 2
+            pos_y = cur_y + (cur_h - height) // 2
             self.root.geometry(f"{width}x{height}+{pos_x}+{pos_y}")
         except Exception:
             pass
@@ -228,11 +239,7 @@ class OrlandoToolkit:
         threading.Thread(target=self.run_generation_thread, args=(save_path,), daemon=True).start()
 
     def show_generation_progress(self):
-        dlg = tk.Toplevel(self.root)
-        dlg.title("Generating package…")
-        dlg.geometry("300x90")
-        dlg.transient(self.root)
-        dlg.grab_set()
+        dlg = CenteredDialog(self.root, "Generating package…", (300, 90), "pkg_progress")
         ttk.Label(dlg, text="Generating DITA package, please wait…").pack(pady=10)
         prog = ttk.Progressbar(dlg, mode="indeterminate")
         prog.pack(fill="x", padx=20, pady=10)
@@ -242,7 +249,17 @@ class OrlandoToolkit:
 
     def run_generation_thread(self, save_path: str):
         try:
-            ctx = self.service.prepare_package(self.dita_context)  # type: ignore[arg-type]
+            # Build an up-to-date context snapshot for export. We work on a
+            # background thread, so heavy deepcopy does not block the UI.
+            if self.structure_tab and getattr(self.structure_tab, "context", None):
+                ctx_export = deepcopy(self.structure_tab.context)
+                # Preserve latest metadata (may have been edited in other tabs)
+                if self.dita_context:
+                    ctx_export.metadata.update(self.dita_context.metadata)
+            else:
+                ctx_export = deepcopy(self.dita_context)
+
+            ctx = self.service.prepare_package(ctx_export)  # type: ignore[arg-type]
             self.service.write_package(ctx, save_path)
             self.root.after(0, self.on_generation_success, save_path)
         except Exception as exc:
@@ -282,70 +299,6 @@ class OrlandoToolkit:
     def on_metadata_change(self) -> None:
         if self.image_tab:
             self.image_tab.update_image_names()
-
-    # ------------------------------------------------------------------
-    # Package generation
-    # ------------------------------------------------------------------
-
-    def generate_package(self) -> None:
-        if not self.dita_context:
-            messagebox.showerror("Error", "No DITA context is loaded.")
-            return
-
-        manual_code = (self.dita_context.metadata.get("manual_code") or "dita_project") if self.dita_context else "dita_project"
-        save_path = filedialog.asksaveasfilename(
-            title="Save DITA archive",
-            defaultextension=".zip",
-            filetypes=(("ZIP", "*.zip"),),
-            initialfile=f"{manual_code}.zip",
-        )
-        if not save_path:
-            return
-
-        self.show_generation_progress()
-        threading.Thread(target=self.run_generation_thread, args=(save_path,), daemon=True).start()
-
-    def show_generation_progress(self):
-        dlg = tk.Toplevel(self.root)
-        dlg.title("Generating package…")
-        dlg.geometry("300x90")
-        dlg.transient(self.root)
-        dlg.grab_set()
-        ttk.Label(dlg, text="Generating DITA package, please wait…").pack(pady=10)
-        prog = ttk.Progressbar(dlg, mode="indeterminate")
-        prog.pack(fill="x", padx=20, pady=10)
-        prog.start()
-        self.generation_progress = prog
-        self._progress_dialog = dlg
-
-    def run_generation_thread(self, save_path: str):
-        try:
-            ctx = self.service.prepare_package(self.dita_context)  # type: ignore[arg-type]
-            self.service.write_package(ctx, save_path)
-            self.root.after(0, self.on_generation_success, save_path)
-        except Exception as exc:
-            logger.error("Package generation failed", exc_info=True)
-            self.root.after(0, self.on_generation_failure, exc)
-
-    def on_generation_success(self, save_path: str):
-        if self.generation_progress:
-            self.generation_progress.stop()
-            self._progress_dialog.destroy()
-        messagebox.showinfo("Success", f"Archive written to\n{save_path}")
-
-    def on_generation_failure(self, error: Exception):
-        if self.generation_progress:
-            self.generation_progress.stop()
-            self._progress_dialog.destroy()
-        messagebox.showerror("Generation error", str(error))
-
-    # ------------------------------------------------------------------
-    # Exit handling
-    # ------------------------------------------------------------------
-
-    def on_close(self):
-        if messagebox.askokcancel("Quit", "Really quit?"):
-            self.root.destroy()
 
 # ----------------------------------------------------------------------
 # Utility: bridge Python logging to a Tkinter label for user feedback.
