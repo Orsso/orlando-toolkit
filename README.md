@@ -71,7 +71,6 @@ build.bat
 **Output Structure:**
 - `DATA/topics/` - DITA concept files
 - `DATA/media/` - Extracted images and assets
-- `DATA/dtd/` - Document type definitions
 - Root ditamap with proper Orlando metadata
 
 ---
@@ -86,8 +85,8 @@ orlando_toolkit/
 │   ├── parser/        # Document analysis and extraction
 │   ├── generators/    # DITA XML builders
 │   └── services/      # High-level conversion orchestration
-├── ui/                # Tkinter GUI components
-└── dtd_package/       # Bundled DITA DTDs and catalogs
+└── ui/                # Tkinter GUI components
+
 ```
 
 ### Supported Elements
