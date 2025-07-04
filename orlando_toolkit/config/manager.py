@@ -11,8 +11,6 @@ The class is intentionally lightweight; missing PyYAML falls back to embedded
 Python dictionaries so existing behaviour is never broken.
 """
 
-from __future__ import annotations
-
 import importlib.resources as pkg_resources
 import json
 import logging
@@ -107,42 +105,7 @@ class ConfigManager(metaclass=_Singleton):
         """Return hard-coded defaults to guarantee behaviour parity."""
         return {
             "style_map": {},
-            "color_rules": {
-                "color_mappings": {
-                    # Reds (same list as before)
-                    "#ff0000": "color-red",
-                    "#dc143c": "color-red",
-                    "#b22222": "color-red",
-                    "#8b0000": "color-red",
-                    "#ff4500": "color-red",
-                    "#cd5c5c": "color-red",
-                    "#c0504d": "color-red",
-                    "#da0000": "color-red",
-                    "#ff1d1d": "color-red",
-                    "#a60000": "color-red",
-                    "#cc0000": "color-red",
-                    "#800000": "color-red",
-                    "#e74c3c": "color-red",
-                    "#ee0000": "color-red",
-                    # Greens
-                    "#008000": "color-green",
-                    "#00ff00": "color-green",
-                    "#32cd32": "color-green",
-                    "#228b22": "color-green",
-                    "#006400": "color-green",
-                    "#adff2f": "color-green",
-                    "#9acd32": "color-green",
-                    "#00b050": "color-green",
-                    "#00a300": "color-green",
-                    "#1d7d1d": "color-green",
-                    "#2e8b57": "color-green",
-                    "#27ae60": "color-green",
-                },
-                "theme_map": {
-                    "accent_1": "color-red",
-                    "accent_6": "color-green",
-                },
-            },
+            "color_rules": {},
             "image_naming": {},
             "logging": {},
         } 

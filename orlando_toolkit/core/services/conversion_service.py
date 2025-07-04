@@ -43,14 +43,14 @@ class ConversionService:
     def convert(self, docx_path: str | Path, metadata: Dict[str, Any]) -> DitaContext:
         """Convert the Word document at *docx_path* to an in-memory DitaContext."""
         docx_path = str(docx_path)
-        self.logger.info("Parsing document…")
-        self.logger.debug("Converting DOCX → DITA: %s", docx_path)
+        self.logger.info("Parsing document...")
+        self.logger.debug("Converting DOCX -> DITA: %s", docx_path)
         context = convert_docx_to_dita(docx_path, dict(metadata))
         return context
 
     def prepare_package(self, context: DitaContext) -> DitaContext:
         """Apply final renaming of topics and images inside *context*."""
-        self.logger.info("Preparing content for packaging…")
+        self.logger.info("Preparing content for packaging...")
         depth_limit = int(context.metadata.get("topic_depth", 3))
 
         # ----------------------------------------------------------------
@@ -132,7 +132,7 @@ class ConversionService:
         there for inspection.
         """
         output_zip = Path(output_zip)
-        self.logger.info("Writing ZIP package…")
+        self.logger.info("Writing ZIP package...")
         self.logger.debug("Destination: %s", output_zip)
 
         with tempfile.TemporaryDirectory(prefix="orlando_packager_") as tmp_dir:

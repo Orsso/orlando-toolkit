@@ -151,8 +151,34 @@ def merge_topics_below_depth(ctx: "DitaContext", depth_limit: int) -> None:  # n
                     node.remove(tref)
                     removed_topics.add(fname)
                 else:
-                    # Nothing to merge into – continue traversal without
-                    # removing the node to avoid data loss.
+                    # Either no ancestor topic yet or topic_el is None.
+                    # If ancestor_topic_el is a *section* (has no href) but topic_el exists,
+                    # we need to create an own-content module under that section.
+                    if ancestor_topic_el is None and topic_el is not None:
+                        # Find nearest section <topicref> (node) to attach module
+                        section_container = node if node.tag in ("topicref", "topichead") else None
+                        if section_container is not None:
+                            target_mod = _ensure_content_module(ctx, section_container)
+                            # Copy title paragraph + body
+                            title_el = topic_el.find("title")
+                            if title_el is not None and title_el.text:
+                                clean_title = " ".join(title_el.text.split())
+                                head_p = ET.Element("p", id=generate_dita_id())
+                                head_p.text = clean_title
+                                tb = target_mod.find("conbody") or ET.SubElement(target_mod, "conbody")
+                                tb.append(head_p)
+
+                            _copy_content(topic_el, target_mod)
+
+                            # Recurse deeper merging into the *target_mod*
+                            _recurse(tref, t_level + 1, target_mod)
+
+                            # Remove source tref and purge
+                            node.remove(tref)
+                            removed_topics.add(fname)
+                            continue
+
+                    # Default: traverse deeper without removing
                     _recurse(tref, t_level + 1, next_ancestor)
             else:
                 # Depth within limit – keep traversing deeper.
@@ -163,6 +189,11 @@ def merge_topics_below_depth(ctx: "DitaContext", depth_limit: int) -> None:  # n
     # Purge merged topics from the map
     for fname in removed_topics:
         ctx.topics.pop(fname, None)
+
+    # Final cleanup: make sure section-only <topicref> elements do not retain body
+    for tref in root.xpath('.//topicref[not(@href)]'):
+        for body in tref.findall('conbody'):
+            tref.remove(body)
 
     # Mark depth merged so we avoid double processing
     ctx.metadata["merged_depth"] = depth_limit
@@ -339,8 +370,17 @@ def merge_topics_by_styles(ctx: "DitaContext", exclude_map: dict[int, set[str]])
             next_ancestor = topic_el if topic_el is not None else ancestor_topic_el
 
             if t_level in exclude_map and style_name in exclude_map[t_level] and ancestor_topic_el is not None:
-                # Merge content if present
+                # Preserve heading title paragraph then merge body content
                 if topic_el is not None:
+                    title_el = topic_el.find("title")
+                    if title_el is not None and title_el.text:
+                        head_p = ET.Element("p", id=generate_dita_id())
+                        head_p.text = " ".join(title_el.text.split())
+                        parent_body = ancestor_topic_el.find("conbody")
+                        if parent_body is None:
+                            parent_body = ET.SubElement(ancestor_topic_el, "conbody")
+                        parent_body.append(head_p)
+
                     _copy_content(topic_el, ancestor_topic_el)
 
                 # Recurse into children
@@ -357,4 +397,60 @@ def merge_topics_by_styles(ctx: "DitaContext", exclude_map: dict[int, set[str]])
     for fname in removed:
         ctx.topics.pop(fname, None)
 
-    ctx.metadata["merged_exclude_styles"] = True 
+    ctx.metadata["merged_exclude_styles"] = True
+
+
+# ---------------------------------------------------------------------------
+# Helper utilities (internal)
+# ---------------------------------------------------------------------------
+
+
+def _new_topic_with_title(title_text: str) -> ET.Element:
+    """Create a bare <concept> topic element with *title_text*."""
+    topic_el = ET.Element("concept", id=generate_dita_id())
+    title_el = ET.SubElement(topic_el, "title")
+    title_el.text = title_text
+    # Body will be added later when content is copied
+    return topic_el
+
+
+def _ensure_content_module(ctx: "DitaContext", section_tref: ET.Element) -> ET.Element:
+    """Ensure there is a child *module* topic under *section_tref* and return its <concept> element.
+
+    If the first child already references a topic (module) we reuse it, otherwise we
+    create a new topic file, register it in ctx.topics and insert a new <topicref>.
+    """
+    # Try to reuse the first existing module child if present
+    for child in section_tref:
+        href = child.get("href")
+        if href:
+            fname = href.split("/")[-1]
+            existing_topic = ctx.topics.get(fname)
+            if existing_topic is not None:
+                return existing_topic
+
+    # No module child – create a fresh one
+    # Derive filename similar to converter naming scheme: topic_<id>.dita
+    new_id = generate_dita_id()
+    fname = f"topic_{new_id}.dita"
+
+    # Build topic element
+    section_title_el = section_tref.find("topicmeta/navtitle")
+    title_txt = section_title_el.text if section_title_el is not None and section_title_el.text else "Untitled"
+    topic_el = _new_topic_with_title(title_txt)
+
+    # Register in topics map
+    ctx.topics[fname] = topic_el
+
+    # Create child topicref
+    child_ref = ET.Element("topicref", href=f"topics/{fname}")
+    child_ref.set("data-level", str(int(section_tref.get("data-level", 1)) + 1))
+    # Keep navtitle in sync
+    nav = ET.SubElement(child_ref, "topicmeta")
+    navtitle = ET.SubElement(nav, "navtitle")
+    navtitle.text = title_txt
+
+    # Insert as first child to preserve order
+    section_tref.insert(0, child_ref)
+
+    return topic_el 

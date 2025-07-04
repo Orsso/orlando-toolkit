@@ -62,9 +62,8 @@ class StructureTab(ttk.Frame):
         self._btn_down = ttk.Button(toolbar, text="↓", width=3, command=lambda: self._move("down"))
         self._btn_left = ttk.Button(toolbar, text="◀", width=3, command=lambda: self._move("promote"))
         self._btn_right = ttk.Button(toolbar, text="▶", width=3, command=lambda: self._move("demote"))
-        self._btn_del = ttk.Button(toolbar, text="✖", width=3, command=self._delete_selected)
 
-        for i, b in enumerate((self._btn_up, self._btn_down, self._btn_left, self._btn_right, self._btn_del)):
+        for i, b in enumerate((self._btn_up, self._btn_down, self._btn_left, self._btn_right)):
             b.grid(row=0, column=i, padx=1)
 
         # --- Search bar --------------------------------------------------
@@ -103,6 +102,7 @@ class StructureTab(ttk.Frame):
         self.tree.bind("<<TreeviewClose>>", self._on_close_attempt)
         self.tree.bind("<<TreeviewSelect>>", self._update_toolbar_state)
         self.tree.bind("<Double-1>", self._on_item_preview)
+        self.tree.bind("<Button-3>", self._on_right_click)  # Right-click context menu
 
         # Global shortcuts for undo/redo
         self.bind_all("<Control-z>", self._undo)
@@ -339,8 +339,313 @@ class StructureTab(ttk.Frame):
         """Enable/disable toolbar buttons based on current selection."""
         sel = self.tree.selection()
         enabled = len(sel) > 0
-        for btn in (self._btn_up, self._btn_down, self._btn_left, self._btn_right, self._btn_del):
+        for btn in (self._btn_up, self._btn_down, self._btn_left, self._btn_right):
             btn.config(state="normal" if enabled else "disabled")
+
+    def _on_right_click(self, event):
+        """Handle right-click context menu on tree items."""
+        import tkinter as tk
+        
+        # Identify clicked item
+        item = self.tree.identify_row(event.y)
+        if not item:
+            return
+        
+        # Select the clicked item if not already selected
+        current_selection = list(self.tree.selection())
+        if item not in current_selection:
+            self.tree.selection_set([item])
+        
+        selected_items = list(self.tree.selection())
+        if not selected_items:
+            return
+        
+        # Create context menu
+        context_menu = tk.Menu(self, tearoff=0)
+        
+        # Rename option (only for single selection)
+        if len(selected_items) == 1:
+            context_menu.add_command(label="Rename", command=self._rename_selected)
+            context_menu.add_separator()
+        
+        # Merge option (only if multiple selection and all in same section)
+        if len(selected_items) > 1:
+            if self._can_merge_selection(selected_items):
+                context_menu.add_command(label="Merge Topics", command=self._merge_selected)
+            context_menu.add_separator()
+        
+        # Delete option (always available)
+        delete_text = "Delete Permanently" if len(selected_items) == 1 else f"Delete {len(selected_items)} Topics"
+        context_menu.add_command(label=delete_text, command=self._delete_selected_with_confirmation)
+        
+        # Show context menu
+        try:
+            context_menu.tk_popup(event.x_root, event.y_root)
+        finally:
+            context_menu.grab_release()
+
+    def _can_merge_selection(self, selected_items):
+        """Check if selected items can be merged (all in same section)."""
+        if len(selected_items) < 2:
+            return False
+        
+        # Get the parent (section) for each selected item
+        parents = set()
+        for item in selected_items:
+            tref = self._item_map.get(item)
+            if tref is None:
+                return False
+            parent = tref.getparent()
+            if parent is None:
+                return False
+            parents.add(parent)
+        
+        # All items must have the same parent (same section)
+        return len(parents) == 1
+
+    def _rename_selected(self):
+        """Rename the selected topic."""
+        selected = list(self.tree.selection())
+        if len(selected) != 1:
+            return
+        
+        item = selected[0]
+        tref = self._item_map.get(item)
+        if not tref:
+            return
+        
+        # Get current title
+        current_title = self.tree.item(item, "text")
+        
+        # Create rename dialog
+        from orlando_toolkit.ui.dialogs import CenteredDialog
+        dlg = CenteredDialog(self, "Rename Topic", (400, 150), "rename_topic")
+        
+        ttk.Label(dlg, text="Topic title:").pack(anchor="w", padx=10, pady=(10, 5))
+        
+        title_var = tk.StringVar(value=current_title)
+        title_entry = ttk.Entry(dlg, textvariable=title_var, width=50)
+        title_entry.pack(padx=10, pady=5, fill="x")
+        title_entry.select_range(0, tk.END)
+        title_entry.focus()
+        
+        btn_frame = ttk.Frame(dlg)
+        btn_frame.pack(pady=10)
+        
+        def _do_rename():
+            new_title = title_var.get().strip()
+            if new_title and new_title != current_title:
+                # Update the topic title in the XML
+                href = tref.get("href")
+                if href:
+                    topic_filename = href.split("/")[-1]
+                    topic_el = self.context.topics.get(topic_filename)
+                    if topic_el is not None:
+                        title_el = topic_el.find("title")
+                        if title_el is not None:
+                            title_el.text = new_title
+                        
+                        # Rebuild preview to show changes
+                        self._rebuild_preview()
+                        self._restore_selection([tref])
+            dlg.destroy()
+        
+        def _do_cancel():
+            dlg.destroy()
+        
+        ttk.Button(btn_frame, text="OK", command=_do_rename).pack(side="right", padx=5)
+        ttk.Button(btn_frame, text="Cancel", command=_do_cancel).pack(side="right")
+        
+        # Bind Enter key to OK
+        title_entry.bind("<Return>", lambda e: _do_rename())
+
+    def _delete_selected_with_confirmation(self):
+        """Delete selected topics with confirmation dialog."""
+        selected = list(self.tree.selection())
+        if not selected:
+            return
+        
+        # Create confirmation dialog
+        from orlando_toolkit.ui.dialogs import CenteredDialog
+        dlg = CenteredDialog(self, "Delete Confirmation", (400, 200), "delete_confirm")
+        
+        if len(selected) == 1:
+            message = f"Are you sure you want to permanently delete this topic?\n\nThis action cannot be undone."
+        else:
+            message = f"Are you sure you want to permanently delete {len(selected)} topics?\n\nThis action cannot be undone."
+        
+        ttk.Label(dlg, text=message, wraplength=350, justify="center").pack(padx=20, pady=20)
+        
+        btn_frame = ttk.Frame(dlg)
+        btn_frame.pack(pady=10)
+        
+        def _do_delete():
+            dlg.destroy()
+            self._delete_selected_permanently(selected)
+        
+        def _do_cancel():
+            dlg.destroy()
+        
+        # Make delete button red/warning style
+        delete_btn = ttk.Button(btn_frame, text="Delete Permanently", command=_do_delete)
+        delete_btn.pack(side="right", padx=5)
+        
+        ttk.Button(btn_frame, text="Cancel", command=_do_cancel).pack(side="right")
+
+    def _delete_selected_permanently(self, selected_items):
+        """Permanently delete the specified items."""
+        if not selected_items:
+            return
+        
+        # Snapshot for undo
+        self._push_undo_snapshot()
+        
+        removed_trefs = []
+        changed = False
+        
+        # Process in reverse order to avoid index shifting
+        for item in reversed(selected_items):
+            tref = self._item_map.get(item)
+            if tref is None:
+                continue
+            parent = tref.getparent()
+            if parent is None:
+                continue
+            
+            # Remove from ditamap
+            parent.remove(tref)
+            removed_trefs.append(tref)
+            changed = True
+            
+            # Remove from topics if it has an href
+            href = tref.get("href")
+            if href:
+                topic_filename = href.split("/")[-1]
+                self.context.topics.pop(topic_filename, None)
+        
+        if changed:
+            # Keep pristine context in sync
+            if hasattr(self, "_orig_context") and self._orig_context:
+                import copy as _cpy
+                self._orig_context.ditamap_root = _cpy.deepcopy(self.context.ditamap_root)
+            
+            self._rebuild_preview()
+            
+            # Record deletions in journal
+            for tref in removed_trefs:
+                href = tref.get("href", "")
+                self._edit_journal.append({"op": "delete", "href": href})
+
+    def _merge_selected(self):
+        """Merge multiple selected topics into the first one."""
+        selected = list(self.tree.selection())
+        if len(selected) < 2:
+            return
+        
+        # Verify all are in same section
+        if not self._can_merge_selection(selected):
+            return
+        
+        # Snapshot for undo
+        self._push_undo_snapshot()
+        
+        # Get topic references in selection order
+        selected_trefs = []
+        for item in selected:
+            tref = self._item_map.get(item)
+            if tref is not None:
+                selected_trefs.append(tref)
+        
+        if len(selected_trefs) < 2:
+            return
+        
+        # First topic becomes the target
+        target_tref = selected_trefs[0]
+        target_href = target_tref.get("href")
+        if not target_href:
+            return
+        
+        target_filename = target_href.split("/")[-1]
+        target_topic = self.context.topics.get(target_filename)
+        if target_topic is None:
+            return
+        
+        # Merge each subsequent topic into the target
+        removed_trefs = []
+        for source_tref in selected_trefs[1:]:
+            source_href = source_tref.get("href")
+            if not source_href:
+                continue
+            
+            source_filename = source_href.split("/")[-1]
+            source_topic = self.context.topics.get(source_filename)
+            if source_topic is None:
+                continue
+            
+            # Copy content with title preservation (Option B format)
+            self._copy_content_with_title(source_topic, target_topic)
+            
+            # Remove source topic from ditamap
+            parent = source_tref.getparent()
+            if parent is not None:
+                parent.remove(source_tref)
+                removed_trefs.append(source_tref)
+            
+            # Remove source topic from context
+            self.context.topics.pop(source_filename, None)
+        
+        if removed_trefs:
+            # Keep pristine context in sync
+            if hasattr(self, "_orig_context") and self._orig_context:
+                import copy as _cpy
+                self._orig_context.ditamap_root = _cpy.deepcopy(self.context.ditamap_root)
+            
+            self._rebuild_preview()
+            self._restore_selection([target_tref])
+            
+            # Record merges in journal
+            for tref in removed_trefs:
+                href = tref.get("href", "")
+                self._edit_journal.append({"op": "merge", "href": href, "target": target_href})
+
+    def _copy_content_with_title(self, source_topic, target_topic):
+        """Copy content from source to target topic, preserving source title as emphasized text."""
+        from orlando_toolkit.core.utils import generate_dita_id
+        
+        # Get target body
+        target_body = target_topic.find("conbody")
+        if target_body is None:
+            target_body = ET.SubElement(target_topic, "conbody")
+        
+        # Get source title and body
+        source_title_el = source_topic.find("title")
+        source_body = source_topic.find("conbody")
+        
+        # Add source title as emphasized text (Option B format)
+        if source_title_el is not None and source_title_el.text:
+            title_p = ET.Element("p", id=generate_dita_id())
+            title_b = ET.SubElement(title_p, "b")
+            title_b.text = source_title_el.text.strip()
+            target_body.append(title_p)
+        
+        # Copy all content from source body
+        if source_body is not None:
+            from orlando_toolkit.core.merge import BLOCK_LEVEL_TAGS
+            from copy import deepcopy
+            
+            for child in list(source_body):
+                if child.tag in BLOCK_LEVEL_TAGS:
+                    # Deep copy and ensure unique IDs
+                    new_child = deepcopy(child)
+                    
+                    # Regenerate IDs to avoid duplicates
+                    if "id" in new_child.attrib:
+                        new_child.set("id", generate_dita_id())
+                    
+                    for el in new_child.xpath('.//*[@id]'):
+                        el.set("id", generate_dita_id())
+                    
+                    target_body.append(new_child)
 
     # ------------------------------------------------------------------
     # Structural mutations
@@ -445,75 +750,7 @@ class StructureTab(ttk.Frame):
                 href = tref.get("href", "")
                 self._edit_journal.append({"op": "move", "href": href, "dir": direction})
 
-    def _delete_selected(self):
-        selected = list(self.tree.selection())
-        if not selected:
-            return
 
-        # Confirmation dialog with merge options
-        dlg = CenteredDialog(self, "Delete module", (350, 200), "delete_confirm")
-        ttk.Label(dlg, text="Delete selected module(s):", font=("Arial", 11, "bold")).pack(anchor="w", padx=10, pady=(10, 4))
-
-        choice = tk.StringVar(value="delete")
-        ttk.Radiobutton(dlg, text="Delete permanently", variable=choice, value="delete").pack(anchor="w", padx=20)
-        ttk.Radiobutton(dlg, text="Merge content into previous sibling", variable=choice, value="prev").pack(anchor="w", padx=20)
-        ttk.Radiobutton(dlg, text="Merge content into parent module", variable=choice, value="parent").pack(anchor="w", padx=20)
-
-        btn_frm = ttk.Frame(dlg)
-        btn_frm.pack(pady=10)
-
-        def _do_ok():
-            dlg.grab_release()
-            dlg.destroy()
-
-            from orlando_toolkit.core.merge import _copy_content  # type: ignore
-
-            removed_trefs = []
-            changed = False
-
-            # process in visual order bottom-to-top to avoid index shift when removing
-            for sel in reversed(selected):
-                tref = self._item_map.get(sel)
-                if tref is None:
-                    continue
-                parent = tref.getparent()
-                if parent is None:
-                    continue
-
-                if choice.get() == "prev":
-                    idx = list(parent).index(tref)
-                    if idx == 0:
-                        target = parent  # fallback to parent if no previous
-                    else:
-                        sib = list(parent)[idx - 1]
-                        href = sib.get("href")
-                        target = self.context.topics.get(href.split("/")[-1]) if href else None
-                        if target is None:
-                            target = parent
-                elif choice.get() == "parent":
-                    href = parent.get("href")
-                    target = self.context.topics.get(href.split("/")[-1]) if href else None
-                else:
-                    target = None
-
-                # merge if target topic element exists and tref has topic
-                if target is not None and tref.get("href"):
-                    topic_el = self.context.topics.get(tref.get("href").split("/")[-1])
-                    if topic_el is not None:
-                        _copy_content(topic_el, target)
-
-                parent.remove(tref)
-                removed_trefs.append(tref)
-                changed = True
-
-            if changed:
-                self._rebuild_preview()
-                for t in removed_trefs:
-                    href = t.get("href", "")
-                    self._edit_journal.append({"op": "delete", "href": href})
-
-        ttk.Button(btn_frm, text="OK", command=_do_ok).pack(side="right", padx=10)
-        ttk.Button(btn_frm, text="Cancel", command=dlg.destroy).pack(side="right")
 
     # ------------------------------------------------------------------
     # Undo / Redo helpers
@@ -763,7 +1000,8 @@ class StructureTab(ttk.Frame):
         def _on_mousewheel(event):
             canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
 
-        canvas.bind_all("<MouseWheel>", _on_mousewheel)
+        # Bind to canvas only, not globally, to avoid dangling callbacks after dialog closes
+        canvas.bind("<MouseWheel>", _on_mousewheel)
 
     # ------------------------------------------------------------------
     # Context sync helper

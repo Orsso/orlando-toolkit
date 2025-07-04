@@ -88,3 +88,70 @@ gantt
     Update docs & user guide                         :p11i, after p11h, 1
     Regression & performance testing                 :p11j, after p11i, 1
     Final review & release                           :p11k, after p11j, 1
+
+    %% ------------------------------------------------------------------
+    %% PHASE 12 – Dynamic Section/Module Logic
+    %% ------------------------------------------------------------------
+    section Phase 12 - Dynamic Section/Module Decision
+    Architecture design & data structures           :done, p12a, after p11k, 2
+    Create HeadingNode model & hierarchy builder    :done, p12b, after p12a, 3
+    Implement structure analysis (Pass 1)           :done, p12c, after p12b, 2
+    Role determination algorithm                     :done, p12d, after p12c, 1
+    DITA generation from structure (Pass 2)         :done, p12e, after p12d, 3
+    Content block preservation & migration          :done, p12f, after p12e, 2
+    Integration with existing helpers                :done, p12g, after p12f, 1
+    Replace main conversion loop                     :done, p12h, after p12g, 2
+    Comprehensive testing & validation               :done, p12i, after p12h, 3
+    Performance benchmarking & optimization         :done, p12j, after p12i, 1
+    Documentation & code review                     :done, p12k, after p12j, 1
+    Final integration & regression testing          :done, p12l, after p12k, 2
+
+---
+
+## Phase 12 Implementation Summary (COMPLETED)
+
+**Objective:** Transform conversion from immediate topic creation to a two-pass approach that defers section vs module decisions until complete document structure is analyzed.
+
+### ✅ **Completed Deliverables:**
+
+#### **P12A-C: Architecture & Core Implementation**
+- **`HeadingNode`** dataclass in `core/models.py` for hierarchical document representation
+- **`structure_builder.py`** module with complete two-pass conversion logic:
+  - `build_document_structure()` - analyzes document and builds hierarchy
+  - `determine_node_roles()` - applies section vs module decision logic
+  - `generate_dita_from_structure()` - creates proper DITA topics
+  - `_add_content_to_topic()` - preserves all content formatting
+
+#### **P12D-E: Decision Logic & DITA Generation**
+- **Smart Role Determination**: `has_children()` → Section, `no_children()` → Module
+- **Orlando Compatibility**: Sections remain empty, modules contain content
+- **Recursive Processing**: Handles complex nested hierarchies correctly
+
+#### **P12F-H: Integration & Migration**
+- **Updated `convert_docx_to_dita()`** to use new two-pass approach
+- **Preserved All Functionality**: images, formatting, style mapping, metadata, table percentage widths
+- **Clean Import Structure**: proper module organization and exports
+
+#### **P12I-L: Testing & Cleanup**
+- **Dead Code Removal**: cleaned up old lazy-creation logic and unused imports
+- **Functionality Validation**: end-to-end testing with real documents
+- **Performance Verified**: two-pass approach maintains conversion speed
+
+### 🎯 **Success Criteria Met:**
+
+| Requirement | Status | Result |
+|-------------|--------|---------|
+| Single heading + content → Module (not Section + empty Module) | ✅ **ACHIEVED** | Document: "TABLEAU" + table → Module "TABLEAU" with content |
+| Heading + content + sub-headings → Section + Module + Sub-modules | ✅ **ACHIEVED** | Proper hierarchy with Orlando-compliant structure |
+| Zero regression in existing functionality | ✅ **ACHIEVED** | All existing features preserved |
+| Performance within acceptable limits | ✅ **ACHIEVED** | Two-pass approach efficient |
+| Orlando CMS compatibility | ✅ **ACHIEVED** | Generated DITA follows Orlando requirements |
+
+### 📁 **Files Modified:**
+- `core/models.py` - Added HeadingNode dataclass
+- `core/converter/structure_builder.py` - New two-pass conversion module
+- `core/converter/docx_to_dita.py` - Updated to use structure builder
+- `core/converter/__init__.py` - Updated exports
+
+### 🔄 **Architecture Impact:**
+The implementation maintains the project's pure-function, no-side-effects design while introducing a cleaner separation between document analysis and DITA generation phases.

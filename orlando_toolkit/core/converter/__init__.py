@@ -2,9 +2,18 @@ from __future__ import annotations
 
 """DOCX to DITA conversion logic.
 
-This sub-package provides the core conversion functionality, exposing
-stable interfaces for higher-level services while maintaining compatibility
-with existing workflows.
+This package contains the core conversion pipeline that transforms Word documents
+into Orlando-compliant DITA topics and ditamaps. The conversion follows a
+two-pass approach:
+
+1. Structure Analysis: Build hierarchical document representation
+2. Role Determination: Decide section vs module based on content
+3. DITA Generation: Create topics with correct Orlando semantics
+
+Key modules:
+- docx_to_dita: Main conversion entry point
+- structure_builder: Two-pass conversion implementation
+- helpers: Shared utilities for formatting and content processing
 """
 
 from typing import Any, Dict
@@ -16,9 +25,17 @@ from orlando_toolkit.core.models import DitaContext
 
 # Core conversion implementation
 from .docx_to_dita import convert_docx_to_dita
+from .structure_builder import (
+    build_document_structure,
+    determine_node_roles,
+    generate_dita_from_structure
+)
 
 __all__ = [
     "convert_docx_to_dita",
+    "build_document_structure",
+    "determine_node_roles",
+    "generate_dita_from_structure",
     "save_dita_package",
     "update_image_references_and_names",
     "update_topic_references_and_names",
@@ -26,9 +43,6 @@ __all__ = [
 ]
 
 logger = logging.getLogger(__name__)
-
-
-# convert_docx_to_dita now provided by .docx_to_dita
 
 
 def save_dita_package(context: DitaContext, output_dir: str) -> None:
@@ -45,7 +59,6 @@ def save_dita_package(context: DitaContext, output_dir: str) -> None:
     data_dir = os.path.join(output_dir, "DATA")
     topics_dir = os.path.join(data_dir, "topics")
     media_dir = os.path.join(data_dir, "media")
-    dtd_dir = os.path.join(data_dir, "dtd")
 
     # Directory for assets – we deliberately *do not* embed the DTD files
     # anymore, but we keep the variable in case relative paths are still used
@@ -82,7 +95,7 @@ def save_dita_package(context: DitaContext, output_dir: str) -> None:
 
 def update_image_references_and_names(context: DitaContext) -> DitaContext:
     """Rename image files and update hrefs inside all topic XML trees."""
-    logger.info("Updating image names and references (core.converter)…")
+    logger.info("Updating image names and references (core.converter)...")
 
     manual_code = context.metadata.get("manual_code", "MANUAL")
     prefix = context.metadata.get("prefix", "IMG")
@@ -115,7 +128,7 @@ def update_image_references_and_names(context: DitaContext) -> DitaContext:
 
 def update_topic_references_and_names(context: DitaContext) -> DitaContext:
     """Generate stable filenames for topics and update ditamap hrefs."""
-    logger.info("Updating topic filenames and references (core.converter)…")
+    logger.info("Updating topic filenames and references (core.converter)...")
 
     if not context.ditamap_root:
         return context
@@ -136,11 +149,6 @@ def update_topic_references_and_names(context: DitaContext) -> DitaContext:
 
     context.topics = new_topics
     return context
-
-
-# ---------------------------------------------------------------------------
-# Post-processing helper: remove empty topics and convert their refs to topichead
-# ---------------------------------------------------------------------------
 
 
 def prune_empty_topics(context: "DitaContext") -> "DitaContext":

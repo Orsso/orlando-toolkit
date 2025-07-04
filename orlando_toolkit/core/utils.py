@@ -6,7 +6,7 @@ These helpers are side-effect-free and contain no GUI or disk I/O; they can be
 used across all layers of the toolkit.
 """
 
-from typing import Any, Optional
+from typing import Any, Optional, Dict
 import re
 import uuid
 from lxml import etree as ET
@@ -92,7 +92,9 @@ def save_minified_xml_file(element: ET.Element, path: str, doctype_str: str) -> 
 # Colour mapping utilities (extracted from original converter)  [p3c]
 # ---------------------------------------------------------------------------
 
-def convert_color_to_outputclass(color_value: Optional[str]) -> Optional[str]:
+def convert_color_to_outputclass(
+    color_value: Optional[str], color_rules: Dict[str, Any]
+) -> Optional[str]:
     """Map Word colour representation to Orlando `outputclass` (red/green).
 
     The logic is unchanged from the legacy implementation, supporting:
@@ -103,58 +105,8 @@ def convert_color_to_outputclass(color_value: Optional[str]) -> Optional[str]:
     if not color_value:
         return None
 
-    color_mappings = {
-        # Reds ------------------------------------------------------------
-        "#ff0000": "color-red",
-        "#dc143c": "color-red",
-        "#b22222": "color-red",
-        "#8b0000": "color-red",
-        "#ff4500": "color-red",
-        "#cd5c5c": "color-red",
-        "#c0504d": "color-red",
-        "#da0000": "color-red",
-        "#ff1d1d": "color-red",
-        "#a60000": "color-red",
-        "#cc0000": "color-red",
-        "#800000": "color-red",
-        "#e74c3c": "color-red",
-        "#ee0000": "color-red",
-        # Greens ----------------------------------------------------------
-        "#008000": "color-green",
-        "#00ff00": "color-green",
-        "#32cd32": "color-green",
-        "#228b22": "color-green",
-        "#006400": "color-green",
-        "#adff2f": "color-green",
-        "#9acd32": "color-green",
-        "#00b050": "color-green",
-        "#00a300": "color-green",
-        "#1d7d1d": "color-green",
-        "#2e8b57": "color-green",
-        "#27ae60": "color-green",
-        # Blues -----------------------------------------------------------
-        "#0000ff": "color-blue",
-        "#1e90ff": "color-blue",
-        "#4169e1": "color-blue",
-        "#4682b4": "color-blue",
-        "#5b9bd5": "color-blue",  
-        "#2e75b6": "color-blue-dark",
-        # Ambers ----------------------------------------------------------
-        "#ffbf00": "color-amber",
-        "#ffc000": "color-amber",
-        # Cyans -----------------------------------------------------------
-        "#00ffff": "color-cyan",
-        "#00b0f0": "color-cyan",
-        # Yellows ---------------------------------------------------------
-        "#ffff00": "color-yellow",
-        "#fff200": "color-yellow",
-        # Background reds -------------------------------------------------
-        "background-light-red": "background-color-light-red",
-        "background-dark-blue": "background-color-dark-blue",
-        # Background green -----------------------------------------------
-        "background-color-green": "background-color-green",
-        "#c6efce": "background-color-green",
-    }
+    color_mappings = color_rules.get("color_mappings", {})
+    theme_map = color_rules.get("theme_map", {})
 
     color_lower = color_value.lower()
     if color_lower in color_mappings:
@@ -162,30 +114,49 @@ def convert_color_to_outputclass(color_value: Optional[str]) -> Optional[str]:
 
     if color_value.startswith("theme-"):
         theme_name = color_value[6:]
-        theme_map = {
-            "accent_1": "color-red",
-            "accent_6": "color-green",
-            "accent_5": "color-blue",  
-            "accent_2": "color-amber",
-            "accent_3": "color-cyan",
-            "accent_4": "color-yellow",
-        }
         return theme_map.get(theme_name)
 
     # Background colour tokens coming from shading (already prefixed)
     if color_value.startswith("background-"):
         return color_mappings.get(color_value)
 
-    if color_lower.startswith("#") and len(color_lower) == 7:
+    # ------------------------------------------------------------------
+    # HSV-based tolerance fallback (optional)
+    # ------------------------------------------------------------------
+    tolerance_cfg = color_rules.get("tolerance", {})
+    if color_lower.startswith("#") and len(color_lower) == 7 and tolerance_cfg:
         try:
-            r = int(color_lower[1:3], 16)
-            g = int(color_lower[3:5], 16)
-            b = int(color_lower[5:7], 16)
-            if r > g and r > b and r > 100 and (r > g + 20 or g < 150):
-                return "color-red"
-            if g > r and g > b and g > 100 and (g > r + 20 or r < 150):
-                return "color-green"
-        except ValueError:
+            r = int(color_lower[1:3], 16) / 255.0
+            g = int(color_lower[3:5], 16) / 255.0
+            b = int(color_lower[5:7], 16) / 255.0
+
+            import colorsys
+
+            h, s, v = colorsys.rgb_to_hsv(r, g, b)
+            h_deg = h * 360
+            s_pct = s * 100
+            v_pct = v * 100
+
+            for out_class, spec in tolerance_cfg.items():
+                # Extract ranges
+                hue_range = spec.get("hue")
+                hue2_range = spec.get("hue2")  # optional secondary segment (wrap-around)
+                sat_min = spec.get("sat_min", 0)
+                val_min = spec.get("val_min", 0)
+
+                def _in_range(hrange: list[int] | tuple[int, int] | None) -> bool:
+                    if not hrange:
+                        return False
+                    start, end = hrange
+                    return start <= h_deg <= end
+
+                if (
+                    (_in_range(hue_range) or _in_range(hue2_range))
+                    and s_pct >= sat_min
+                    and v_pct >= val_min
+                ):
+                    return out_class
+        except Exception:
             pass
 
     return None 

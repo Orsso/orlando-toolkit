@@ -1,13 +1,6 @@
-# Dépendances pour le projet OrlandoToolbox
 
-# Pour la manipulation des fichiers DITA (XML)
 lxml
-
-# Pour l'analyse des documents Word (.docx) et l'extraction d'images
 python-docx
-
-# Pour la manipulation d'images (création de vignettes, etc.)
 Pillow
-
-# Pour le thème visuel moderne de l'interface
 sv-ttk 
+pyyaml

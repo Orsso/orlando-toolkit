@@ -13,7 +13,7 @@ from typing import Dict, Any, Optional, Tuple
 
 from lxml import etree as ET  # type: ignore
 from docx.text.paragraph import Paragraph  # type: ignore
-from docx.enum.text import WD_ALIGN_PARAGRAPH  # type: ignore
+from docx.enum.text import WD_ALIGN_PARAGRAPH, WD_COLOR_INDEX  # type: ignore
 from docx.oxml.ns import qn  # type: ignore
 
 from orlando_toolkit.core.utils import (
@@ -21,6 +21,7 @@ from orlando_toolkit.core.utils import (
     generate_dita_id,
     convert_color_to_outputclass,
 )
+from orlando_toolkit.config.manager import ConfigManager
 
 __all__ = [
     "STYLE_MAP",
@@ -36,6 +37,25 @@ __all__ = [
 # ---------------------------------------------------------------------------
 
 STYLE_MAP: Dict[str, Any] = {}
+
+# ---------------------------------------------------------------------------
+# Wingdings/Webdings symbol normalisation
+# ---------------------------------------------------------------------------
+# Word check-boxes are often inserted as Wingdings glyphs that live in the
+# Private-Use Area (PUA).  Down-stream tool-chains rarely have a Wingdings font
+# so the PUA code-points render as blank squares.  We map the handful of
+# checkbox-related glyphs we care about to their public Unicode equivalents.
+
+WINGDINGS_TO_UNICODE: Dict[str, str] = {
+    # Unchecked box
+    "\uf0a3": "☐",
+    "\uf06f": "☐",  # Alternative from another font/version
+    # Checked box
+    "\uf0a4": "☑",
+    "\uf078": "☑",  # Alternative checked box
+    # Simple check mark
+    "\uf0a8": "✓",
+}
 
 # ---------------------------------------------------------------------------
 # DITA element builders
@@ -88,18 +108,116 @@ def add_orlando_topicmeta(map_root: ET.Element, metadata: Dict[str, Any]) -> Non
 # Paragraph processing helpers
 # ---------------------------------------------------------------------------
 
+def _get_all_paragraph_text_with_sdt(paragraph: Paragraph) -> str:
+    """Get all text from a paragraph including SDT content, in document order."""
+    try:
+        from docx.oxml.ns import qn
+        
+        full_text = ""
+        for child in paragraph._p:
+            if child.tag == qn('w:r'):
+                # Regular run
+                for t_elem in child.iter():
+                    if t_elem.tag == qn('w:t') and t_elem.text:
+                        full_text += t_elem.text
+            elif child.tag == qn('w:sdt'):
+                # SDT element - extract and convert text
+                sdt_text = ""
+                for t_elem in child.iter():
+                    if t_elem.tag == qn('w:t') and t_elem.text:
+                        sdt_text += t_elem.text
+                if sdt_text:
+                    converted_text = "".join(WINGDINGS_TO_UNICODE.get(ch, ch) for ch in sdt_text)
+                    full_text += converted_text
+        
+        return full_text
+    except Exception:
+        return paragraph.text  # Fallback to regular text
+
+def _split_mixed_table_content(paragraph: Paragraph) -> list[str]:
+    """Split paragraph content with mixed text and checkboxes into logical parts for table cells."""
+    try:
+        from docx.oxml.ns import qn
+        
+        parts = []
+        current_part = ""
+        
+        for child in paragraph._p:
+            if child.tag == qn('w:r'):
+                # Regular run - add to current part
+                for t_elem in child.iter():
+                    if t_elem.tag == qn('w:t') and t_elem.text:
+                        current_part += t_elem.text
+            elif child.tag == qn('w:sdt'):
+                # SDT element (checkbox) - finish current part and start new one
+                if current_part.strip():
+                    parts.append(current_part.strip())
+                    current_part = ""
+                
+                # Extract checkbox and add as separate part
+                sdt_text = ""
+                for t_elem in child.iter():
+                    if t_elem.tag == qn('w:t') and t_elem.text:
+                        sdt_text += t_elem.text
+                if sdt_text:
+                    converted_text = "".join(WINGDINGS_TO_UNICODE.get(ch, ch) for ch in sdt_text)
+                    if converted_text.strip():
+                        parts.append(converted_text.strip())
+        
+        # Add any remaining text
+        if current_part.strip():
+            parts.append(current_part.strip())
+        
+        # If no parts found, fall back to regular text
+        if not parts:
+            text = paragraph.text.strip()
+            if text:
+                parts.append(text)
+        
+        return parts
+    except Exception:
+        # Fallback to single part
+        text = paragraph.text.strip()
+        return [text] if text else []
+
 def _process_paragraph_runs(p_element: ET.Element, paragraph: Paragraph, image_map: dict, *, exclude_images: bool = False) -> None:  # noqa: D401,E501
     """Rebuild the runs of a Word paragraph into DITA inline markup."""
+    # Check if this paragraph has SDT content that regular runs miss
+    regular_text = paragraph.text or ""
+    sdt_aware_text = _get_all_paragraph_text_with_sdt(paragraph)
+    
+    # If SDT extraction found additional content, use simple text approach
+    if sdt_aware_text != regular_text and sdt_aware_text.strip():
+        p_element.text = sdt_aware_text
+        return
+    
     last_element: Optional[ET.Element] = None
 
     # python-docx ≥0.9.8 exposes iter_inner_content()
     try:
         content_items = list(paragraph.iter_inner_content())  # type: ignore[attr-defined]
     except AttributeError:
-        content_items = paragraph.runs  # type: ignore[attr-defined]
+        # Special case: if the paragraph has no runs but has text, create a simple text node
+        if not paragraph.runs and paragraph.text:
+            simple_text = _get_all_paragraph_text_with_sdt(paragraph)
+            if simple_text.strip():
+                p_element.text = simple_text
+            return
+
+        # If paragraph has no actual content, skip it
+        paragraph_text = _get_all_paragraph_text_with_sdt(paragraph)
+        if not paragraph.runs and not paragraph_text:
+            return
+        
+        # Fallback: collect runs including those inside SDT wrappers
+        content_items = []
+        for run in paragraph.runs:
+            content_items.append(run)
 
     current_group: list[str] = []
     current_formatting: Optional[Tuple[Tuple[str, ...], Optional[str]]] = None
+
+    color_rules = ConfigManager().get_color_rules()
 
     def finish_current_group() -> None:
         nonlocal current_group, current_formatting, last_element
@@ -117,7 +235,7 @@ def _process_paragraph_runs(p_element: ET.Element, paragraph: Paragraph, image_m
             if run_color:
                 target_element = ET.Element("ph", id=generate_dita_id())
                 target_element.set("class", "- topic/ph ")
-                color_class = convert_color_to_outputclass(run_color)
+                color_class = convert_color_to_outputclass(run_color, color_rules)
                 if color_class:
                     target_element.set("outputclass", color_class)
                 innermost_element = target_element
@@ -139,6 +257,8 @@ def _process_paragraph_runs(p_element: ET.Element, paragraph: Paragraph, image_m
                 _nest("i")
             if "underline" in formatting_tuple:
                 _nest("u")
+            if "superscript" in formatting_tuple:
+                _nest("sup")
 
             if innermost_element is not None:
                 innermost_element.text = consolidated_text
@@ -168,7 +288,13 @@ def _process_paragraph_runs(p_element: ET.Element, paragraph: Paragraph, image_m
             continue
 
         run = item  # regular run -------------------------------------------
-        run_text = run.text or ""
+        # ------------------------------------------------------------------
+        # Replace Wingdings PUA checkbox glyphs with their proper Unicode.
+        # We do not rely on `run.font.name` because some Word files lose the
+        # Wingdings font information during editing or template merging.
+        # ------------------------------------------------------------------
+        run_raw = run.text or ""
+        run_text = "".join(WINGDINGS_TO_UNICODE.get(ch, ch) for ch in run_raw)
         run_format = []
         if run.bold:
             run_format.append("bold")
@@ -176,13 +302,47 @@ def _process_paragraph_runs(p_element: ET.Element, paragraph: Paragraph, image_m
             run_format.append("italic")
         if run.underline:
             run_format.append("underline")
+        
+        # New check for superscript via direct XML property
+        vert_align = run.element.xpath("./w:rPr/w:vertAlign/@w:val")
+        if run.font.superscript or (vert_align and vert_align[0] == "superscript"):
+            run_format.append("superscript")
 
         # colour extraction (simplified)
         run_color: Optional[str] = None
         try:
             font_color = run.font.color  # type: ignore[attr-defined]
-            if font_color and font_color.rgb:
-                run_color = f"#{str(font_color.rgb).lower()}"
+            if font_color:
+                # 1) explicit RGB ------------------------------------------------
+                if font_color.rgb:
+                    run_color = f"#{str(font_color.rgb).lower()}"
+                # 2) theme (no tint/shade) -------------------------------------
+                elif getattr(font_color, "theme_color", None) and not (getattr(font_color, "tint", None) or getattr(font_color, "shade", None)):
+                    theme_name = font_color.theme_color.name.lower()  # type: ignore[attr-defined]
+                    run_color = f"theme-{theme_name}"
+                # 3) theme + tint/shade ----------------------------------------
+                elif getattr(font_color, "theme_color", None):
+                    theme_name = font_color.theme_color.name.lower()  # type: ignore[attr-defined]
+                    base_hex = color_rules.get("theme_rgb", {}).get(theme_name)
+                    if base_hex:
+                        tint = getattr(font_color, "tint", 0) or 0  # lighten (0..1)
+                        shade = getattr(font_color, "shade", 0) or 0  # darken (0..1)
+
+                        def _lerp(c: int, target: int, factor: float) -> int:
+                            return int(round(c + (target - c) * factor))
+
+                        r = int(base_hex[1:3], 16)
+                        g = int(base_hex[3:5], 16)
+                        b = int(base_hex[5:7], 16)
+                        if tint:
+                            r, g, b = (_lerp(v, 255, tint) for v in (r, g, b))
+                        elif shade:
+                            r, g, b = (_lerp(v, 0, shade) for v in (r, g, b))
+                        run_color = f"#{r:02x}{g:02x}{b:02x}"
+            # 4) highlight (background) ----------------------------------------
+            hl = run.font.highlight_color  # type: ignore[attr-defined]
+            if not run_color and hl is not None and hl != WD_COLOR_INDEX.AUTO:
+                run_color = f"background-{hl.name.lower()}"
         except Exception:
             pass
 
