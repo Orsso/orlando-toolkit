@@ -185,6 +185,10 @@ class StructureTab(ttk.Frame):
         else:
             self._heading_cache = {}
 
+        # Calculate section numbers for display
+        from orlando_toolkit.core.utils import calculate_section_numbers
+        section_numbers = calculate_section_numbers(self.context.ditamap_root)
+
         def _clean(txt: str) -> str:
             return " ".join(txt.split())
 
@@ -196,7 +200,15 @@ class StructureTab(ttk.Frame):
                 navtitle_el = tref.find("topicmeta/navtitle")
                 raw_title = navtitle_el.text if navtitle_el is not None else "(untitled)"
                 title = _clean(raw_title)
-                item_id = self.tree.insert(parent_id, "end", text=title)
+                
+                # Add section number to the display title
+                section_num = section_numbers.get(tref, "")
+                if section_num:
+                    display_title = f"{section_num}. {title}"
+                else:
+                    display_title = title
+                
+                item_id = self.tree.insert(parent_id, "end", text=display_title)
                 self._item_map[item_id] = tref
                 _add_topicref(tref, t_level + 1, item_id)
 
@@ -262,15 +274,9 @@ class StructureTab(ttk.Frame):
             self._progress.start()
             self.update_idletasks()
 
-            from orlando_toolkit.core.merge import merge_topics_below_depth
-
-            if self.context.metadata.get("merged_depth") != depth_limit:
-                merge_topics_below_depth(self.context, depth_limit)
-
-            # Apply heading exclusions on the fly
-            if self._excluded_styles and not self.context.metadata.get("merged_exclude_styles"):
-                from orlando_toolkit.core.merge import merge_topics_by_styles
-                merge_topics_by_styles(self.context, self._excluded_styles)
+            # Use unified merge function to handle both depth and style criteria in single pass
+            from orlando_toolkit.core.merge import merge_topics_unified
+            merge_topics_unified(self.context, depth_limit, self._excluded_styles)
 
             self._progress.stop()
             self._progress.grid_remove()
@@ -435,7 +441,15 @@ class StructureTab(ttk.Frame):
         def _do_rename():
             new_title = title_var.get().strip()
             if new_title and new_title != current_title:
-                # Update the topic title in the XML
+                # Snapshot for undo
+                self._push_undo_snapshot()
+                
+                # Update navtitle in the ditamap (both topicref and topichead)
+                navtitle_el = tref.find("topicmeta/navtitle")
+                if navtitle_el is not None:
+                    navtitle_el.text = new_title
+                
+                # Update topic XML title if this is a topicref with content
                 href = tref.get("href")
                 if href:
                     topic_filename = href.split("/")[-1]
@@ -444,10 +458,22 @@ class StructureTab(ttk.Frame):
                         title_el = topic_el.find("title")
                         if title_el is not None:
                             title_el.text = new_title
-                        
-                        # Rebuild preview to show changes
-                        self._rebuild_preview()
-                        self._restore_selection([tref])
+                
+                # Keep pristine context in sync
+                if hasattr(self, "_orig_context") and self._orig_context:
+                    import copy as _cpy
+                    self._orig_context.ditamap_root = _cpy.deepcopy(self.context.ditamap_root)
+                    # Also sync topics if this was a content topic
+                    if href and topic_filename in self.context.topics:
+                        self._orig_context.topics[topic_filename] = _cpy.deepcopy(self.context.topics[topic_filename])
+                
+                # Rebuild preview to show changes
+                self._rebuild_preview()
+                self._restore_selection([tref])
+                
+                # Record rename in journal
+                self._edit_journal.append({"op": "rename", "href": href or "", "new_title": new_title})
+                
             dlg.destroy()
         
         def _do_cancel():
@@ -716,7 +742,7 @@ class StructureTab(ttk.Frame):
                     selected_trefs.append(tref)
                     _shift_levels(tref, -1)
             elif direction == "demote":
-                # Use the left sibling of the *first* item as new parent
+                # Convert each demoted topic into its own section with content module
                 first_idx, tref_sample = items[0]
                 # Abort when no left sibling exists (cannot demote)
                 if first_idx == 0:
@@ -728,13 +754,15 @@ class StructureTab(ttk.Frame):
                 if cur_level + 1 > max_depth:
                     continue
 
-                anchor = list(parent)[first_idx - 1]
-                for _, tref in items:  # append in original visual order
-                    parent.remove(tref)
-                    anchor.append(tref)
-                    changed = True
-                    selected_trefs.append(tref)
-                    _shift_levels(tref, +1)
+                # NEW LOGIC: Each demoted topic becomes its own section
+                for _, tref in items:
+                    if tref.tag == "topicref" and tref.get("href"):
+                        # Convert this topic to a section with content module
+                        self._convert_topic_to_section(tref)
+                        changed = True
+                        selected_trefs.append(tref)
+                        # The content module is already at the right level (tref + 1)
+                        # No need to shift levels for the section itself
 
         if changed:
             # Keep pristine context in sync so heading cache rebuild sees nodes
@@ -856,8 +884,25 @@ class StructureTab(ttk.Frame):
                         parent.remove(tref)
                         grand.insert(pidx + 1, tref)
                 elif direction == "demote" and idx > 0:
-                    left = siblings[idx - 1]
-                    left.append(tref)
+                    # NEW LOGIC: Convert the topic itself to a section
+                    if tref.tag == "topicref" and tref.get("href"):
+                        self._convert_topic_to_section(tref)
+            elif op == "rename":
+                new_title = rec.get("new_title", "")
+                if new_title:
+                    # Update navtitle in ditamap
+                    navtitle_el = tref.find("topicmeta/navtitle")
+                    if navtitle_el is not None:
+                        navtitle_el.text = new_title
+                    
+                    # Update topic XML title if it has content
+                    if href:
+                        topic_filename = href.split("/")[-1]
+                        topic_el = self.context.topics.get(topic_filename)
+                        if topic_el is not None:
+                            title_el = topic_el.find("title")
+                            if title_el is not None:
+                                title_el.text = new_title
 
     # ------------------------------------------------------------------
     # Search helpers
@@ -1010,4 +1055,76 @@ class StructureTab(ttk.Frame):
     def _context_modified_sync(self, key: str, value):
         for ctx in (getattr(self, "_orig_context", None), getattr(self, "_main_context", None)):
             if ctx:
-                ctx.metadata[key] = value 
+                ctx.metadata[key] = value
+
+    def _convert_topic_to_section(self, topicref: ET.Element):
+        """Convert a content topicref to a topichead section with a content module child.
+        
+        This is needed when demoting topics under a content topic, which should
+        become a section to maintain proper DITA architecture.
+        """
+        if topicref.tag != "topicref" or not topicref.get("href"):
+            return  # Already a section or no content to preserve
+        
+        href = topicref.get("href")
+        topic_filename = href.split("/")[-1]
+        
+        # Get the original topic content (if it exists)
+        original_topic = self.context.topics.get(topic_filename) if self.context else None
+        
+        # Step 1: Convert topicref to topichead (remove href, change tag)
+        topicref.tag = "topichead"
+        topicref.attrib.pop("href", None)
+        
+        # Step 2: Create a new content module as first child
+        if original_topic is not None:
+            # Generate new filename for the content module
+            import uuid
+            new_filename = f"topic_{uuid.uuid4().hex[:10]}.dita"
+            
+            # Create new topicref for the content module
+            content_ref = ET.Element("topicref")
+            content_ref.set("href", f"topics/{new_filename}")
+            content_ref.set("locktitle", "yes")
+            
+            # Copy attributes from the original topicref (except href)
+            for attr, value in topicref.attrib.items():
+                if attr not in ("href",):
+                    content_ref.set(attr, value)
+            
+            # Adjust level for the content module (one level deeper)
+            current_level = int(topicref.get("data-level", 1))
+            content_ref.set("data-level", str(current_level + 1))
+            
+            # Copy topicmeta to the content module AND keep a copy on the section
+            original_meta = topicref.find("topicmeta")
+            if original_meta is not None:
+                # Create content module topicmeta (copy)
+                content_meta = ET.SubElement(content_ref, "topicmeta")
+                for meta_child in original_meta:
+                    # Deep copy each metadata element
+                    import copy as _copy
+                    content_meta.append(_copy.deepcopy(meta_child))
+                
+                # Keep the original topicmeta on the section (topichead)
+                # This ensures the section can be renamed
+            
+            # Insert content module as first child of the section
+            topicref.insert(0, content_ref)
+            
+            # Update the topics dictionary
+            if self.context:
+                # Update topic ID to match new filename
+                topic_id = new_filename.replace(".dita", "")
+                original_topic.set("id", topic_id)
+                
+                # Move topic to new filename
+                self.context.topics[new_filename] = original_topic
+                self.context.topics.pop(topic_filename, None)
+                
+                # Keep pristine context in sync
+                if hasattr(self, "_orig_context") and self._orig_context:
+                    import copy as _cpy
+                    if new_filename not in self._orig_context.topics:
+                        self._orig_context.topics[new_filename] = _cpy.deepcopy(original_topic)
+                    self._orig_context.topics.pop(topic_filename, None) 

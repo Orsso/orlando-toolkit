@@ -54,30 +54,14 @@ class ConversionService:
         depth_limit = int(context.metadata.get("topic_depth", 3))
 
         # ----------------------------------------------------------------
-        # 1) Merge deeper topics when not already done (realtime toggle off)
+        # 1) Apply unified merge (depth + style exclusions) in single pass
         # ----------------------------------------------------------------
-        from orlando_toolkit.core.merge import (
-            merge_topics_below_depth,
-            merge_topics_by_titles,
-            merge_topics_by_levels,
-            merge_topics_by_styles,
-        )
+        from orlando_toolkit.core.merge import merge_topics_unified
 
-        if context.metadata.get("merged_depth") != depth_limit:
-            merge_topics_below_depth(context, depth_limit)
-
-        # Heading style exclusions (e.g., exclude 'Heading 2')
-        excl_lvls = set(context.metadata.get("exclude_styles", []))
-        if excl_lvls and not context.metadata.get("merged_exclude_levels"):
-            merge_topics_by_levels(context, {int(l) for l in excl_lvls})
-
-        # (Legacy title-based exclusions kept for compatibility)
-        exclude_titles = set(context.metadata.get("exclude_headings", []))
-        if exclude_titles and not context.metadata.get("merged_exclude"):
-            merge_topics_by_titles(context, exclude_titles)
-
-        # Fine-grain style exclusions per level
+        # Build style exclusion map from all metadata sources
         style_excl_map: dict[int, set[str]] = {}
+        
+        # Fine-grain style exclusions per level (primary source)
         for key, val in context.metadata.get("exclude_style_map", {}).items():
             try:
                 lvl = int(key)
@@ -85,8 +69,22 @@ class ConversionService:
             except ValueError:
                 continue
 
-        if style_excl_map and not context.metadata.get("merged_exclude_styles"):
-            merge_topics_by_styles(context, style_excl_map)
+        # Heading level exclusions (convert to style map)
+        excl_lvls = set(context.metadata.get("exclude_styles", []))
+        for lvl in excl_lvls:
+            # Default style name for level-based exclusions
+            style_excl_map.setdefault(int(lvl), set()).add(f"Heading {lvl}")
+
+        # Apply unified merge if needed
+        if (context.metadata.get("merged_depth") != depth_limit or 
+            style_excl_map and not context.metadata.get("merged_exclude_styles")):
+            merge_topics_unified(context, depth_limit, style_excl_map or None)
+
+        # Handle legacy title-based exclusions separately (if still needed)
+        exclude_titles = set(context.metadata.get("exclude_headings", []))
+        if exclude_titles and not context.metadata.get("merged_exclude"):
+            from orlando_toolkit.core.merge import merge_topics_by_titles
+            merge_topics_by_titles(context, exclude_titles)
 
         # ---------------------------------------------------------------
         # 2) Prune now-empty topicrefs below depth_limit (structure only)

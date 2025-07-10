@@ -96,7 +96,7 @@ class ImageTab(ttk.Frame):
         # Help text
         help_text = ttk.Label(
             main_frame,
-            text="Images will be renamed according to the pattern: [PREFIX]-[MANUAL_CODE]-[SECTION]-[NUMBER]",
+            text="Images will be renamed with per-section numbering: [PREFIX]-[MANUAL_CODE]-[SECTION]-[NUMBER] (number only if multiple images in section)",
             font=("Arial", 10),
             foreground="gray",
         )
@@ -142,17 +142,59 @@ class ImageTab(ttk.Frame):
             self.image_listbox.insert(tk.END, "No images found.")
             return
 
-        # Nomenclature: [PREFIX]-[MANUAL_CODE]-[SECTION_NUMBER]-[IMAGE_NUMBER]
-        for i, original_filename in enumerate(self.context.images.keys()):
-            section_num = "0"
-            img_num = i + 1
-            extension = os.path.splitext(original_filename)[1]
+        # Create section number mapping and per-section numbering for images
+        image_names = self._create_per_section_image_names()
 
-            if manual_code:
-                new_filename = f"{prefix}-{manual_code}-{section_num}-{img_num}{extension}"
-            else:
-                new_filename = f"{prefix}-{section_num}-{img_num}{extension}"
+        # Display the new filenames in order
+        for original_filename in self.context.images.keys():
+            new_filename = image_names.get(original_filename, original_filename)
             self.image_listbox.insert(tk.END, new_filename)
+
+    def _create_per_section_image_names(self) -> dict[str, str]:
+        """Create new filenames with per-section image numbering."""
+        if not self.context or not self.context.ditamap_root:
+            return {}
+        
+        from orlando_toolkit.core.utils import find_topicref_for_image, get_section_number_for_topicref
+        
+        prefix = self.context.metadata.get("prefix", "")
+        manual_code = self.context.metadata.get("manual_code", "")
+        
+        # Group images by section
+        section_images = {}
+        for image_filename in self.context.images.keys():
+            topicref = find_topicref_for_image(image_filename, self.context)
+            if topicref is not None:
+                section_number = get_section_number_for_topicref(topicref, self.context.ditamap_root)
+            else:
+                section_number = "0"
+            
+            if section_number not in section_images:
+                section_images[section_number] = []
+            section_images[section_number].append(image_filename)
+        
+        # Generate new filenames with per-section numbering
+        image_names = {}
+        for section_number, images_in_section in section_images.items():
+            for i, image_filename in enumerate(images_in_section):
+                extension = os.path.splitext(image_filename)[1]
+                
+                # Base filename parts
+                if manual_code:
+                    base_name = f"{prefix}-{manual_code}-{section_number}"
+                else:
+                    base_name = f"{prefix}-{section_number}"
+                
+                # Add image number only if there are multiple images in this section
+                if len(images_in_section) > 1:
+                    img_num = i + 1
+                    new_filename = f"{base_name}-{img_num}{extension}"
+                else:
+                    new_filename = f"{base_name}{extension}"
+                
+                image_names[image_filename] = new_filename
+        
+        return image_names
 
     def on_image_select(self, event):
         """Callback when an image is selected in the listbox."""

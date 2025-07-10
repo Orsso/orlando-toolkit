@@ -66,36 +66,93 @@ def iter_block_items(parent: _Document | _Cell) -> Generator[Paragraph | Table, 
 
 def extract_images_to_context(doc: _Document, context: DitaContext) -> Dict[str, str]:
     """Populate *context.images* with image bytes and return rid→filename map."""
-
-    image_map_rid: Dict[str, str] = {}
-    image_counter = 1
+    
+    # First, collect all relationship data for quick lookup
+    rel_data: Dict[str, tuple[bytes, str]] = {}
     for rel_id, rel in doc.part.rels.items():
         if "image" in rel.target_ref:
             image_data = rel.target_part.blob
-            try:
-                img = Image.open(io.BytesIO(image_data))
+            ext = rel.target_ref.split('.')[-1].lower()
+            rel_data[rel_id] = (image_data, ext)
+    
+    # Now walk through document in order to collect image relationship IDs as they appear
+    image_map_rid: Dict[str, str] = {}
+    image_counter = 1
+    processed_rids = set()
+    
+    # Walk through document content in order
+    for block in iter_block_items(doc):
+        if isinstance(block, Paragraph):
+            for run in block.runs:
+                r_ids = run.element.xpath(".//@r:embed")
+                for r_id in r_ids:
+                    if r_id in rel_data and r_id not in processed_rids:
+                        processed_rids.add(r_id)
+                        image_data, ext = rel_data[r_id]
+                        
+                        try:
+                            img = Image.open(io.BytesIO(image_data))
 
-                # Convert everything to PNG for uniformity (fixes WMF issues)
-                png_buf = io.BytesIO()
-                # Ensure RGB(A) mode for safer conversion
-                if img.mode in ("P", "RGBA", "LA"):
-                    img = img.convert("RGBA")
-                else:
-                    img = img.convert("RGB")
+                            # Convert everything to PNG for uniformity (fixes WMF issues)
+                            png_buf = io.BytesIO()
+                            # Ensure RGB(A) mode for safer conversion
+                            if img.mode in ("P", "RGBA", "LA"):
+                                img = img.convert("RGBA")
+                            else:
+                                img = img.convert("RGB")
 
-                img.save(png_buf, format="PNG")
-                png_bytes = png_buf.getvalue()
+                            img.save(png_buf, format="PNG")
+                            png_bytes = png_buf.getvalue()
 
-                image_filename = f"image_{image_counter}.png"
-                context.images[image_filename] = png_bytes
-                image_map_rid[rel_id] = image_filename
-                image_counter += 1
-            except Exception as exc:
-                # Fallback: keep original bytes/format if Pillow cannot read (e.g., unsupported WMF)
-                logger.warning("Image conversion to PNG failed – keeping original: %s", exc)
-                ext = rel.target_ref.split('.')[-1].lower()
-                image_filename = f"image_{image_counter}.{ext}"
-                context.images[image_filename] = image_data
-                image_map_rid[rel_id] = image_filename
-                image_counter += 1
+                            image_filename = f"image_{image_counter}.png"
+                            context.images[image_filename] = png_bytes
+                            image_map_rid[r_id] = image_filename
+                            image_counter += 1
+                        except Exception as exc:
+                            # Fallback: keep original bytes/format if Pillow cannot read (e.g., unsupported WMF)
+                            logger.warning("Image conversion to PNG failed – keeping original: %s", exc)
+                            image_filename = f"image_{image_counter}.{ext}"
+                            context.images[image_filename] = image_data
+                            image_map_rid[r_id] = image_filename
+                            image_counter += 1
+                            
+        # Handle images in table cells
+        elif isinstance(block, Table):
+            for row in block.rows:
+                for cell in row.cells:
+                    for cell_block in iter_block_items(cell):
+                        if isinstance(cell_block, Paragraph):
+                            for run in cell_block.runs:
+                                r_ids = run.element.xpath(".//@r:embed")
+                                for r_id in r_ids:
+                                    if r_id in rel_data and r_id not in processed_rids:
+                                        processed_rids.add(r_id)
+                                        image_data, ext = rel_data[r_id]
+                                        
+                                        try:
+                                            img = Image.open(io.BytesIO(image_data))
+
+                                            # Convert everything to PNG for uniformity (fixes WMF issues)
+                                            png_buf = io.BytesIO()
+                                            # Ensure RGB(A) mode for safer conversion
+                                            if img.mode in ("P", "RGBA", "LA"):
+                                                img = img.convert("RGBA")
+                                            else:
+                                                img = img.convert("RGB")
+
+                                            img.save(png_buf, format="PNG")
+                                            png_bytes = png_buf.getvalue()
+
+                                            image_filename = f"image_{image_counter}.png"
+                                            context.images[image_filename] = png_bytes
+                                            image_map_rid[r_id] = image_filename
+                                            image_counter += 1
+                                        except Exception as exc:
+                                            # Fallback: keep original bytes/format if Pillow cannot read (e.g., unsupported WMF)
+                                            logger.warning("Image conversion to PNG failed – keeping original: %s", exc)
+                                            image_filename = f"image_{image_counter}.{ext}"
+                                            context.images[image_filename] = image_data
+                                            image_map_rid[r_id] = image_filename
+                                            image_counter += 1
+    
     return image_map_rid 

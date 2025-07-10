@@ -174,23 +174,16 @@ def generate_dita_from_structure(
         topic_id = file_name.replace(".dita", "")
         
         if node.role == "section":
-            # Create section topic (empty body for Orlando compatibility)
-            section_concept, _ = create_dita_concept(
-                node.text,
-                topic_id,
-                metadata.get("revision_date", datetime.now().strftime("%Y-%m-%d")),
-            )
-            
-            # Create topicref in ditamap
-            topicref = ET.SubElement(
+            # Create section as pure structural topichead (no topic file)
+            topichead = ET.SubElement(
                 parent_element,
-                "topicref",
-                {"href": f"topics/{file_name}", "locktitle": "yes"},
+                "topichead",
+                {"locktitle": "yes"},
             )
-            topicref.set("data-level", str(level))
+            topichead.set("data-level", str(level))
             
-            # Add topicmeta
-            topicmeta_ref = ET.SubElement(topicref, "topicmeta")
+            # Add topicmeta for section
+            topicmeta_ref = ET.SubElement(topichead, "topicmeta")
             navtitle_ref = ET.SubElement(topicmeta_ref, "navtitle")
             navtitle_ref.text = node.text
             critdates_ref = ET.SubElement(topicmeta_ref, "critdates")
@@ -202,13 +195,12 @@ def generate_dita_from_structure(
             
             # Preserve style information
             if node.style_name:
-                topicref.set("data-style", node.style_name)
+                topichead.set("data-style", node.style_name)
             
-            # Store in context
-            context.topics[file_name] = section_concept
-            parent_elements[level] = topicref
+            # Note: No topic file created for sections
+            parent_elements[level] = topichead
             
-            # If section has content, create a module child for it
+            # If section has content, create a content module child for it
             if node.has_content():
                 module_file = f"topic_{uuid.uuid4().hex[:10]}.dita"
                 module_id = module_file.replace(".dita", "")
@@ -222,9 +214,9 @@ def generate_dita_from_structure(
                 # Add content to module
                 _add_content_to_topic(module_conbody, node.content_blocks, all_images_map_rid)
                 
-                # Create module topicref as child of section
+                # Create module topicref as child of section topichead
                 module_topicref = ET.SubElement(
-                    topicref,
+                    topichead,
                     "topicref",
                     {"href": f"topics/{module_file}", "locktitle": "yes"},
                 )
@@ -238,7 +230,7 @@ def generate_dita_from_structure(
             # Process children recursively
             generate_dita_from_structure(
                 node.children, context, metadata, all_images_map_rid,
-                topicref, heading_counters, parent_elements
+                topichead, heading_counters, parent_elements
             )
             
         else:  # node.role == "module"

@@ -14,10 +14,8 @@ from orlando_toolkit.core.models import DitaContext  # noqa: F401
 from orlando_toolkit.core.utils import generate_dita_id
 
 __all__ = [
-    "merge_topics_below_depth",
-    "merge_topics_by_titles",
-    "merge_topics_by_levels",
-    "merge_topics_by_styles",
+    "merge_topics_by_titles", 
+    "merge_topics_unified",
 ]
 
 
@@ -75,129 +73,6 @@ def _copy_content(src_topic: ET.Element, dest_topic: ET.Element) -> None:
             dest_body.append(new_child)
 
 
-def merge_topics_below_depth(ctx: "DitaContext", depth_limit: int) -> None:  # noqa: D401
-    """Merge descendants deeper than *depth_limit* into their nearest ancestor.
-
-    The function modifies *ctx* in-place:
-        • Updates ctx.ditamap_root (removes pruned <topicref>s)
-        • Strips merged entries from ctx.topics
-        • Sets ctx.metadata["merged_depth"] = depth_limit
-    """
-
-    root = ctx.ditamap_root
-    if root is None:
-        return
-
-    removed_topics: Set[str] = set()
-
-    def _recurse(node: ET.Element, level: int, ancestor_topic_el: ET.Element | None):
-        """Depth-first walk that merges nodes beyond *depth_limit*.
-
-        Parameters
-        ----------
-        node
-            Current <topicref>/<topichead> container we are iterating over.
-        level
-            1-based depth inside the ditamap (root = 1).
-        ancestor_topic_el
-            The closest ancestor *topic* element (a node that **can** hold
-            ``conbody`` content). It stays the same while traversing through
-            section-only levels that do **not** reference a topic file.
-        """
-
-        for tref in list(node):
-            if tref.tag not in ("topicref", "topichead"):
-                continue
-
-            t_level = int(tref.get("data-level", level))
-
-            # Resolve the <topic> element that this topicref points to (if any)
-            href = tref.get("href")
-            topic_el: ET.Element | None = None
-            if href:
-                fname = href.split("/")[-1]
-                topic_el = ctx.topics.get(fname)
-
-            # The next ancestor‐candidate is either this topic_el (when it is
-            # a real topic) or the current ancestor_topic_el if this tref is a
-            # section-only container.
-            next_ancestor = topic_el if topic_el is not None else ancestor_topic_el
-
-            # When maximum depth is exceeded we attempt to merge the content
-            # into the *nearest* ancestor topic that can receive body
-            # children.  If such an ancestor does not exist we leave the node
-            # untouched so that its content is still rendered later.
-            if t_level > depth_limit:
-                if ancestor_topic_el is not None and topic_el is not None:
-                    # -- Merge -------------------------------------------------
-                    title_el = topic_el.find("title")
-                    if title_el is not None and title_el.text:
-                        clean_title = " ".join(title_el.text.split())
-                        head_p = ET.Element("p", id=generate_dita_id())
-                        head_p.text = clean_title
-
-                        parent_body = ancestor_topic_el.find("conbody")
-                        if parent_body is None:
-                            parent_body = ET.SubElement(ancestor_topic_el, "conbody")
-                        parent_body.append(head_p)
-
-                    _copy_content(topic_el, ancestor_topic_el)
-
-                    # Recurse so that grandchildren are merged as well (still
-                    # targeting the same *ancestor_topic_el*)
-                    _recurse(tref, t_level + 1, ancestor_topic_el)
-
-                    # Remove the now-merged topicref and mark topic for purge
-                    node.remove(tref)
-                    removed_topics.add(fname)
-                else:
-                    # Either no ancestor topic yet or topic_el is None.
-                    # If ancestor_topic_el is a *section* (has no href) but topic_el exists,
-                    # we need to create an own-content module under that section.
-                    if ancestor_topic_el is None and topic_el is not None:
-                        # Find nearest section <topicref> (node) to attach module
-                        section_container = node if node.tag in ("topicref", "topichead") else None
-                        if section_container is not None:
-                            target_mod = _ensure_content_module(ctx, section_container)
-                            # Copy title paragraph + body
-                            title_el = topic_el.find("title")
-                            if title_el is not None and title_el.text:
-                                clean_title = " ".join(title_el.text.split())
-                                head_p = ET.Element("p", id=generate_dita_id())
-                                head_p.text = clean_title
-                                tb = target_mod.find("conbody") or ET.SubElement(target_mod, "conbody")
-                                tb.append(head_p)
-
-                            _copy_content(topic_el, target_mod)
-
-                            # Recurse deeper merging into the *target_mod*
-                            _recurse(tref, t_level + 1, target_mod)
-
-                            # Remove source tref and purge
-                            node.remove(tref)
-                            removed_topics.add(fname)
-                            continue
-
-                    # Default: traverse deeper without removing
-                    _recurse(tref, t_level + 1, next_ancestor)
-            else:
-                # Depth within limit – keep traversing deeper.
-                _recurse(tref, t_level + 1, next_ancestor)
-
-    _recurse(root, 1, None)
-
-    # Purge merged topics from the map
-    for fname in removed_topics:
-        ctx.topics.pop(fname, None)
-
-    # Final cleanup: make sure section-only <topicref> elements do not retain body
-    for tref in root.xpath('.//topicref[not(@href)]'):
-        for body in tref.findall('conbody'):
-            tref.remove(body)
-
-    # Mark depth merged so we avoid double processing
-    ctx.metadata["merged_depth"] = depth_limit
-
 
 def _clean_title(raw: str | None) -> str:
     """Normalize *raw* heading text for reliable comparisons."""
@@ -209,8 +84,7 @@ def _clean_title(raw: str | None) -> str:
 def merge_topics_by_titles(ctx: "DitaContext", exclude_titles: set[str]) -> None:
     """Merge any topics whose *title* is in *exclude_titles* into their parent.
 
-    The comparison is case-insensitive and whitespace-insensitive.  Behaviour
-    is similar to :func:`merge_topics_below_depth` but operates on an explicit
+    The comparison is case-insensitive and whitespace-insensitive. This operates on an explicit
     list of forbidden titles, independent of depth.
     """
 
@@ -277,127 +151,7 @@ def merge_topics_by_titles(ctx: "DitaContext", exclude_titles: set[str]) -> None
     ctx.metadata["merged_exclude"] = True
 
 
-def merge_topics_by_levels(ctx: "DitaContext", exclude_levels: set[int]) -> None:
-    """Merge all topics whose *data-level* attribute is in *exclude_levels*.
 
-    This allows users to turn specific heading styles (e.g., all "Heading 2")
-    into mere sections, merging their content into the nearest ancestor topic.
-    """
-
-    if not exclude_levels or ctx.ditamap_root is None:
-        return
-
-    removed: Set[str] = set()
-
-    def _walk(node: ET.Element, level: int, ancestor_topic_el: ET.Element | None):
-        for tref in list(node):
-            if tref.tag not in ("topicref", "topichead"):
-                continue
-
-            t_level = int(tref.get("data-level", level))
-
-            href = tref.get("href")
-            topic_el = None
-            fname = None
-            if href:
-                fname = href.split("/")[-1]
-                topic_el = ctx.topics.get(fname)
-
-            next_ancestor = topic_el if topic_el is not None else ancestor_topic_el
-
-            if t_level in exclude_levels and ancestor_topic_el is not None:
-                # If the node has its own topic content, merge it first
-                if topic_el is not None:
-                    # Preserve heading title as paragraph
-                    title_el = topic_el.find("title")
-                    if title_el is not None and title_el.text:
-                        head_p = ET.Element("p", id=generate_dita_id())
-                        head_p.text = " ".join(title_el.text.split())
-                        parent_body = ancestor_topic_el.find("conbody")
-                        if parent_body is None:
-                            parent_body = ET.SubElement(ancestor_topic_el, "conbody")
-                        parent_body.append(head_p)
-
-                    _copy_content(topic_el, ancestor_topic_el)
-
-                # Recurse into children so grandchildren are kept/merged
-                _walk(tref, t_level + 1, ancestor_topic_el)
-
-                # Remove the excluded node itself
-                node.remove(tref)
-
-                if fname:
-                    removed.add(fname)
-            else:
-                _walk(tref, t_level + 1, next_ancestor)
-
-    _walk(ctx.ditamap_root, 1, None)
-
-    for fname in removed:
-        ctx.topics.pop(fname, None)
-
-    ctx.metadata["merged_exclude_levels"] = True
-
-
-def merge_topics_by_styles(ctx: "DitaContext", exclude_map: dict[int, set[str]]) -> None:
-    """Merge topics whose (level, style) matches *exclude_map*.
-
-    *exclude_map* maps heading level (int) to a set of style names to be
-    removed/merged into the parent. Style comparison is case-sensitive to
-    match Word names.
-    """
-
-    if not exclude_map or ctx.ditamap_root is None:
-        return
-
-    removed: Set[str] = set()
-
-    def _walk(node: ET.Element, level: int, ancestor_topic_el: ET.Element | None):
-        for tref in list(node):
-            if tref.tag not in ("topicref", "topichead"):
-                continue
-
-            t_level = int(tref.get("data-level", level))
-            style_name = tref.get("data-style", "")
-
-            href = tref.get("href")
-            topic_el = None
-            fname = None
-            if href:
-                fname = href.split("/")[-1]
-                topic_el = ctx.topics.get(fname)
-
-            next_ancestor = topic_el if topic_el is not None else ancestor_topic_el
-
-            if t_level in exclude_map and style_name in exclude_map[t_level] and ancestor_topic_el is not None:
-                # Preserve heading title paragraph then merge body content
-                if topic_el is not None:
-                    title_el = topic_el.find("title")
-                    if title_el is not None and title_el.text:
-                        head_p = ET.Element("p", id=generate_dita_id())
-                        head_p.text = " ".join(title_el.text.split())
-                        parent_body = ancestor_topic_el.find("conbody")
-                        if parent_body is None:
-                            parent_body = ET.SubElement(ancestor_topic_el, "conbody")
-                        parent_body.append(head_p)
-
-                    _copy_content(topic_el, ancestor_topic_el)
-
-                # Recurse into children
-                _walk(tref, t_level + 1, ancestor_topic_el)
-
-                node.remove(tref)
-                if fname:
-                    removed.add(fname)
-            else:
-                _walk(tref, t_level + 1, next_ancestor)
-
-    _walk(ctx.ditamap_root, 1, None)
-
-    for fname in removed:
-        ctx.topics.pop(fname, None)
-
-    ctx.metadata["merged_exclude_styles"] = True
 
 
 # ---------------------------------------------------------------------------
@@ -454,3 +208,236 @@ def _ensure_content_module(ctx: "DitaContext", section_tref: ET.Element) -> ET.E
     section_tref.insert(0, child_ref)
 
     return topic_el 
+
+
+def merge_topics_unified(ctx: "DitaContext", depth_limit: int, exclude_style_map: dict[int, set[str]] = None) -> None:
+    """Unified merge that handles both depth limits and style exclusions in a single pass.
+    
+    This replaces the problematic sequential approach that caused content loss.
+    Merges topics if they exceed depth_limit OR if their (level, style) is in exclude_style_map.
+    
+    Parameters
+    ----------
+    ctx : DitaContext
+        The context containing topics and ditamap to modify
+    depth_limit : int
+        Maximum allowed depth (topics deeper than this get merged)
+    exclude_style_map : dict[int, set[str]], optional
+        Map of level -> set of style names to exclude/merge
+    """
+    
+    if ctx.ditamap_root is None:
+        return
+        
+    exclude_style_map = exclude_style_map or {}
+    removed_topics: Set[str] = set()
+    
+    def _should_merge(tref: ET.Element) -> bool:
+        """Determine if a topicref should be merged based on depth OR style."""
+        # topichead elements are never merged (pure structure)
+        if tref.tag == "topichead":
+            return False
+            
+        t_level = int(tref.get("data-level", 1))  # Use actual data-level attribute
+        style_name = tref.get("data-style", "")
+        
+        # Merge if beyond depth limit
+        if t_level > depth_limit:
+            return True
+            
+        # Merge if style is excluded for this level
+        if t_level in exclude_style_map and style_name in exclude_style_map[t_level]:
+            return True
+            
+        return False
+    
+    def _recurse(node: ET.Element, level: int, ancestor_topic_el: ET.Element | None, ancestor_tref: ET.Element | None = None):
+        """Single-pass traversal that applies both depth and style criteria."""
+        
+        for tref in list(node):
+            if tref.tag not in ("topicref", "topichead"):
+                continue
+
+            t_level = int(tref.get("data-level", level))
+
+            # Resolve the topic element that this topicref points to (if any)
+            href = tref.get("href")
+            topic_el: ET.Element | None = None
+            fname = None
+            if href:
+                fname = href.split("/")[-1]
+                topic_el = ctx.topics.get(fname)
+
+            # Check if this topic should be merged (unified decision)
+            if _should_merge(tref):
+                if ancestor_topic_el is not None and topic_el is not None:
+                    # Merge: preserve title and copy content to ancestor
+                    title_el = topic_el.find("title")
+                    if title_el is not None and title_el.text:
+                        clean_title = " ".join(title_el.text.split())
+                        head_p = ET.Element("p", id=generate_dita_id())
+                        head_p.text = clean_title
+
+                        parent_body = ancestor_topic_el.find("conbody")
+                        if parent_body is None:
+                            parent_body = ET.SubElement(ancestor_topic_el, "conbody")
+                        parent_body.append(head_p)
+
+                    _copy_content(topic_el, ancestor_topic_el)
+
+                    # Recurse into children, still targeting same ancestor
+                    _recurse(tref, t_level + 1, ancestor_topic_el, ancestor_tref)
+
+                    # Remove merged topicref and mark topic for deletion
+                    node.remove(tref)
+                    removed_topics.add(fname)
+                    
+                elif ancestor_topic_el is None and topic_el is not None:
+                    # No ancestor yet but we have content - need to find/create one
+                    # Look for a content module in the parent structure
+                    parent_module = None
+                    current = node
+                    while current is not None and parent_module is None:
+                        if current.tag == "topichead":
+                            # Check if this topichead has a content module child
+                            for child in current:
+                                if child.tag == "topicref" and child.get("href"):
+                                    child_fname = child.get("href").split("/")[-1]
+                                    if child_fname in ctx.topics:
+                                        parent_module = ctx.topics[child_fname]
+                                        break
+                            if parent_module is None:
+                                # Create a content module for this topichead
+                                parent_module = _ensure_content_module(ctx, current)
+                        elif current.tag == "topicref" and current.get("href"):
+                            # Found a content-bearing topicref
+                            parent_fname = current.get("href").split("/")[-1]
+                            parent_module = ctx.topics.get(parent_fname)
+                        current = current.getparent()
+                    
+                    if parent_module is not None:
+                        # Copy title and content to the module
+                        title_el = topic_el.find("title")
+                        if title_el is not None and title_el.text:
+                            clean_title = " ".join(title_el.text.split())
+                            head_p = ET.Element("p", id=generate_dita_id())
+                            head_p.text = clean_title
+                            tb = parent_module.find("conbody") or ET.SubElement(parent_module, "conbody")
+                            tb.append(head_p)
+
+                        _copy_content(topic_el, parent_module)
+
+                        # Recurse deeper merging into the parent_module
+                        _recurse(tref, t_level + 1, parent_module, tref)
+
+                        # Remove source tref and mark for deletion
+                        node.remove(tref)
+                        removed_topics.add(fname)
+                        continue
+
+                    # Default: traverse deeper without removing (pass current ancestor)
+                    _recurse(tref, t_level + 1, ancestor_topic_el, ancestor_tref)
+                else:
+                    # No ancestor or no topic - just traverse deeper
+                    _recurse(tref, t_level + 1, ancestor_topic_el, ancestor_tref)
+            else:
+                # Not merging - traverse deeper with updated ancestor
+                # Only update ancestor if this is a topicref with content (has href)
+                if tref.tag == "topicref" and href and topic_el is not None:
+                    # This topicref can hold content, so it becomes the new ancestor
+                    next_ancestor_topic = topic_el
+                    next_ancestor_tref = tref
+                else:
+                    # topichead or no topic, keep current ancestor
+                    next_ancestor_topic = ancestor_topic_el
+                    next_ancestor_tref = ancestor_tref
+                    
+                _recurse(tref, t_level + 1, next_ancestor_topic, next_ancestor_tref)
+
+    # Start the unified traversal
+    _recurse(ctx.ditamap_root, 1, None, None)
+
+    # Clean up merged topics
+    for fname in removed_topics:
+        ctx.topics.pop(fname, None)
+
+    # Post-merge cleanup: collapse redundant section + content module structures
+    _collapse_redundant_sections(ctx)
+
+    # Note: No final cleanup needed since topichead elements don't have conbody
+
+    # Set metadata to indicate both operations completed
+    ctx.metadata["merged_depth"] = depth_limit
+    if exclude_style_map:
+        ctx.metadata["merged_exclude_styles"] = True
+
+
+def _collapse_redundant_sections(ctx: "DitaContext") -> None:
+    """Collapse topichead sections that have only a content module left.
+    
+    When filtering removes all children except the content module, the section/module
+    separation becomes redundant. This function merges them into a single topic.
+    """
+    if ctx.ditamap_root is None:
+        return
+    
+    def _find_collapsible_sections(node: ET.Element) -> list[ET.Element]:
+        """Find topichead sections that only have one content module child."""
+        collapsible = []
+        
+        for topichead in node.findall(".//topichead"):
+            # Count actual topicref children (not metadata)
+            children = [child for child in topichead if child.tag in ("topicref", "topichead")]
+            
+            # Section is collapsible if it has exactly one child with content
+            if len(children) == 1:
+                child = children[0]
+                child_href = child.get("href")
+                if child_href:
+                    # Verify the child topic exists
+                    child_fname = child_href.split("/")[-1]
+                    if child_fname in ctx.topics:
+                        collapsible.append(topichead)
+        
+        return collapsible
+    
+    # Find all collapsible sections
+    collapsible_sections = _find_collapsible_sections(ctx.ditamap_root)
+    
+    for section_topichead in collapsible_sections:
+        # Get the single content module child
+        content_child = None
+        for child in section_topichead:
+            if child.tag == "topicref" and child.get("href"):
+                content_child = child
+                break
+        
+        if content_child is None:
+            continue
+            
+        # Get the content module topic
+        content_href = content_child.get("href")
+        content_fname = content_href.split("/")[-1]
+        content_topic = ctx.topics.get(content_fname)
+        
+        if content_topic is None:
+            continue
+        
+        # Transfer section metadata to the content module
+        section_navtitle = section_topichead.find("topicmeta/navtitle")
+        if section_navtitle is not None and section_navtitle.text:
+            # Update content topic title to match section
+            content_title_el = content_topic.find("title")
+            if content_title_el is not None:
+                content_title_el.text = section_navtitle.text
+        
+        # Copy section attributes to content child
+        for attr, value in section_topichead.attrib.items():
+            content_child.set(attr, value)
+        
+        # Replace section with content module in the parent
+        parent = section_topichead.getparent()
+        if parent is not None:
+            parent_index = list(parent).index(section_topichead)
+            parent.remove(section_topichead)
+            parent.insert(parent_index, content_child) 

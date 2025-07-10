@@ -100,13 +100,39 @@ def update_image_references_and_names(context: DitaContext) -> DitaContext:
     manual_code = context.metadata.get("manual_code", "MANUAL")
     prefix = context.metadata.get("prefix", "IMG")
 
+    # Create per-section image naming
+    from orlando_toolkit.core.utils import find_topicref_for_image, get_section_number_for_topicref
+    
+    # Group images by section
+    section_images = {}
+    for image_filename in list(context.images.keys()):
+        topicref = find_topicref_for_image(image_filename, context)
+        if topicref is not None and context.ditamap_root is not None:
+            section_number = get_section_number_for_topicref(topicref, context.ditamap_root)
+        else:
+            section_number = "0"
+        
+        if section_number not in section_images:
+            section_images[section_number] = []
+        section_images[section_number].append(image_filename)
+    
+    # Generate new filenames with per-section numbering
     rename_map: dict[str, str] = {}
-    for i, original_filename in enumerate(list(context.images.keys())):
-        section_num = "0"  # placeholder until real section logic is added
-        img_num = i + 1
-        extension = os.path.splitext(original_filename)[1]
-        new_filename = f"{prefix}-{manual_code}-{section_num}-{img_num}{extension}"
-        rename_map[original_filename] = new_filename
+    for section_number, images_in_section in section_images.items():
+        for i, image_filename in enumerate(images_in_section):
+            extension = os.path.splitext(image_filename)[1]
+            
+            # Base filename parts
+            base_name = f"{prefix}-{manual_code}-{section_number}"
+            
+            # Add image number only if there are multiple images in this section
+            if len(images_in_section) > 1:
+                img_num = i + 1
+                new_filename = f"{base_name}-{img_num}{extension}"
+            else:
+                new_filename = f"{base_name}{extension}"
+            
+            rename_map[image_filename] = new_filename
 
     # Update href references in topic XML
     for topic_el in context.topics.values():
@@ -152,18 +178,14 @@ def update_topic_references_and_names(context: DitaContext) -> DitaContext:
 
 
 def prune_empty_topics(context: "DitaContext") -> "DitaContext":
-    """Convert topicrefs pointing to empty concepts into pure structural nodes.
+    """Remove topicrefs pointing to empty content modules.
 
-    A *module* must contain some body content.  If a generated <concept>
-    has an empty <conbody> (no child elements and no meaningful text) we
-    treat the corresponding heading as a *sub-section* instead of a module.
+    With the new architecture, sections are created as topichead elements,
+    but content modules might still end up empty in edge cases. This function
+    removes such empty modules and their topicrefs.
 
-    Implementation:
-    1.  Detect empty topics.
-    2.  Replace the <topicref href="…"> with a <topichead> (or a topicref
-        without @href) so that the map keeps the heading but no longer
-        references a topic file.
-    3.  Remove the topic from *context.topics* so it is not written.
+    Note: This is now mainly a safety net since sections are properly handled
+    during initial creation as topichead elements.
     """
 
     if context.ditamap_root is None:
@@ -171,10 +193,11 @@ def prune_empty_topics(context: "DitaContext") -> "DitaContext":
 
     empty_filenames: list[str] = []
 
-    # Detect empties -----------------------------------------------------
+    # Detect empty content modules
     for fname, topic_el in context.topics.items():
         conbody = topic_el.find("conbody")
         if conbody is None:
+            empty_filenames.append(fname)
             continue
 
         has_children = len(list(conbody)) > 0
@@ -186,15 +209,15 @@ def prune_empty_topics(context: "DitaContext") -> "DitaContext":
     if not empty_filenames:
         return context
 
-    # Transform refs & prune topics -------------------------------------
-
+    # Remove empty content modules
     for fname in empty_filenames:
         # Find corresponding topicref
         tref = context.ditamap_root.find(f".//topicref[@href='topics/{fname}']")
         if tref is not None:
-            # Convert to structural <topichead> node (no href needed)
-            tref.tag = "topichead"
-            tref.attrib.pop("href", None)
+            # Remove the entire topicref (content module should not exist if empty)
+            parent = tref.getparent()
+            if parent is not None:
+                parent.remove(tref)
         # Remove topic
         context.topics.pop(fname, None)
 
