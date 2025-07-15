@@ -25,8 +25,7 @@ echo                          +++++++*     *+++++++
 echo                             ++++*     *++++         
 echo                                 *     *    
 echo.
-echo                 Welcome to the O R L A N D O  T O O L K I T builder!
-echo.
+echo                      O R L A N D O  T O O L K I T 
 echo                                 Version 1.0                            
 echo.
 echo   +-- BUILD OVERVIEW -------------------------------------------------------+

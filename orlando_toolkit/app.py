@@ -62,6 +62,14 @@ class OrlandoToolkit:
         self.home_frame = ttk.Frame(self.root)
         self.home_frame.pack(expand=True, fill="both", padx=20, pady=20)
 
+        # Augment window height by 10% for the home page
+        self.root.update_idletasks()
+        cur_w = self.root.winfo_width()
+        cur_h = self.root.winfo_height()
+        if cur_w > 1 and cur_h > 1:
+            new_h = int(cur_h * 1.10)
+            self.root.geometry(f"{cur_w}x{new_h}")
+
         center = ttk.Frame(self.home_frame)
         center.place(relx=0.5, rely=0.5, anchor="center")
 
@@ -78,6 +86,10 @@ class OrlandoToolkit:
 
         ttk.Label(center, text="Orlando Toolkit", font=("Arial", 24, "bold")).pack(pady=20)
         ttk.Label(center, text="DOCX to DITA converter", font=("Arial", 12), foreground="gray").pack(pady=(0, 10))
+
+        # Centered version label at the bottom of the home page
+        version_label = ttk.Label(self.home_frame, text="v1.0", font=("Arial", 9), foreground="gray")
+        version_label.pack(side="bottom", pady=6)
 
         self.load_button = ttk.Button(center, text="Load Document (.docx)", style="Accent.TButton", command=self.start_conversion_workflow)
         self.load_button.pack(pady=20, ipadx=20, ipady=10)
@@ -270,7 +282,14 @@ class OrlandoToolkit:
         if self.generation_progress:
             self.generation_progress.stop()
             self._progress_dialog.destroy()
-        messagebox.showinfo("Success", f"Archive written to\n{save_path}")
+        disclaimer = (
+            "Disclaimer: Orlando Toolkit is currently in an early development stage. "
+            "All generated archives must be thoroughly reviewed by a human operator before use or publication."
+        )
+        messagebox.showinfo(
+            "Success",
+            f"Archive written to\n{save_path}\n\n{disclaimer}"
+        )
 
     def on_generation_failure(self, error: Exception):
         if self.generation_progress:

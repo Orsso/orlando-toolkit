@@ -448,9 +448,6 @@ def merge_topics_unified(ctx: "DitaContext", depth_limit: int, exclude_style_map
     if exclude_style_map:
         ctx.metadata["merged_exclude_styles"] = True
 
-    # Final step: disambiguate duplicate topic names across different sections
-    _disambiguate_duplicate_topic_names(ctx)
-
 
 def _collapse_redundant_sections(ctx: "DitaContext") -> None:
     """Collapse topichead sections that have only a content module left.
@@ -662,19 +659,3 @@ def _final_cleanup_orphaned_topics(ctx: "DitaContext") -> None:
         ctx.topics.pop(fname, None) 
 
 
-def _disambiguate_duplicate_topic_names(ctx: "DitaContext") -> None:
-    """Disambiguate topics that have identical names and could cause real confusion.
-    
-    This function is now disabled to prevent incorrect disambiguation of legitimate
-    topics that happen to share common functional names across different sections.
-    
-    Real duplicate conflicts are extremely rare in practice and the aggressive
-    disambiguation was causing more problems than it solved.
-    """
-    # DISABLED: The disambiguation logic was too aggressive and incorrectly
-    # treated legitimate different topics with common functional names
-    # (like "PARAMETRAGE SOFTWARE", "PREMIÈRE INSTALLATION") as duplicates.
-    # 
-    # In practice, true duplicates are rare and when they occur, users can
-    # handle them manually through the UI rename functionality.
-    pass 

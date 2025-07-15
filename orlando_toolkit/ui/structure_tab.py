@@ -75,8 +75,9 @@ class StructureTab(ttk.Frame):
         search_entry = ttk.Entry(search_frame, textvariable=self._search_var, width=18)
         search_entry.pack(side="left")
         search_entry.bind("<KeyRelease>", self._on_search_change)
-        ttk.Button(search_frame, text="⟲", width=2, command=lambda: self._search_nav(-1)).pack(side="left", padx=1)
-        ttk.Button(search_frame, text="⟳", width=2, command=lambda: self._search_nav(1)).pack(side="left", padx=1)
+        # Use ⏮ for previous and ⏭ for next
+        ttk.Button(search_frame, text="⏮", width=2, command=lambda: self._search_nav(-1)).pack(side="left", padx=1)
+        ttk.Button(search_frame, text="⏭", width=2, command=lambda: self._search_nav(1)).pack(side="left", padx=1)
 
         # --- Heading filter ---------------------------------------------
         ttk.Button(config_frame, text="Heading filter…", command=self._open_heading_filter).grid(row=0, column=4, padx=(20, 0))
@@ -1038,6 +1039,10 @@ class StructureTab(ttk.Frame):
         term = self._search_var.get().strip().lower()
         self._search_matches.clear()
         self._search_index = -1
+        # Remove previous highlights
+        for item_id in getattr(self, '_highlighted_search_items', []):
+            self.tree.item(item_id, tags=())
+        self._highlighted_search_items = []
         if not term:
             return
 
@@ -1045,6 +1050,14 @@ class StructureTab(ttk.Frame):
             title = self.tree.item(item_id, "text").lower()
             if term in title:
                 self._search_matches.append(item_id)
+
+        # Highlight all matches
+        for item_id in self._search_matches:
+            self.tree.item(item_id, tags=("search_match",))
+        self._highlighted_search_items = list(self._search_matches)
+
+        # Ensure tag style is set
+        self.tree.tag_configure("search_match", background="#ffe066")  # light yellow
 
         self._search_nav(1)
 

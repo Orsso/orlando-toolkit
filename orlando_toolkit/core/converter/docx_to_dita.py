@@ -118,4 +118,27 @@ def convert_docx_to_dita(file_path: str, metadata: Dict[str, Any]) -> DitaContex
         raise
 
     logger.info("Conversion finished.")
+
+    # --- Apply post-processing merge (depth + style exclusions) immediately ---
+    # This ensures solochild and other consolidation logic is always applied after conversion.
+    from orlando_toolkit.core.merge import merge_topics_unified
+    depth_limit = int(context.metadata.get("topic_depth", 3))
+    style_excl_map = {}
+    for key, val in context.metadata.get("exclude_style_map", {}).items():
+        try:
+            lvl = int(key)
+            style_excl_map.setdefault(lvl, set()).update(val)
+        except ValueError:
+            continue
+    excl_lvls = set(context.metadata.get("exclude_styles", []))
+    for lvl in excl_lvls:
+        style_excl_map.setdefault(int(lvl), set()).add(f"Heading {lvl}")
+    # Only merge if not already merged (should always be the case here)
+    if (context.metadata.get("merged_depth") != depth_limit or 
+        (style_excl_map and not context.metadata.get("merged_exclude_styles"))):
+        merge_topics_unified(context, depth_limit, style_excl_map or None)
+    # Set metadata flags to indicate merge is done
+    context.metadata["merged_depth"] = depth_limit
+    if style_excl_map:
+        context.metadata["merged_exclude_styles"] = True
     return context 
