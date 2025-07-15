@@ -22,7 +22,7 @@ Orlando Toolkit converts Microsoft Word (.docx) files into DITA archives that co
 * **Word-consistent heading detection** – Parser now respects Word's outline-level inheritance.
 * **Real-time depth merge** – Live preview shows exactly what the final ZIP will contain; enable/disable with a checkbox.
 * **PNG image normalisation** – WMF/EMF and other exotic formats are converted to PNG to ensure consistent rendering.
-* **One-click Python install in `build.bat`** – If Python 3.13 is missing, the build script installs it silently via `winget`.
+* **One-click Python install in `build.bat`** – If Python 3.13 is missing, the build script download a portable environnement.
 
 ---
 
