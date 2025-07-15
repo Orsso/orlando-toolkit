@@ -51,7 +51,7 @@ python run.py
 
 ### Option 3: Build Executable
 
-> ⚠️ On Windows the provided `build.bat` will silently install Python 3.13 via **winget** if it is not detected, so you can run the build out-of-the-box.
+> ⚠️ The provided `build.bat` will silently download a portable python environnement to build the executable. Nothing is installed on the machine. 
 
 ```bash
 # Windows
@@ -127,7 +127,6 @@ orlando_toolkit/
 - Inline formatting (bold, italic, underline)
 - Color coding (red, green, blue, amber, cyan, yellow)
 - Background highlighting
-- Hyperlinks and cross-references
 - Embedded images
 
 ---
