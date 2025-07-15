@@ -220,6 +220,9 @@ def generate_dita_from_structure(
                     "topicref",
                     {"href": f"topics/{module_file}", "locktitle": "yes"},
                 )
+                # Content modules should be one level deeper than their parent section
+                # to ensure they get merged properly during depth filtering
+                module_topicref.set("data-level", str(level + 1))
                 
                 tm = ET.SubElement(module_topicref, "topicmeta")
                 nt = ET.SubElement(tm, "navtitle")

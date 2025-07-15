@@ -235,7 +235,7 @@ def merge_topics_unified(ctx: "DitaContext", depth_limit: int, exclude_style_map
         The context containing topics and ditamap to modify
     depth_limit : int
         Maximum allowed depth (topics deeper than this get merged)
-    exclude_style_map : dict[int, set[str]], optional
+    exclude_style_map : dict[int, set[str], optional
         Map of level -> set of style names to exclude/merge
     """
     
@@ -275,6 +275,78 @@ def merge_topics_unified(ctx: "DitaContext", depth_limit: int, exclude_style_map
                 continue
 
             t_level = int(tref.get("data-level", level))
+
+            # Special handling for sections at the depth limit that have children
+            if tref.tag == "topichead" and t_level == depth_limit:
+                # This section is at the depth limit and should become a topic
+                # First, create a content module to collect all merged content
+                section_children = [child for child in tref if child.tag in ("topicref", "topichead")]
+                
+                if section_children:
+                    # Create content module for the section
+                    content_module = _ensure_content_module(ctx, tref)
+                    topichead_modules[tref] = content_module
+                    
+                    # Now process all children, merging them into the content module
+                    _recurse(tref, t_level + 1, content_module, tref)
+                    
+                    # After processing children, convert the section to a topic
+                    # The content module now contains all the merged content
+                    
+                    # Get section title and metadata
+                    section_title_el = tref.find("topicmeta/navtitle")
+                    title_txt = section_title_el.text if section_title_el is not None and section_title_el.text else "Untitled"
+                    
+                    # Create new topic to replace the section
+                    new_id = generate_dita_id()
+                    fname = f"topic_{new_id}.dita"
+                    
+                    # Build topic element with the content from the content module
+                    topic_el = _new_topic_with_title(title_txt)
+                    
+                    # Copy all content from the content module to this topic
+                    module_body = content_module.find("conbody")
+                    if module_body is not None:
+                        topic_body = ET.SubElement(topic_el, "conbody")
+                        for child in list(module_body):
+                            topic_body.append(deepcopy(child))
+                    
+                    # Register the new topic
+                    ctx.topics[fname] = topic_el
+                    
+                    # Create topicref to replace the section
+                    new_tref = ET.Element("topicref", href=f"topics/{fname}")
+                    new_tref.set("data-level", str(t_level))
+                    
+                    # Copy section attributes
+                    for attr, value in tref.attrib.items():
+                        if attr not in ("data-level",):  # We already set data-level
+                            new_tref.set(attr, value)
+                    
+                    # Add navigation metadata
+                    nav = ET.SubElement(new_tref, "topicmeta")
+                    navtitle = ET.SubElement(nav, "navtitle")
+                    navtitle.text = normalize_topic_title(title_txt)
+                    
+                    # Replace section with topic in parent
+                    parent = tref.getparent()
+                    if parent is not None:
+                        section_index = list(parent).index(tref)
+                        parent.remove(tref)
+                        parent.insert(section_index, new_tref)
+                    
+                    # Clean up the content module topic since its content is now merged
+                    # Find and remove the content module topicref and topic
+                    for child_fname in list(ctx.topics.keys()):
+                        if ctx.topics[child_fname] is content_module:
+                            ctx.topics.pop(child_fname, None)
+                            break
+                    
+                    continue
+                else:
+                    # Empty section at depth limit - convert to empty topic
+                    _convert_empty_section_to_topic(ctx, tref)
+                    continue
 
             # Resolve the topic element that this topicref points to (if any)
             href = tref.get("href")
@@ -539,7 +611,10 @@ def _optimize_remaining_sections(ctx: "DitaContext", depth_limit: int) -> None:
                     topic_children = [c for c in child if c.tag == "topicref" and c.get("href")]
                     level = int(child.get("data-level", 1))
                     
-                    if len(topic_children) == 1:
+                    if len(topic_children) == 0:
+                        # Empty section - needs content module to preserve section identity
+                        sections_to_optimize.append(("empty", child, []))
+                    elif len(topic_children) == 1:
                         # Solo child - always optimize
                         sections_to_optimize.append(("solo", child, topic_children[0]))
                     elif len(topic_children) > 1 and level == depth_limit:
@@ -553,7 +628,10 @@ def _optimize_remaining_sections(ctx: "DitaContext", depth_limit: int) -> None:
         
         # Apply optimizations
         for opt_type, section, children in sections_to_optimize:
-            if opt_type == "solo":
+            if opt_type == "empty":
+                _convert_empty_section_to_topic(ctx, section)
+                changes_made = True
+            elif opt_type == "solo":
                 _promote_solo_child_safe(ctx, section, children)
                 changes_made = True
             elif opt_type == "multi":
@@ -563,6 +641,47 @@ def _optimize_remaining_sections(ctx: "DitaContext", depth_limit: int) -> None:
         # If no changes were made, we're done
         if not changes_made:
             break
+
+
+def _convert_empty_section_to_topic(ctx: "DitaContext", section: ET.Element) -> None:
+    """Convert an empty section (topichead with no children) into a topic."""
+    try:
+        # Get section title
+        section_title_el = section.find("topicmeta/navtitle")
+        title_txt = section_title_el.text if section_title_el is not None and section_title_el.text else "Untitled"
+        
+        # Create a new topic for this section
+        new_id = generate_dita_id()
+        fname = f"topic_{new_id}.dita"
+        
+        # Build topic element
+        topic_el = _new_topic_with_title(title_txt)
+        
+        # Register in topics map
+        ctx.topics[fname] = topic_el
+        
+        # Create topicref to replace the section
+        new_tref = ET.Element("topicref", href=f"topics/{fname}")
+        
+        # Copy all attributes from the section
+        for attr, value in section.attrib.items():
+            new_tref.set(attr, value)
+        
+        # Add navigation metadata
+        nav = ET.SubElement(new_tref, "topicmeta")
+        navtitle = ET.SubElement(nav, "navtitle")
+        navtitle.text = normalize_topic_title(title_txt)
+        
+        # Replace section with topic in parent
+        parent = section.getparent()
+        if parent is not None:
+            section_index = list(parent).index(section)
+            parent.remove(section)
+            parent.insert(section_index, new_tref)
+            
+    except Exception:
+        # If conversion fails, skip silently
+        pass
 
 
 def _promote_solo_child_safe(ctx: "DitaContext", section: ET.Element, child: ET.Element) -> None:
@@ -656,6 +775,6 @@ def _final_cleanup_orphaned_topics(ctx: "DitaContext") -> None:
     # Remove unreferenced topics
     orphaned_topics = set(ctx.topics.keys()) - referenced_topics
     for fname in orphaned_topics:
-        ctx.topics.pop(fname, None) 
+        ctx.topics.pop(fname, None)
 
 

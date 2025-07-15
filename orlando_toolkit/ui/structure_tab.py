@@ -12,6 +12,7 @@ from typing import Optional
 import copy
 import tkinter as tk
 from tkinter import ttk
+import uuid
 from lxml import etree as ET
 from orlando_toolkit.ui.dialogs import CenteredDialog
 from orlando_toolkit.core.utils import normalize_topic_title
@@ -39,25 +40,28 @@ class StructureTab(ttk.Frame):
         config_frame = ttk.LabelFrame(self, text="Topic splitting", padding=15)
         config_frame.pack(fill="x", padx=10, pady=10)
 
-        ttk.Label(config_frame, text="Maximum heading level that starts a topic:").grid(row=0, column=0, sticky="w")
+        # Configure grid columns to expand properly
+        config_frame.columnconfigure(1, weight=1)  # Middle column expands
+
+        # Row 0: Main controls (depth setting and structural editing)
+        control_row = ttk.Frame(config_frame)
+        control_row.grid(row=0, column=0, columnspan=3, sticky="we", pady=(0, 8))
+        
+        # Depth setting
+        ttk.Label(control_row, text="Maximum heading level that starts a topic:").pack(side="left")
         depth_spin = ttk.Spinbox(
-            config_frame,
+            control_row,
             from_=1,
             to=9,
             textvariable=self._depth_var,
             width=3,
             command=self._on_depth_spin,
         )
-        depth_spin.grid(row=0, column=1, sticky="w", padx=(5, 0))
-
-        # Progress bar (hidden by default)
-        self._progress = ttk.Progressbar(config_frame, mode="indeterminate")
-        self._progress.grid(row=2, column=0, columnspan=3, sticky="we", pady=(4, 0))
-        self._progress.grid_remove()
+        depth_spin.pack(side="left", padx=(5, 15))
 
         # --- Toolbar for structural editing --------------------------------
-        toolbar = ttk.Frame(config_frame)
-        toolbar.grid(row=0, column=2, padx=(15, 0))
+        toolbar = ttk.Frame(control_row)
+        toolbar.pack(side="left", padx=(0, 15))
 
         self._btn_up = ttk.Button(toolbar, text="↑", width=3, command=lambda: self._move("up"))
         self._btn_down = ttk.Button(toolbar, text="↓", width=3, command=lambda: self._move("down"))
@@ -65,22 +69,37 @@ class StructureTab(ttk.Frame):
         self._btn_right = ttk.Button(toolbar, text="▶", width=3, command=lambda: self._move("demote"))
 
         for i, b in enumerate((self._btn_up, self._btn_down, self._btn_left, self._btn_right)):
-            b.grid(row=0, column=i, padx=1)
+            b.pack(side="left", padx=1)
+
+        # Row 1: Search and filter controls
+        filter_row = ttk.Frame(config_frame)
+        filter_row.grid(row=1, column=0, columnspan=3, sticky="we", pady=(0, 8))
 
         # --- Search bar --------------------------------------------------
-        search_frame = ttk.Frame(config_frame)
-        search_frame.grid(row=0, column=3, padx=(20, 0))
+        search_frame = ttk.Frame(filter_row)
+        search_frame.pack(side="left")
         ttk.Label(search_frame, text="Search:").pack(side="left")
         self._search_var = tk.StringVar()
         search_entry = ttk.Entry(search_frame, textvariable=self._search_var, width=18)
-        search_entry.pack(side="left")
+        search_entry.pack(side="left", padx=(5, 5))
         search_entry.bind("<KeyRelease>", self._on_search_change)
         # Use ⏮ for previous and ⏭ for next
         ttk.Button(search_frame, text="⏮", width=2, command=lambda: self._search_nav(-1)).pack(side="left", padx=1)
         ttk.Button(search_frame, text="⏭", width=2, command=lambda: self._search_nav(1)).pack(side="left", padx=1)
 
         # --- Heading filter ---------------------------------------------
-        ttk.Button(config_frame, text="Heading filter…", command=self._open_heading_filter).grid(row=0, column=4, padx=(20, 0))
+        ttk.Button(filter_row, text="Heading filter…", command=self._open_heading_filter).pack(side="left", padx=(15, 15))
+
+        # --- Tree control buttons ----------------------------------------
+        tree_controls = ttk.Frame(filter_row)
+        tree_controls.pack(side="right")
+        ttk.Button(tree_controls, text="⊟ Collapse All", command=self._collapse_all).pack(side="left", padx=1)
+        ttk.Button(tree_controls, text="⊞ Expand All", command=self._expand_all_items).pack(side="left", padx=1)
+
+        # Progress bar (hidden by default)
+        self._progress = ttk.Progressbar(config_frame, mode="indeterminate")
+        self._progress.grid(row=2, column=0, columnspan=3, sticky="we", pady=(4, 0))
+        self._progress.grid_remove()
 
         # Internal search state
         self._search_matches: list[str] = []  # tree item IDs
@@ -88,6 +107,10 @@ class StructureTab(ttk.Frame):
 
         # Excluded styles state
         self._excluded_styles: dict[int, set[str]] = {}
+
+        # Tree expansion state tracking
+        self._expansion_state: dict[str, bool] = {}  # item_id -> expanded
+        self._allow_collapse: bool = True  # Control whether collapsing is allowed
 
         # Remember geometry of auxiliary dialogs for consistent placement
         self._filter_geom: str | None = None
@@ -100,10 +123,23 @@ class StructureTab(ttk.Frame):
         self.tree = ttk.Treeview(preview_frame, show="tree", selectmode="extended")
         self.tree.pack(side="left", expand=True, fill="both")
 
-        # Prevent collapsing: re-open any item that tries to close
-        self.tree.bind("<<TreeviewClose>>", self._on_close_attempt)
+        # Configure tree appearance for better visual feedback
+        self.tree.tag_configure("section", foreground="#0066cc")  # Blue for sections
+        self.tree.tag_configure("module", foreground="#006600")   # Green for modules
+        self.tree.tag_configure("search_match", background="#ffe066")  # Yellow for search
+
+        # Enhanced tree styling for better arrow visibility
+        self._setup_treeview_styling()
+
+        # Handle tree events with proper timing to avoid conflicts
+        self._double_click_pending = False
+        
+        # Allow natural tree expand/collapse behavior
+        self.tree.bind("<<TreeviewOpen>>", self._on_item_expand)
+        self.tree.bind("<<TreeviewClose>>", self._on_item_collapse)
         self.tree.bind("<<TreeviewSelect>>", self._update_toolbar_state)
-        self.tree.bind("<Double-1>", self._on_item_preview)
+        self.tree.bind("<Button-1>", self._on_single_click)
+        self.tree.bind("<Double-1>", self._on_double_click)
         self.tree.bind("<Button-3>", self._on_right_click)  # Right-click context menu
 
         # Global shortcuts for undo/redo
@@ -165,6 +201,10 @@ class StructureTab(ttk.Frame):
     # ------------------------------------------------------------------
 
     def _rebuild_preview(self):
+        # Save current expansion state before rebuilding
+        if self.tree.get_children(""):
+            self._save_expansion_state()
+            
         self.tree.delete(*self.tree.get_children())
         if self.context is None or self.context.ditamap_root is None:
             return
@@ -210,16 +250,17 @@ class StructureTab(ttk.Frame):
                 else:
                     display_title = title
                 
-                item_id = self.tree.insert(parent_id, "end", text=display_title)
+                # Determine visual tag based on element type
+                tag = "section" if tref.tag == "topichead" else "module"
+                
+                item_id = self.tree.insert(parent_id, "end", text=display_title, tags=(tag,))
                 self._item_map[item_id] = tref
                 _add_topicref(tref, t_level + 1, item_id)
 
         _add_topicref(self.context.ditamap_root, 1)
 
-        # Expand everything so the hierarchy is fully visible
-        for itm in self.tree.get_children(""):
-            self.tree.item(itm, open=True)
-            self._expand_all(itm)
+        # Restore expansion state or expand all by default
+        self._restore_expansion_state()
 
         self._update_toolbar_state()
 
@@ -289,27 +330,169 @@ class StructureTab(ttk.Frame):
         self._rebuild_preview()
 
     # ------------------------------------------------------------------
-    # Helpers
+    # Tree expansion/collapse management
     # ------------------------------------------------------------------
 
-    def _expand_all(self, item):
-        for child in self.tree.get_children(item):
-            self.tree.item(child, open=True)
-            self._expand_all(child)
+    def _get_item_key(self, item):
+        """Get a stable key for tracking expansion state across rebuilds."""
+        if item in self._item_map:
+            tref = self._item_map[item]
+            # Use topicref element pointer or create a path-based key
+            navtitle_el = tref.find("topicmeta/navtitle")
+            title = navtitle_el.text if navtitle_el is not None else "(untitled)"
+            level = tref.get("data-level", "1")
+            return f"{level}:{title}"
+        return self.tree.item(item, "text")
 
-    def _on_close_attempt(self, event):
+    def _save_expansion_state(self):
+        """Save current expansion state of all tree items."""
+        def _save_recursive(item):
+            key = self._get_item_key(item)
+            self._expansion_state[key] = self.tree.item(item, "open")
+            for child in self.tree.get_children(item):
+                _save_recursive(child)
+        
+        for root_item in self.tree.get_children(""):
+            _save_recursive(root_item)
+
+    def _restore_expansion_state(self):
+        """Restore saved expansion state, or expand all if no state saved."""
+        def _restore_recursive(item):
+            key = self._get_item_key(item)
+            if key in self._expansion_state:
+                is_expanded = self._expansion_state[key]
+                self.tree.item(item, open=is_expanded)
+            else:
+                # Default to expanded for new items
+                self.tree.item(item, open=True)
+            for child in self.tree.get_children(item):
+                _restore_recursive(child)
+        
+        for root_item in self.tree.get_children(""):
+            _restore_recursive(root_item)
+
+    def _expand_all_items(self):
+        """Expand all tree items."""
+        def _expand_recursive(item):
+            self.tree.item(item, open=True)
+            for child in self.tree.get_children(item):
+                _expand_recursive(child)
+        
+        for root_item in self.tree.get_children(""):
+            _expand_recursive(root_item)
+        
+        # Update state tracking
+        self._save_expansion_state()
+
+    def _collapse_all(self):
+        """Collapse all tree items."""
+        def _collapse_recursive(item):
+            self.tree.item(item, open=False)
+            for child in self.tree.get_children(item):
+                _collapse_recursive(child)
+        
+        for root_item in self.tree.get_children(""):
+            _collapse_recursive(root_item)
+        
+        # Update state tracking
+        self._save_expansion_state()
+
+    def _on_item_expand(self, event):
+        """Handle tree item expansion."""
         item = self.tree.focus()
         if item:
-            self.tree.item(item, open=True)
-        return "break"
+            key = self._get_item_key(item)
+            self._expansion_state[key] = True
 
-    def _on_item_preview(self, event):
+    def _on_item_collapse(self, event):
+        """Handle tree item collapse."""
         item = self.tree.focus()
+        if item and self._allow_collapse:
+            key = self._get_item_key(item)
+            self._expansion_state[key] = False
+        elif item and not self._allow_collapse:
+            # If collapsing is disabled, reopen the item
+            self.tree.item(item, open=True)
+            return "break"
+
+    def _setup_treeview_styling(self):
+        """Configure enhanced treeview styling for better arrow visibility."""
+        try:
+            style = ttk.Style()
+            
+            # Create a custom style for our treeview
+            style_name = "Enhanced.Treeview"
+            
+            # Configure the treeview style with better visual contrast
+            style.configure(style_name,
+                          background="white",
+                          foreground="black",
+                          fieldbackground="white",
+                          borderwidth=1,
+                          relief="solid",
+                          focuscolor="none")  # Remove focus rectangle
+            
+            # Map colors for different states with high contrast
+            style.map(style_name,
+                     background=[('selected', '#0078D4'),
+                               ('active', '#E5F3FF')],
+                     foreground=[('selected', 'white'),
+                               ('active', 'black')])
+            
+            # Apply the custom style to our treeview
+            self.tree.configure(style=style_name)
+            
+        except Exception as e:
+            # If styling fails, continue with default appearance
+            print(f"Warning: Enhanced treeview styling failed: {e}")
+
+    # ------------------------------------------------------------------
+    # Click event handling
+    # ------------------------------------------------------------------
+
+    def _on_single_click(self, event):
+        """Handle single-click on tree items - just selection for now."""
+        # Let the default selection behavior happen
+        # We could add single-click preview here in the future if desired
+        pass
+
+    def _on_double_click(self, event):
+        """Handle double-click on tree items - show preview."""
+        # Prevent the double-click from triggering expand/collapse
+        # by checking if the click was on the expand/collapse button area
+        item = self.tree.identify_row(event.y)
+        region = self.tree.identify_region(event.x, event.y)
+        
+        # Only show preview if the double-click was on the text area, not on the tree button
+        if item and region == "cell":
+            self._show_item_preview(item)
+            return "break"  # Prevent default double-click behavior
+
+    def _show_item_preview(self, item):
+        """Show preview dialog for the specified tree item."""
         if not item or item not in self._item_map:
             return
 
         tref_el = self._item_map[item]
+        self._open_preview_dialog(tref_el)
 
+    # ------------------------------------------------------------------
+    # Legacy helper methods
+    # ------------------------------------------------------------------
+
+    def _expand_all(self, item):
+        """Legacy method - kept for backward compatibility."""
+        for child in self.tree.get_children(item):
+            self.tree.item(child, open=True)
+            self._expand_all(child)
+
+    def _on_item_preview(self, event):
+        """Legacy method - now redirects to new preview handling."""
+        item = self.tree.focus()
+        self._show_item_preview(item)
+
+    def _open_preview_dialog(self, tref_el):
+        """Open the preview dialog for a topicref element."""
         # --- Build preview window -----------------------------------
         from tkinter import scrolledtext as _stxt
         import tempfile, webbrowser, pathlib
@@ -374,7 +557,7 @@ class StructureTab(ttk.Frame):
         # Add info section for single selection
         if len(selected_items) == 1:
             tref = self._item_map.get(selected_items[0])
-            if tref:
+            if tref is not None:
                 # Extract information from the topicref/topichead element
                 level = tref.get("data-level", "1")
                 item_type = "Section" if tref.tag == "topichead" else "Module"
@@ -389,6 +572,7 @@ class StructureTab(ttk.Frame):
         # Rename option (only for single selection)
         if len(selected_items) == 1:
             context_menu.add_command(label="Rename", command=self._rename_selected)
+            context_menu.add_command(label="Preview Topic", command=self._preview_selected)
             context_menu.add_separator()
         
         # Merge option (only if multiple selection and all in same section)
@@ -504,6 +688,27 @@ class StructureTab(ttk.Frame):
         
         # Bind Enter key to OK
         title_entry.bind("<Return>", lambda e: _do_rename())
+
+    def _preview_selected(self):
+        """Preview the selected topic in a popup window."""
+        selected = list(self.tree.selection())
+        if not selected:
+            return
+        
+        # Get the topicref for the selected item
+        item_id = selected[0]
+        tref = self._item_map.get(item_id)
+        if tref is None:
+            return
+        
+        # Only show preview for topics (not sections)
+        if tref.tag == "topichead":
+            import tkinter.messagebox as msgbox
+            msgbox.showinfo("Preview", "Preview is only available for module topics, not sections.")
+            return
+        
+        # Use existing preview functionality
+        self._show_item_preview(item_id)
 
     def _delete_selected_with_confirmation(self):
         """Delete selected topics with confirmation dialog."""
@@ -1041,7 +1246,11 @@ class StructureTab(ttk.Frame):
         self._search_index = -1
         # Remove previous highlights
         for item_id in getattr(self, '_highlighted_search_items', []):
-            self.tree.item(item_id, tags=())
+            # Restore original tags (section/module) and remove search_match
+            if item_id in self._item_map:
+                tref = self._item_map[item_id]
+                tag = "section" if tref.tag == "topichead" else "module"
+                self.tree.item(item_id, tags=(tag,))
         self._highlighted_search_items = []
         if not term:
             return
@@ -1053,11 +1262,11 @@ class StructureTab(ttk.Frame):
 
         # Highlight all matches
         for item_id in self._search_matches:
-            self.tree.item(item_id, tags=("search_match",))
+            # Get existing tags and add search_match
+            existing_tags = self.tree.item(item_id, "tags")
+            new_tags = list(existing_tags) + ["search_match"]
+            self.tree.item(item_id, tags=new_tags)
         self._highlighted_search_items = list(self._search_matches)
-
-        # Ensure tag style is set
-        self.tree.tag_configure("search_match", background="#ffe066")  # light yellow
 
         self._search_nav(1)
 
@@ -1266,4 +1475,4 @@ class StructureTab(ttk.Frame):
                     import copy as _cpy
                     if new_filename not in self._orig_context.topics:
                         self._orig_context.topics[new_filename] = _cpy.deepcopy(original_topic)
-                    self._orig_context.topics.pop(topic_filename, None) 
+                    self._orig_context.topics.pop(topic_filename, None)
