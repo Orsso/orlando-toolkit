@@ -23,7 +23,6 @@ from orlando_toolkit.core.models import DitaContext
 from orlando_toolkit.core.services import ConversionService
 from orlando_toolkit.ui.metadata_tab import MetadataTab
 from orlando_toolkit.ui.image_tab import ImageTab
-from orlando_toolkit.ui.dialogs import CenteredDialog
 
 logger = logging.getLogger(__name__)
 
@@ -191,10 +190,11 @@ class OrlandoToolkit:
 
         self.image_tab = ImageTab(self.notebook)
         self.notebook.add(self.image_tab, text="Images")
-
+ 
         # New Structure/Config tab
         from orlando_toolkit.ui.structure_tab import StructureTab
-        self.structure_tab = StructureTab(self.notebook, None)
+        # Instantiate without stray positional None; optional args are keyword-only
+        self.structure_tab = StructureTab(self.notebook)
         self.notebook.add(self.structure_tab, text="Structure")
 
         self.metadata_tab.set_metadata_change_callback(self.on_metadata_change)
@@ -239,13 +239,26 @@ class OrlandoToolkit:
         threading.Thread(target=self.run_generation_thread, args=(save_path,), daemon=True).start()
 
     def show_generation_progress(self):
-        dlg = CenteredDialog(self.root, "Generating package…", (300, 90), "pkg_progress")
-        ttk.Label(dlg, text="Generating DITA package, please wait…").pack(pady=10)
-        prog = ttk.Progressbar(dlg, mode="indeterminate")
+        # Inline progress dialog without legacy import
+        top = tk.Toplevel(self.root)
+        top.title("Generating package…")
+        top.transient(self.root)
+        try:
+            self.root.update_idletasks()
+            w, h = 300, 90
+            rx, ry = self.root.winfo_rootx(), self.root.winfo_rooty()
+            rw, rh = self.root.winfo_width(), self.root.winfo_height()
+            x = rx + (rw - w) // 2
+            y = ry + (rh - h) // 2
+            top.geometry(f"{w}x{h}+{x}+{y}")
+        except Exception:
+            pass
+        ttk.Label(top, text="Generating DITA package, please wait…").pack(pady=10)
+        prog = ttk.Progressbar(top, mode="indeterminate")
         prog.pack(fill="x", padx=20, pady=10)
         prog.start()
         self.generation_progress = prog
-        self._progress_dialog = dlg
+        self._progress_dialog = top
 
     def run_generation_thread(self, save_path: str):
         try:

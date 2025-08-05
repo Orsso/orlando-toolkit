@@ -157,14 +157,3 @@ class ConversionService:
         context = self.prepare_package(context)
         self.write_package(context, output_zip, debug_copy_dir=debug_copy_dir)
         return Path(output_zip)
-
-    # ------------------------------------------------------------------
-    # XML preview helper (Phase-10)
-    # ------------------------------------------------------------------
-
-    def compile_preview(self, context: DitaContext, tref_element) -> str:  # noqa: D401
-        """Return compiled XML string for *tref_element* inside *context*."""
-
-        from orlando_toolkit.core.preview.xml_compiler import compile_topic_fragment
-
-        return compile_topic_fragment(context, tref_element, pretty=True) 
