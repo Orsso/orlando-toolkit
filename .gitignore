@@ -14,3 +14,4 @@ verification_output/
 .DS_Store
 *.swp
 .cursor/
+.vscode/
