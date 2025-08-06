@@ -152,7 +152,7 @@ class ImageTab(ttk.Frame):
 
     def _create_per_section_image_names(self) -> dict[str, str]:
         """Create new filenames with per-section image numbering."""
-        if not self.context or not self.context.ditamap_root:
+        if self.context is None or getattr(self.context, "ditamap_root", None) is None:
             return {}
         
         from orlando_toolkit.core.utils import find_topicref_for_image, get_section_number_for_topicref

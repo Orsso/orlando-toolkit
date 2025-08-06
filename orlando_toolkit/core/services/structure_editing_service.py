@@ -149,6 +149,37 @@ class StructureEditingService:
         details = {"requested": requested, "deleted": deleted_count, "skipped": max(0, len(requested) - deleted_count)}
         return OperationResult(deleted_count > 0, ("Deleted topics." if deleted_count > 0 else "No topics deleted."), details)
 
+    def apply_depth_limit(self, context, depth_limit: int, style_exclusions: dict[int, set[str]] | None = None) -> OperationResult:
+        """Apply a depth limit merge to the current context if needed.
+
+        This method follows the service pattern:
+        - Never raises; returns OperationResult with details.
+        - Keeps imports local to avoid circular dependencies.
+        """
+        try:
+            # 1) Validate context has a ditamap_root
+            if getattr(context, "ditamap_root", None) is None:
+                return OperationResult(False, "No ditamap available in context.", {"reason": "missing_ditamap"})
+
+            # 2) Compute whether merge is needed based on metadata flags
+            prev_depth = getattr(context, "metadata", {}).get("merged_depth")
+            prev_styles_flag = getattr(context, "metadata", {}).get("merged_exclude_styles")
+            current_styles_flag = True if style_exclusions else False
+            merge_needed = (prev_depth != depth_limit) or (prev_styles_flag != current_styles_flag)
+
+            # 3) Early exit if not needed
+            if not merge_needed:
+                return OperationResult(True, "Depth limit already applied", {"depth_limit": depth_limit, "merged": False})
+
+            # 4) Perform merge using local import to avoid circular deps
+            from orlando_toolkit.core.merge import merge_topics_unified  # local import by design
+
+            merge_topics_unified(context, depth_limit, style_exclusions)
+            return OperationResult(True, "Applied depth limit", {"depth_limit": depth_limit, "merged": True})
+        except Exception as e:
+            # 5) Never raise; encapsulate error
+            return OperationResult(False, "Failed to apply depth limit", {"error": str(e)})
+
     # -------------------------------------------------------------------------
     # Internal helpers (non-destructive, isolated)
     # -------------------------------------------------------------------------

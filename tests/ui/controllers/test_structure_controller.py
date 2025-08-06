@@ -31,6 +31,9 @@ class FakeContext:
 class FakeEditingService:
     def __init__(self):
         self.calls = []
+        # Depth handling tracking
+        self.apply_depth_calls = []
+        self.apply_depth_result = None  # optional override
 
     def move_topic(self, context, topic_ref: str, direction: str) -> OperationResult:
         self.calls.append(("move_topic", topic_ref, direction))
@@ -48,6 +51,14 @@ class FakeEditingService:
     def merge_topics(self, context, topic_refs: List[str]) -> OperationResult:
         self.calls.append(("merge_topics", tuple(topic_refs)))
         return OperationResult(success=False, message="Not implemented")
+
+    def apply_depth_limit(self, context, depth_limit: int, style_exclusions=None):
+        self.apply_depth_calls.append((context, depth_limit, style_exclusions))
+        if self.apply_depth_result is not None:
+            return self.apply_depth_result
+        # Import OperationResult from the SUT module to preserve structure
+        from orlando_toolkit.core.services.structure_editing_service import OperationResult
+        return OperationResult(True, "ok", {"depth_limit": depth_limit, "merged": True})
 
 
 class FakeUndoService:
@@ -120,19 +131,35 @@ def controller():
 def test_handle_depth_change_clamps_and_updates(controller):
     # Default max_depth initialized to 999 in controller
     # 0 should clamp to 1, and update from 999 -> 1
+    # Also should delegate to editing.apply_depth_limit and push undo snapshot
+    fake_editing: FakeEditingService = controller.editing_service  # type: ignore[attr-defined]
+    fake_undo: FakeUndoService = controller.undo_service  # type: ignore[attr-defined]
+
     changed = controller.handle_depth_change(0)
     assert changed is True
     assert controller.max_depth == 1
+    # Undo snapshot pushed before service call (we only assert at least one push)
+    assert fake_undo.counters["push_snapshot"] >= 1
+    # Service delegated exactly once with clamped depth
+    assert len(fake_editing.apply_depth_calls) == 1
+    _, depth_arg, _ = fake_editing.apply_depth_calls[0]
+    assert depth_arg == 1
 
-    # 1 from current 1 -> not changed
+    # 1 from current 1 -> not changed, no delegation
     changed_same = controller.handle_depth_change(1)
     assert changed_same is False
     assert controller.max_depth == 1
+    assert len(fake_editing.apply_depth_calls) == 1  # still one call
+    pushes_after_same = fake_undo.counters["push_snapshot"]
 
-    # 5 from current 1 -> changed
+    # 5 from current 1 -> changed and delegated again
     changed_to_5 = controller.handle_depth_change(5)
     assert changed_to_5 is True
     assert controller.max_depth == 5
+    assert len(fake_editing.apply_depth_calls) == 2
+    _, depth_arg2, _ = fake_editing.apply_depth_calls[-1]
+    assert depth_arg2 == 5
+    assert fake_undo.counters["push_snapshot"] >= pushes_after_same + 1
 
 
 def test_select_and_get_selection_uniqueness(controller):
@@ -281,3 +308,76 @@ def test_compile_and_render_preview_delegate():
     res_render_explicit = c.render_html_preview("topics/Explicit2.dita")
     assert res_render_explicit.success is True
     assert preview.calls and preview.calls[-1] == ("render_html_preview", "topics/Explicit2.dita")
+    
+    
+    def test_handle_depth_change_service_failure_returns_false():
+        ctx = FakeContext()
+        fake_editing = FakeEditingService()
+        # Configure failure result
+        from orlando_toolkit.core.services.structure_editing_service import OperationResult as _Op
+        fake_editing.apply_depth_result = _Op(False, "err", {"x": 1})
+        fake_undo = FakeUndoService()
+        preview = FakePreviewService()
+        c = StructureController(ctx, fake_editing, fake_undo, preview)
+    
+        # initial depth default 999, change to 3 triggers service failure -> return False and do not update
+        before = c.max_depth
+        changed = c.handle_depth_change(3)
+        assert changed is False
+        assert c.max_depth == before
+    
+    
+    def test_handle_depth_change_no_change_no_service_call():
+        ctx = FakeContext()
+        fake_editing = FakeEditingService()
+        fake_undo = FakeUndoService()
+        preview = FakePreviewService()
+        c = StructureController(ctx, fake_editing, fake_undo, preview)
+    
+        # Set initial value
+        c.max_depth = 4
+        # Calling with same value should no-op
+        changed = c.handle_depth_change(4)
+        assert changed is False
+        assert fake_editing.apply_depth_calls == []
+        assert fake_undo.counters["push_snapshot"] == 0
+    
+    
+    def test_handle_depth_change_with_style_exclusions_mapping():
+        ctx = FakeContext()
+        fake_editing = FakeEditingService()
+        fake_undo = FakeUndoService()
+        preview = FakePreviewService()
+        c = StructureController(ctx, fake_editing, fake_undo, preview)
+    
+        # Set exclusions; minimal mapping expectation allowed
+        c.heading_filter_exclusions = {"Heading 2": True, "Heading 3": False, "Title": True}
+        c.max_depth = 2
+        changed = c.handle_depth_change(3)
+        assert changed is True
+    
+        # Either None or specific mapping is acceptable depending on controller implementation
+        assert len(fake_editing.apply_depth_calls) == 1
+        _, depth_arg, style_excl = fake_editing.apply_depth_calls[0]
+        assert depth_arg == 3
+        if style_excl is not None:
+            assert style_excl == {1: {"Heading 2", "Title"}}
+    
+    
+    def test_handle_depth_change_undo_snapshot_failure_is_non_fatal(monkeypatch):
+        ctx = FakeContext()
+        fake_editing = FakeEditingService()
+        fake_undo = FakeUndoService()
+        preview = FakePreviewService()
+        c = StructureController(ctx, fake_editing, fake_undo, preview)
+    
+        # Force undo push_snapshot to raise
+        def _raise(_ctx):
+            raise RuntimeError("boom")
+        monkeypatch.setattr(fake_undo, "push_snapshot", _raise)
+    
+        # Operation should still proceed and return True when service succeeds
+        c.max_depth = 2
+        changed = c.handle_depth_change(4)
+        assert changed is True
+        assert len(fake_editing.apply_depth_calls) == 1

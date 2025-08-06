@@ -381,3 +381,147 @@ def test_merge_topics_returns_not_implemented(fake_context, monkeypatch):
     assert "not implemented" in res.message.lower()
     # Ensure no mutation
     assert order_of_top(ctx) == ["A", "B", "C"]
+# ------------------------------
+# Tests for apply_depth_limit
+# ------------------------------
+
+
+class _FakeCtxSimple:
+    """
+    Minimal context used for apply_depth_limit tests.
+    Only attributes accessed by the service are provided: ditamap_root, metadata.
+    """
+    def __init__(self, has_map=True):
+        self.ditamap_root = object() if has_map else None
+        self.metadata = {}
+        # Optional extras to resemble real DitaContext
+        self.topics = {}
+        self.images = {}
+
+
+def test_apply_depth_limit_triggers_merge_and_sets_details(monkeypatch):
+    # Arrange
+    from orlando_toolkit.core.services.structure_editing_service import StructureEditingService
+    ctx = _FakeCtxSimple(has_map=True)
+    calls = {"count": 0}
+
+    def stub_merge(context, depth, style_map):
+        calls["count"] += 1
+        # Simulate merge implementation updating metadata
+        context.metadata["merged_depth"] = depth
+        if style_map:
+            context.metadata["merged_exclude_styles"] = True
+
+    # Monkeypatch the exact function that the service imports locally
+    monkeypatch.setattr(
+        "orlando_toolkit.core.merge.merge_topics_unified",
+        stub_merge,
+        raising=True,
+    )
+
+    # Act
+    res = StructureEditingService().apply_depth_limit(ctx, 2, None)
+
+    # Assert
+    assert res.success is True
+    assert isinstance(res.details, dict)
+    assert res.details.get("merged") is True
+    assert res.details.get("depth_limit") == 2
+    assert ctx.metadata.get("merged_depth") == 2
+    assert calls["count"] == 1
+
+
+def test_apply_depth_limit_noop_when_already_applied(monkeypatch):
+    # Arrange
+    from orlando_toolkit.core.services.structure_editing_service import StructureEditingService
+    ctx = _FakeCtxSimple(has_map=True)
+    ctx.metadata = {"merged_depth": 2, "merged_exclude_styles": False}
+    calls = {"count": 0}
+
+    def stub_merge(context, depth, style_map):
+        calls["count"] += 1
+
+    monkeypatch.setattr(
+        "orlando_toolkit.core.merge.merge_topics_unified",
+        stub_merge,
+        raising=True,
+    )
+
+    # Act
+    res = StructureEditingService().apply_depth_limit(ctx, 2, None)
+
+    # Assert
+    assert res.success is True
+    assert isinstance(res.details, dict)
+    assert res.details.get("merged") is False
+    assert res.details.get("depth_limit") == 2
+    assert calls["count"] == 0  # merge not called
+
+
+def test_apply_depth_limit_handles_missing_ditamap_root():
+    # Arrange
+    from orlando_toolkit.core.services.structure_editing_service import StructureEditingService
+    ctx = _FakeCtxSimple(has_map=False)
+
+    # Act
+    res = StructureEditingService().apply_depth_limit(ctx, 2, None)
+
+    # Assert
+    assert res.success is False
+    assert isinstance(res.details, dict)
+    assert res.details.get("reason") == "missing_ditamap"
+
+
+def test_apply_depth_limit_handles_exception(monkeypatch):
+    # Arrange
+    from orlando_toolkit.core.services.structure_editing_service import StructureEditingService
+    ctx = _FakeCtxSimple(has_map=True)
+
+    def boom_merge(context, depth, style_map):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(
+        "orlando_toolkit.core.merge.merge_topics_unified",
+        boom_merge,
+        raising=True,
+    )
+
+    # Act
+    res = StructureEditingService().apply_depth_limit(ctx, 2, None)
+
+    # Assert
+    assert res.success is False
+    assert isinstance(res.details, dict)
+    assert "error" in res.details
+
+
+def test_apply_depth_limit_style_flag_change_forces_merge(monkeypatch):
+    # Arrange
+    from orlando_toolkit.core.services.structure_editing_service import StructureEditingService
+    ctx = _FakeCtxSimple(has_map=True)
+    ctx.metadata = {"merged_depth": 2, "merged_exclude_styles": False}
+    calls = {"count": 0}
+
+    def stub_merge(context, depth, style_map):
+        calls["count"] += 1
+        context.metadata["merged_depth"] = depth
+        context.metadata["merged_exclude_styles"] = bool(style_map)
+
+    monkeypatch.setattr(
+        "orlando_toolkit.core.merge.merge_topics_unified",
+        stub_merge,
+        raising=True,
+    )
+
+    style_map = {1: {"Heading 2"}}  # providing styles should flip the flag to True
+
+    # Act
+    res = StructureEditingService().apply_depth_limit(ctx, 2, style_map)
+
+    # Assert
+    assert res.success is True
+    assert isinstance(res.details, dict)
+    assert res.details.get("merged") is True
+    assert res.details.get("depth_limit") == 2
+    assert calls["count"] == 1
+    assert ctx.metadata.get("merged_exclude_styles") is True

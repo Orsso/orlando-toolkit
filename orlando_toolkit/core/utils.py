@@ -244,7 +244,7 @@ def find_topicref_for_image(image_filename: str, context: "DitaContext") -> Opti
     Optional[ET.Element]
         The topicref element containing the image, or None if not found
     """
-    if not context.ditamap_root:
+    if getattr(context, "ditamap_root", None) is None:
         return None
     
     # Search through all topics to find which one contains the image

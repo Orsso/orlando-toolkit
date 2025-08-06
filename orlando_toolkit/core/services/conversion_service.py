@@ -56,7 +56,6 @@ class ConversionService:
         # ----------------------------------------------------------------
         # 1) Apply unified merge (depth + style exclusions) in single pass
         # ----------------------------------------------------------------
-        from orlando_toolkit.core.merge import merge_topics_unified
 
         # Build style exclusion map from all metadata sources
         style_excl_map: dict[int, set[str]] = {}
@@ -76,9 +75,14 @@ class ConversionService:
             style_excl_map.setdefault(int(lvl), set()).add(f"Heading {lvl}")
 
         # Apply unified merge if needed
-        if (context.metadata.get("merged_depth") != depth_limit or 
+        if (context.metadata.get("merged_depth") != depth_limit or
             style_excl_map and not context.metadata.get("merged_exclude_styles")):
-            merge_topics_unified(context, depth_limit, style_excl_map or None)
+            from orlando_toolkit.core.services.structure_editing_service import StructureEditingService
+            _ses = StructureEditingService()
+            _res = _ses.apply_depth_limit(context, depth_limit, style_excl_map or None)
+            if not _res.success:
+                from orlando_toolkit.core.models import OperationResult  # ensure symbol exists locally if needed
+                return OperationResult(False, "Failed to apply depth limit", {"depth_limit": depth_limit})
 
         # Handle legacy title-based exclusions separately (if still needed)
         exclude_titles = set(context.metadata.get("exclude_headings", []))

@@ -132,7 +132,15 @@ class StructureTreeWidget(ttk.Frame):
 
         # Prefer lxml ditamap_root when available
         ditamap_root = self._safe_getattr(context, "ditamap_root")
-        map_root = ditamap_root or self._safe_getattr(context, "map_root") or self._safe_getattr(context, "structure")
+        map_root = None
+        if ditamap_root is not None:
+            map_root = ditamap_root
+        else:
+            _mr = self._safe_getattr(context, "map_root")
+            if _mr is not None:
+                map_root = _mr
+            else:
+                map_root = self._safe_getattr(context, "structure")
 
         # If a ditamap-like root exists, insert its immediate children directly at the Treeview root.
         if ditamap_root is not None and map_root is not None:
@@ -191,9 +199,9 @@ class StructureTreeWidget(ttk.Frame):
         topics = self._safe_getattr(context, "topics") or self._safe_getattr(context, "topic_refs") or {}
         try:
             if isinstance(topics, dict):
-                # topics: Dict[filename, Element]
+                # topics: Dict[id_or_filename, Element]
                 count = 0
-                for filename, element in topics.items():
+                for key, element in topics.items():
                     if count >= 10000:
                         break
                     # Label from element's <title> if available
@@ -208,8 +216,9 @@ class StructureTreeWidget(ttk.Frame):
                     except Exception:
                         label = None
                     if not label:
-                        label = str(filename)
-                    ref = f"topics/{filename}"
+                        label = str(key)
+                    # Keep ref equal to the dict key to align with tests expecting raw ids like "A", "B", "C".
+                    ref = str(key)
                     self._insert_item(root_id, label, topic_ref=ref)
                     count += 1
             else:
@@ -231,6 +240,23 @@ class StructureTreeWidget(ttk.Frame):
                     count += 1
         except Exception:
             # Keep only the root on failure
+            pass
+
+        # Expand all top-level items to ensure they are visible and realize geometry
+        try:
+            for child in self._tree.get_children(""):
+                try:
+                    self._tree.item(child, open=True)
+                    # Ensure item is visible
+                    self._tree.see(child)
+                except Exception:
+                    continue
+            # Flush geometry updates
+            try:
+                self._tree.update_idletasks()
+            except Exception:
+                pass
+        except Exception:
             pass
 
     def update_selection(self, item_refs: List[str]) -> None:

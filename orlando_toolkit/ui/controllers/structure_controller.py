@@ -70,13 +70,49 @@ class StructureController:
         bool
             True if the stored depth changed, False otherwise.
         """
+        # Guard: new_depth must be an int
         if not isinstance(new_depth, int):
             return False
+
+        # Clamp to minimum of 1
         clamped = max(1, new_depth)
-        if clamped != self.max_depth:
-            self.max_depth = clamped
-            return True
-        return False
+
+        # If no effective change, preserve previous behavior
+        if clamped == self.max_depth:
+            return False
+
+        # Only proceed when the clamped value differs from current max_depth.
+        # Push an undo snapshot (non-fatal on failure).
+        try:
+            self.undo_service.push_snapshot(self.context)
+        except Exception:
+            # If a logger exists, warn; otherwise continue silently.
+            if hasattr(self, "logger"):
+                self.logger.warning("Failed to push undo snapshot for depth change", exc_info=True)
+
+        # Build a minimal style exclusions map for the merge API:
+        # Convert controller's heading_filter_exclusions (Dict[str, bool], True means excluded)
+        # into the expected Dict[int, Set[str]] where key 1 is used for "all levels" for now.
+        if hasattr(self, "heading_filter_exclusions") and isinstance(self.heading_filter_exclusions, dict):
+            names = sorted([name for name, flag in self.heading_filter_exclusions.items() if flag])
+        else:
+            names = []
+        # Deliberately simple mapping pending per-level filters.
+        style_exclusions_map = None if not names else {1: set(names)}
+
+        # Delegate to the structure editing service to apply the depth limit/merge.
+        try:
+            result = self.editing_service.apply_depth_limit(self.context, clamped, style_exclusions_map)
+        except Exception:
+            return False
+
+        # Require an explicit success signal
+        if not getattr(result, "success", False):
+            return False
+
+        # On success, update controller state and report True
+        self.max_depth = clamped
+        return True
 
     def handle_move_operation(
         self, direction: Literal["up", "down", "promote", "demote"]
@@ -355,10 +391,14 @@ class StructureController:
             return PreviewResult(success=False, message="No topic reference provided")
 
         try:
-            # Delegate to the canonical service method; an alias exists for stability.
-            return self.preview_service.compile_topic_preview(self.context, ref)
+            # Prefer the canonical method if present, otherwise fall back to legacy name.
+            if hasattr(self.preview_service, "compile_topic_preview"):
+                return self.preview_service.compile_topic_preview(self.context, ref)  # type: ignore[attr-defined]
+            else:
+                return self.preview_service.compile_preview(self.context, ref)  # type: ignore[attr-defined]
         except Exception:
-            return PreviewResult(success=False, message="Preview compilation failed")
+            # Construct a minimal unsuccessful PreviewResult; include required fields.
+            return PreviewResult(success=False, content="", message="Preview compilation failed")
 
     def render_html_preview(self, topic_ref: str) -> PreviewResult:
         """Render an HTML preview for the provided or selected topic reference.

@@ -322,7 +322,9 @@ def merge_topics_unified(ctx: "DitaContext", depth_limit: int, exclude_style_map
                             clean_title = " ".join(title_el.text.split())
                             head_p = ET.Element("p", id=generate_dita_id())
                             head_p.text = clean_title
-                            tb = parent_module.find("conbody") or ET.SubElement(parent_module, "conbody")
+                            tb = parent_module.find("conbody")
+                            if tb is None:
+                                tb = ET.SubElement(parent_module, "conbody")
                             tb.append(head_p)
 
                         _copy_content(topic_el, parent_module)
