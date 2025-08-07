@@ -4,3 +4,6 @@ python-docx
 Pillow
 sv-ttk 
 pyyaml
+
+# Optional dependencies for enhanced features
+tkhtmlview>=0.2.0  # For rendered HTML preview in Structure tab

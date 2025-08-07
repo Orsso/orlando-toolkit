@@ -1,10 +1,10 @@
 # -*- coding: utf-8 -*-
 """PreviewPanel widget.
 
-A compact, presentation-only panel that displays either HTML or XML text for a
+A compact, presentation-only panel that displays either HTML or XML content for a
 selected topic. It contains:
 - Header row with a mode toggle (HTML | XML), a Refresh button, and a status label.
-- Body area with a read-only ScrolledText.
+- Body area with either HTMLScrolledText (if tkhtmlview available) or ScrolledText.
 
 Public API (UI-only, no services/I/O):
 - set_mode(mode: Literal["html","xml"]) -> None
@@ -21,7 +21,8 @@ Callbacks:
 
 Notes:
 - No business logic is included here. This widget is purely presentational.
-- The HTML/XML strings are rendered as plain text; no embedded webview is used.
+- HTML content is rendered visually if tkhtmlview is available, otherwise as plain text.
+- Automatic fallback ensures the widget works with or without optional dependencies.
 """
 
 from __future__ import annotations
@@ -30,6 +31,14 @@ from typing import Callable, Literal, Optional, cast
 import tkinter as tk
 from tkinter import ttk
 from tkinter.scrolledtext import ScrolledText
+
+# Optional HTML rendering support
+try:
+    from tkhtmlview import HTMLScrolledText
+    HTML_RENDERING_AVAILABLE = True
+except ImportError:
+    HTML_RENDERING_AVAILABLE = False
+    HTMLScrolledText = None
 
 
 Mode = Literal["html", "xml"]
@@ -92,14 +101,50 @@ class PreviewPanel(ttk.Frame):
         self._refresh_btn = ttk.Button(header, text="Refresh", command=self._on_refresh_clicked)
         self._refresh_btn.grid(row=0, column=2, padx=(4, 0), pady=0, sticky="e")
 
-        # Body: ScrolledText only (title row removed to reclaim vertical space)
+        # Body: HTML-capable text widget with graceful fallback
         self._title_var = tk.StringVar(value="")  # retained for API compatibility
         self._title_label = None  # type: ignore[assignment]
 
-        self._text = ScrolledText(self, wrap="word", height=10)
+        # Decision: Use HTMLScrolledText for visual rendering despite selection limitation
+        # The visual improvement outweighs the selection highlighting issue
+        if HTML_RENDERING_AVAILABLE:
+            try:
+                self._text = HTMLScrolledText(self, height=10)
+                self._html_rendering_enabled = True
+            except Exception:
+                # Fallback if HTMLScrolledText fails to initialize
+                self._text = ScrolledText(self, wrap="word", height=10)
+                self._html_rendering_enabled = False
+        else:
+            self._text = ScrolledText(self, wrap="word", height=10)
+            self._html_rendering_enabled = False
+        
         # Place directly under header and expand
         self._text.grid(row=1, column=0, sticky="nsew", padx=4, pady=(0, 4))
-        self._text.configure(state="disabled")
+        
+        # Configure text selection and read-only behavior
+        if self._html_rendering_enabled:
+            try:
+                # Make HTMLScrolledText read-only by binding key events
+                self._text.configure(state="normal")
+                
+                # Bind events to prevent editing while allowing selection
+                def prevent_edit(event):
+                    # Allow Ctrl+C (copy) but prevent other modifications
+                    if event.state & 0x4:  # Ctrl key pressed
+                        if event.keysym in ('c', 'C'):
+                            return  # Allow copy
+                    return "break"  # Block all other key input
+                
+                self._text.bind('<Key>', prevent_edit)
+                self._text.bind('<Button-2>', lambda e: "break")  # Block middle click paste
+                self._text.bind('<Button-3>', lambda e: "break")  # Block right click for now
+                
+            except Exception:
+                pass
+        else:
+            # For ScrolledText, make it read-only but selectable
+            self._text.configure(state="disabled")
 
     # Public API
 
@@ -135,16 +180,36 @@ class PreviewPanel(ttk.Frame):
             pass
 
     def set_content(self, text: str) -> None:
-        """Set body content as read-only text."""
+        """Set body content with HTML rendering if available and in HTML mode."""
         try:
-            self._text.configure(state="normal")
-            self._text.delete("1.0", "end")
-            self._text.insert("1.0", text or "")
-            self._text.configure(state="disabled")
+            current_mode = self.get_mode()
+            
+            # Use HTML rendering for HTML content if available
+            if (current_mode == "html" and 
+                self._html_rendering_enabled and 
+                hasattr(self._text, 'set_html')):
+                try:
+                    self._text.set_html(text or "")
+                    return
+                except Exception:
+                    # HTML rendering failed, fallback to plain text below
+                    pass
+            
+            # Plain text mode (for XML mode or HTML fallback)
+            if hasattr(self._text, 'configure'):
+                self._text.configure(state="normal")
+                self._text.delete("1.0", "end")
+                self._text.insert("1.0", text or "")
+                
+                # Only disable if it's a plain ScrolledText widget, not HTMLScrolledText
+                if not self._html_rendering_enabled:
+                    self._text.configure(state="disabled")
+            
         except Exception:
-            # Ensure it's at least read-only
+            # Ensure widget remains in a consistent state
             try:
-                self._text.configure(state="disabled")
+                if hasattr(self._text, 'configure') and not self._html_rendering_enabled:
+                    self._text.configure(state="disabled")
             except Exception:
                 pass
 
@@ -178,3 +243,4 @@ class PreviewPanel(ttk.Frame):
                 cb()
             except Exception:
                 pass
+

@@ -31,6 +31,7 @@ python -m pytest -v tests/
 python -m pip install -r requirements.txt
 
 # Core dependencies: lxml, python-docx, Pillow, sv-ttk, pyyaml
+# Optional dependencies: tkhtmlview (for HTML preview rendering)
 ```
 
 ## Architecture Overview
@@ -57,6 +58,38 @@ Orlando Toolkit follows a layered architecture converting Word documents (.docx)
 - **`StructureEditingService`** - Handles topic manipulation, depth merging, and structural changes
 - **`UndoService`** - Manages undo/redo operations for structure editing
 - **`PreviewService`** - Handles XML preview generation and compilation
+
+### Preview System Architecture
+
+The Structure tab preview panel supports multiple rendering modes:
+
+**Core Components:**
+- **`PreviewPanel`** (`ui/widgets/preview_panel.py`) - UI widget with HTML/XML mode toggle
+- **`PreviewService`** (`core/services/preview_service.py`) - Business logic for preview generation
+- **`xml_compiler`** (`core/preview/xml_compiler.py`) - XSLT transformation and HTML generation
+
+**Rendering Pipeline:**
+1. Topic selection triggers `PreviewService.render_html_preview()`
+2. `xml_compiler.render_html_preview()` applies XSLT transformation to DITA XML
+3. HTML post-processing adds inline styles compatible with `tkhtmlview`
+4. Images with data URIs are extracted to temporary files for display
+5. `PreviewPanel` renders using `HTMLScrolledText` or falls back to plain `ScrolledText`
+
+**Optional Dependency Handling:**
+- `tkhtmlview` import is wrapped in try/except with graceful fallback
+- `HTML_RENDERING_AVAILABLE` flag controls feature availability
+- Automatic fallback to plain text mode if HTML rendering fails
+
+**Image Processing:**
+- DOCX images stored in `DitaContext.images` as binary data
+- XSLT converts to data URIs for embedded display
+- Post-processor saves data URIs to temp files (`%TEMP%/orlando_preview/`)
+- `tkhtmlview` displays images from file paths, not data URIs
+
+**Error Handling:**
+- Multiple fallback layers: HTML rendering → plain text → error message
+- All exceptions caught to prevent UI crashes
+- Detailed error information in service layer for debugging
 
 ## Testing Patterns
 
