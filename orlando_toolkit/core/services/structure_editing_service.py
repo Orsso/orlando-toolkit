@@ -150,34 +150,44 @@ class StructureEditingService:
         return OperationResult(deleted_count > 0, ("Deleted topics." if deleted_count > 0 else "No topics deleted."), details)
 
     def apply_depth_limit(self, context, depth_limit: int, style_exclusions: dict[int, set[str]] | None = None) -> OperationResult:
-        """Apply a depth limit merge to the current context if needed.
+        """Apply a depth limit merge to the current context with reversible behavior.
 
-        This method follows the service pattern:
-        - Never raises; returns OperationResult with details.
-        - Keeps imports local to avoid circular dependencies.
+        This method:
+        - Saves original structure on first use to enable depth limit reversibility
+        - Always works from original structure to avoid compound transformations
+        - Never raises; returns OperationResult with details
         """
         try:
             # 1) Validate context has a ditamap_root
             if getattr(context, "ditamap_root", None) is None:
                 return OperationResult(False, "No ditamap available in context.", {"reason": "missing_ditamap"})
 
-            # 2) Compute whether merge is needed based on metadata flags
+            # 2) Check current configuration before any changes
             prev_depth = getattr(context, "metadata", {}).get("merged_depth")
-            prev_styles_flag = getattr(context, "metadata", {}).get("merged_exclude_styles")
-            current_styles_flag = True if style_exclusions else False
-            merge_needed = (prev_depth != depth_limit) or (prev_styles_flag != current_styles_flag)
-
-            # 3) Early exit if not needed
-            if not merge_needed:
+            prev_styles_flag = getattr(context, "metadata", {}).get("merged_exclude_styles", False)
+            current_styles_flag = bool(style_exclusions)
+            
+            # 3) Save original structure if not already saved AND before any modifications
+            # This must happen BEFORE any restore or merge operations
+            if hasattr(context, 'save_original_structure'):
+                context.save_original_structure()
+            
+            # 4) Early exit if exactly the same configuration
+            if prev_depth == depth_limit and prev_styles_flag == current_styles_flag:
                 return OperationResult(True, "Depth limit already applied", {"depth_limit": depth_limit, "merged": False})
 
-            # 4) Perform merge using local import to avoid circular deps
-            from orlando_toolkit.core.merge import merge_topics_unified  # local import by design
+            # 5) Restore from original before applying new depth limit
+            # This ensures we always start from clean state
+            if hasattr(context, 'restore_from_original'):
+                context.restore_from_original()
 
+            # 6) Apply merge on clean original structure
+            from orlando_toolkit.core.merge import merge_topics_unified  # local import by design
             merge_topics_unified(context, depth_limit, style_exclusions)
+            
             return OperationResult(True, "Applied depth limit", {"depth_limit": depth_limit, "merged": True})
         except Exception as e:
-            # 5) Never raise; encapsulate error
+            # Never raise; encapsulate error
             return OperationResult(False, "Failed to apply depth limit", {"error": str(e)})
 
     # -------------------------------------------------------------------------

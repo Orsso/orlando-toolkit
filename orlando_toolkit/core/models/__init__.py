@@ -68,3 +68,40 @@ class DitaContext:
     topics: Dict[str, ET.Element] = field(default_factory=dict)
     images: Dict[str, bytes] = field(default_factory=dict)
     metadata: Dict[str, Any] = field(default_factory=dict)
+
+    def save_original_structure(self) -> None:
+        """Save the original structure before any depth merging operations.
+        
+        This enables reversible depth limit changes by preserving the unmodified state.
+        Should be called once when first applying any depth limit.
+        
+        IMPORTANT: Only saves if structure is truly original (no prior depth merges).
+        This prevents saving already-modified states.
+        """
+        # Only save if no original structure AND no previous depth merges
+        if ("original_structure" not in self.metadata and 
+            "merged_depth" not in self.metadata):
+            from copy import deepcopy
+            # Create completely independent copies to avoid corruption
+            self.metadata["original_structure"] = {
+                "ditamap_root": deepcopy(self.ditamap_root) if self.ditamap_root is not None else None,
+                "topics": deepcopy(self.topics),
+                "metadata_snapshot": {k: v for k, v in self.metadata.items() 
+                                    if k not in ["original_structure", "merged_depth", "merged_exclude_styles"]},
+            }
+
+    def restore_from_original(self) -> None:
+        """Restore context to its original pre-merge state.
+        
+        Resets ditamap_root and topics to their state before any depth merging.
+        Clears merge-related metadata flags.
+        """
+        original = self.metadata.get("original_structure")
+        if original:
+            from copy import deepcopy
+            self.ditamap_root = deepcopy(original["ditamap_root"]) if original["ditamap_root"] is not None else None
+            self.topics = deepcopy(original["topics"])
+            # Clear merge flags but preserve original metadata
+            self.metadata.update(original["metadata_snapshot"])
+            self.metadata.pop("merged_depth", None)
+            self.metadata.pop("merged_exclude_styles", None)

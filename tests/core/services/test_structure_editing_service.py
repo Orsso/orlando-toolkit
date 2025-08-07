@@ -525,3 +525,75 @@ def test_apply_depth_limit_style_flag_change_forces_merge(monkeypatch):
     assert res.details.get("depth_limit") == 2
     assert calls["count"] == 1
     assert ctx.metadata.get("merged_exclude_styles") is True
+
+
+def test_apply_depth_limit_reversibility(monkeypatch):
+    """Test that depth limits are reversible - can increase after decrease."""
+    # Arrange - create context with nested structure
+    from orlando_toolkit.core.services.structure_editing_service import StructureEditingService
+    from orlando_toolkit.core.models import DitaContext
+    from lxml import etree as ET
+    
+    ctx = DitaContext()
+    root = ET.Element("map")
+    
+    # L1 -> L2 -> L3 structure
+    l1 = ET.SubElement(root, "topicref")
+    l1.set("href", "topics/l1.dita")
+    l1.set("data-level", "1")
+    
+    l2 = ET.SubElement(l1, "topicref")
+    l2.set("href", "topics/l2.dita") 
+    l2.set("data-level", "2")
+    
+    l3 = ET.SubElement(l2, "topicref")
+    l3.set("href", "topics/l3.dita")
+    l3.set("data-level", "3")
+    
+    ctx.ditamap_root = root
+    ctx.topics = {
+        "l1.dita": ET.Element("concept", id="l1"),
+        "l2.dita": ET.Element("concept", id="l2"),
+        "l3.dita": ET.Element("concept", id="l3")
+    }
+    ctx.metadata = {}
+    
+    # Capture original state
+    original_xml = ET.tostring(ctx.ditamap_root, encoding='unicode')
+    original_topics_count = len(ctx.topics)
+    
+    # Mock the merge function to track calls
+    calls = {"count": 0}
+    def stub_merge(context, depth, style_map):
+        calls["count"] += 1
+        context.metadata["merged_depth"] = depth
+        if style_map:
+            context.metadata["merged_exclude_styles"] = True
+        # Simulate L3 merge by removing it when depth=2
+        if depth == 2:
+            l3_elements = context.ditamap_root.xpath(".//topicref[@data-level='3']")
+            for elem in l3_elements:
+                elem.getparent().remove(elem)
+            context.topics.pop("l3.dita", None)
+
+    monkeypatch.setattr("orlando_toolkit.core.merge.merge_topics_unified", stub_merge, raising=True)
+    
+    service = StructureEditingService()
+    
+    # Act 1: Apply depth_limit=2 (should merge L3)
+    res1 = service.apply_depth_limit(ctx, depth_limit=2)
+    depth2_topics = len(ctx.topics)
+    depth2_xml = ET.tostring(ctx.ditamap_root, encoding='unicode')
+    
+    # Act 2: Apply depth_limit=999 (should restore original)
+    res2 = service.apply_depth_limit(ctx, depth_limit=999)
+    restored_topics = len(ctx.topics)
+    restored_xml = ET.tostring(ctx.ditamap_root, encoding='unicode')
+    
+    # Assert
+    assert res1.success is True
+    assert res2.success is True
+    assert depth2_topics == 2, "L3 should be merged at depth=2"
+    assert restored_topics == original_topics_count, "All topics should be restored"
+    assert original_xml == restored_xml, "Structure should be fully restored"
+    assert calls["count"] == 2, "Merge should be called twice"

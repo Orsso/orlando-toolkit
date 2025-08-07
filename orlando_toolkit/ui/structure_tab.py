@@ -142,14 +142,8 @@ class StructureTab(ttk.Frame):
 
         # Depth control (Label + Spinbox) placed alongside existing toolbar/search widgets
         try:
-            # Initialize from controller.max_depth if available, default to 3
-            initial_depth = 3
-            if self._controller is not None and hasattr(self._controller, "max_depth"):
-                try:
-                    initial_depth = int(getattr(self._controller, "max_depth", 999)) or 999
-                except Exception:
-                    initial_depth = 3
-            self._depth_var = tk.IntVar(value=initial_depth)
+            # Default depth is 3, controller will be synced later
+            self._depth_var = tk.IntVar(value=3)
 
             # Small container to align neatly in the same row
             depth_container = ttk.Frame(search_row)
@@ -179,13 +173,38 @@ class StructureTab(ttk.Frame):
             # Non-fatal if depth control cannot be created
             pass
 
-        # Add show/hide preview toggle button next to Depth
+        # Add expand/collapse buttons next to Depth
+        try:
+            self._expand_all_btn = ttk.Button(
+                depth_container, text="⊞", width=3, command=self._on_expand_all
+            )
+            self._expand_all_btn.grid(row=0, column=2, padx=(8, 2))
+            # Add tooltip-style hint via balloon help simulation
+            try:
+                # Store tooltip text in button for potential future tooltip system
+                self._expand_all_btn.tooltip_text = "Expand all items"
+            except Exception:
+                pass
+            
+            self._collapse_all_btn = ttk.Button(
+                depth_container, text="⊟", width=3, command=self._on_collapse_all
+            )
+            self._collapse_all_btn.grid(row=0, column=3, padx=(2, 8))
+            try:
+                self._collapse_all_btn.tooltip_text = "Collapse all items"
+            except Exception:
+                pass
+        except Exception:
+            self._expand_all_btn = None  # type: ignore[assignment]
+            self._collapse_all_btn = None  # type: ignore[assignment]
+
+        # Add show/hide preview toggle button next to expand/collapse buttons
         try:
             self._preview_visible = True
             self._preview_toggle_btn = ttk.Button(
                 depth_container, text="Hide Preview", command=self._on_toggle_preview
             )
-            self._preview_toggle_btn.grid(row=0, column=2, padx=(8, 0))
+            self._preview_toggle_btn.grid(row=0, column=4, padx=(8, 0))
         except Exception:
             self._preview_toggle_btn = None  # type: ignore[assignment]
 
@@ -262,12 +281,25 @@ class StructureTab(ttk.Frame):
         undo_service = UndoService(max_history=50)
         preview_service = PreviewService()
         self._controller = StructureController(context, editing_service, undo_service, preview_service)
+        self._sync_depth_control()
         self._refresh_tree()
 
     def attach_controller(self, controller: StructureController) -> None:
         """Attach an externally created controller and refresh the UI."""
         self._controller = controller
+        self._sync_depth_control()
         self._refresh_tree()
+    
+    def _sync_depth_control(self) -> None:
+        """Apply the default depth (3) to the controller and sync the display."""
+        if not hasattr(self, "_depth_var") or self._controller is None:
+            return
+        try:
+            # Apply default depth of 3 to controller
+            if hasattr(self._controller, "handle_depth_change"):
+                self._controller.handle_depth_change(3)
+        except Exception:
+            pass
 
     # ---------------------------------------------------------------------------------
     # Internal helpers
@@ -280,6 +312,7 @@ class StructureTab(ttk.Frame):
         - If no controller/context is available, clears the tree and disables toolbar.
         - Otherwise repopulates the tree with controller.context and controller.max_depth.
         - Re-applies selection from controller.get_selection() where possible.
+        - Preserves expansion state of tree items during refresh.
         - Enables toolbar based on non-empty selection heuristic.
         """
         ctrl = self._controller
@@ -291,6 +324,13 @@ class StructureTab(ttk.Frame):
                 pass
             return
 
+        # Preserve expansion state before refresh
+        expanded_refs = set()
+        try:
+            expanded_refs = self._tree.get_expanded_items()
+        except Exception:
+            pass
+
         try:
             # Apply current heading exclusions from controller before population
             try:
@@ -301,6 +341,16 @@ class StructureTab(ttk.Frame):
                 pass
 
             self._tree.populate_tree(ctrl.context, max_depth=getattr(ctrl, "max_depth", 999))
+            
+            # Restore expansion state after population, or expand all if no previous state
+            try:
+                if expanded_refs:
+                    self._tree.restore_expanded_items(expanded_refs)
+                else:
+                    # No previous expansion state, keep the default expansion from populate_tree
+                    pass
+            except Exception:
+                pass
         except Exception:
             # Presentation layer should remain robust; on failure just clear and continue.
             try:
@@ -323,6 +373,24 @@ class StructureTab(ttk.Frame):
             self._toolbar.enable_buttons(False)
 
     # ---------------------------------------------------------------------------------
+    # Tree expansion control callbacks
+    # ---------------------------------------------------------------------------------
+
+    def _on_expand_all(self) -> None:
+        """Handle expand all button click."""
+        try:
+            self._tree.expand_all()
+        except Exception:
+            pass
+
+    def _on_collapse_all(self) -> None:
+        """Handle collapse all button click."""
+        try:
+            self._tree.collapse_all()
+        except Exception:
+            pass
+
+    # ---------------------------------------------------------------------------------
     # Depth control callback
     # ---------------------------------------------------------------------------------
 
@@ -330,8 +398,7 @@ class StructureTab(ttk.Frame):
         """Handle user changes to the 'Depth' spinbox.
 
         Reads the value, clamps it to [1, 999], updates the spinbox if normalized,
-        delegates to controller.handle_depth_change, and refreshes the tree if the
-        controller reports a change.
+        delegates to controller.handle_depth_change, and repopulates tree while preserving expansion.
         """
         # Ensure var exists and controller is present
         if not hasattr(self, "_depth_var"):
@@ -362,7 +429,7 @@ class StructureTab(ttk.Frame):
             except Exception:
                 pass
 
-        # Delegate to controller and refresh if depth actually changed
+        # Delegate to controller and refresh tree
         try:
             changed = False
             if hasattr(ctrl, "handle_depth_change"):

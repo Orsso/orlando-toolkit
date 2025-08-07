@@ -75,6 +75,9 @@ class StructureTreeWidget(ttk.Frame):
         self._id_to_ref: Dict[str, str] = {}
         # Reverse lookup for convenience: topic_ref -> first tree item id
         self._ref_to_id: Dict[str, str] = {}
+        
+        # Store reference to ditamap_root for section number calculation
+        self._ditamap_root: Optional[object] = None
 
         # Event bindings
         self._tree.bind("<<TreeviewSelect>>", self._on_select_event, add="+")
@@ -144,6 +147,8 @@ class StructureTreeWidget(ttk.Frame):
 
         # If a ditamap-like root exists, insert its immediate children directly at the Treeview root.
         if ditamap_root is not None and map_root is not None:
+            # Store ditamap_root reference for section number calculation
+            self._ditamap_root = ditamap_root
             # No synthetic visible root label; top-level items are the map children.
             traversed = False
             try:
@@ -187,6 +192,12 @@ class StructureTreeWidget(ttk.Frame):
                 traversed = False
 
             if traversed:
+                # Expand all items by default for ditamap branch too
+                try:
+                    self.expand_all()
+                    self._tree.update_idletasks()
+                except Exception:
+                    pass
                 return  # done; no fallback root row
             # If traversal failed unexpectedly, fall back to flat topics listing under Treeview root.
 
@@ -242,15 +253,10 @@ class StructureTreeWidget(ttk.Frame):
             # Keep only the root on failure
             pass
 
-        # Expand all top-level items to ensure they are visible and realize geometry
+        # Expand all items by default to ensure they are visible
         try:
-            for child in self._tree.get_children(""):
-                try:
-                    self._tree.item(child, open=True)
-                    # Ensure item is visible
-                    self._tree.see(child)
-                except Exception:
-                    continue
+            # Use expand_all() method which already exists and works
+            self.expand_all()
             # Flush geometry updates
             try:
                 self._tree.update_idletasks()
@@ -323,6 +329,87 @@ class StructureTreeWidget(ttk.Frame):
         """
         return self._ref_to_id.get(topic_ref)
 
+    def get_expanded_items(self) -> set[str]:
+        """Get the set of topic_ref strings for currently expanded items.
+        
+        Returns
+        -------
+        set[str]
+            Set of topic_ref strings corresponding to expanded items.
+        """
+        expanded_refs = set()
+        try:
+            for item_id in self._tree.get_children(""):
+                self._collect_expanded_refs(item_id, expanded_refs)
+        except Exception:
+            pass
+        return expanded_refs
+    
+    def _collect_expanded_refs(self, item_id: str, expanded_refs: set[str]) -> None:
+        """Recursively collect expanded item refs."""
+        try:
+            if self._tree.item(item_id, "open"):
+                ref = self._id_to_ref.get(item_id)
+                if ref is not None:
+                    expanded_refs.add(ref)
+            
+            for child_id in self._tree.get_children(item_id):
+                self._collect_expanded_refs(child_id, expanded_refs)
+        except Exception:
+            pass
+    
+    def restore_expanded_items(self, expanded_refs: set[str]) -> None:
+        """Restore expansion state for items matching the provided refs.
+        
+        Parameters
+        ----------
+        expanded_refs : set[str]
+            Set of topic_ref strings that should be expanded.
+        """
+        try:
+            for ref in expanded_refs:
+                item_id = self._ref_to_id.get(ref)
+                if item_id:
+                    self._tree.item(item_id, open=True)
+            # Also update geometry after restoration
+            self._tree.update_idletasks()
+        except Exception:
+            pass
+    
+    def expand_all(self) -> None:
+        """Expand all items in the tree."""
+        try:
+            for item_id in self._tree.get_children(""):
+                self._expand_recursive(item_id)
+        except Exception:
+            pass
+    
+    def collapse_all(self) -> None:
+        """Collapse all items in the tree."""
+        try:
+            for item_id in self._tree.get_children(""):
+                self._collapse_recursive(item_id)
+        except Exception:
+            pass
+    
+    def _expand_recursive(self, item_id: str) -> None:
+        """Recursively expand an item and all its children."""
+        try:
+            self._tree.item(item_id, open=True)
+            for child_id in self._tree.get_children(item_id):
+                self._expand_recursive(child_id)
+        except Exception:
+            pass
+    
+    def _collapse_recursive(self, item_id: str) -> None:
+        """Recursively collapse an item and all its children."""
+        try:
+            for child_id in self._tree.get_children(item_id):
+                self._collapse_recursive(child_id)
+            self._tree.item(item_id, open=False)
+        except Exception:
+            pass
+
     def clear(self) -> None:
         """Remove all items from the tree and clear internal mappings.
 
@@ -339,6 +426,7 @@ class StructureTreeWidget(ttk.Frame):
                 pass
         self._id_to_ref.clear()
         self._ref_to_id.clear()
+        self._ditamap_root = None
 
     # Internal helpers (UI/presentation only)
 
@@ -432,6 +520,12 @@ class StructureTreeWidget(ttk.Frame):
             except Exception:
                 label = "Item"
 
+            # Add section number prefix to the label for topicref/topichead nodes
+            if tag_name.endswith("topicref") or tag_name.endswith("topichead") or tag_name in {"topicref", "topichead"}:
+                section_number = self._calculate_section_number(node)
+                if section_number and section_number != "0":
+                    label = f"{section_number}. {label}"
+
             # Ref: only for topicref nodes
             ref = None
             try:
@@ -523,6 +617,104 @@ class StructureTreeWidget(ttk.Frame):
             return getattr(obj, name, None)
         except Exception:
             return None
+
+    def _calculate_section_number(self, node: object) -> str:
+        """Calculate the section number for a topicref/topichead node.
+        
+        Parameters
+        ----------
+        node : object
+            The topicref or topichead element
+            
+        Returns
+        -------
+        str
+            Section number (e.g., "1.2.1") or "0" if not found
+        """
+        if self._ditamap_root is None:
+            return "0"
+            
+        try:
+            # Import here to avoid circular dependencies
+            from orlando_toolkit.core.utils import get_section_number_for_topicref
+            return get_section_number_for_topicref(node, self._ditamap_root)
+        except Exception:
+            # Fallback: calculate manually if import fails
+            try:
+                # Walk up the tree to calculate position at each level
+                counters = []
+                current = node
+                
+                # Get all siblings at each level and find our position
+                while current is not None:
+                    parent = getattr(current, 'getparent', lambda: None)()
+                    if parent is None or parent == self._ditamap_root:
+                        # Count position among siblings in ditamap_root
+                        siblings = []
+                        try:
+                            if hasattr(self._ditamap_root, "iterchildren"):
+                                for child in self._ditamap_root.iterchildren():
+                                    try:
+                                        child_tag = str(getattr(child, "tag", "") or "")
+                                    except Exception:
+                                        child_tag = ""
+                                    if child_tag.endswith("topicref") or child_tag.endswith("topichead") or child_tag in {"topicref", "topichead"}:
+                                        siblings.append(child)
+                            elif hasattr(self._ditamap_root, "getchildren"):
+                                for child in self._ditamap_root.getchildren():
+                                    try:
+                                        child_tag = str(getattr(child, "tag", "") or "")
+                                    except Exception:
+                                        child_tag = ""
+                                    if child_tag.endswith("topicref") or child_tag.endswith("topichead") or child_tag in {"topicref", "topichead"}:
+                                        siblings.append(child)
+                        except Exception:
+                            siblings = []
+                        
+                        position = 1
+                        for i, sibling in enumerate(siblings, 1):
+                            if sibling == current:
+                                position = i
+                                break
+                        counters.insert(0, position)
+                        break
+                    else:
+                        # Count position among siblings in parent
+                        siblings = []
+                        try:
+                            if hasattr(parent, "iterchildren"):
+                                for child in parent.iterchildren():
+                                    try:
+                                        child_tag = str(getattr(child, "tag", "") or "")
+                                    except Exception:
+                                        child_tag = ""
+                                    if child_tag.endswith("topicref") or child_tag.endswith("topichead") or child_tag in {"topicref", "topichead"}:
+                                        siblings.append(child)
+                            elif hasattr(parent, "getchildren"):
+                                for child in parent.getchildren():
+                                    try:
+                                        child_tag = str(getattr(child, "tag", "") or "")
+                                    except Exception:
+                                        child_tag = ""
+                                    if child_tag.endswith("topicref") or child_tag.endswith("topichead") or child_tag in {"topicref", "topichead"}:
+                                        siblings.append(child)
+                        except Exception:
+                            siblings = []
+                        
+                        position = 1
+                        for i, sibling in enumerate(siblings, 1):
+                            if sibling == current:
+                                position = i
+                                break
+                        counters.insert(0, position)
+                        current = parent
+                
+                if counters:
+                    return ".".join(str(c) for c in counters)
+                else:
+                    return "0"
+            except Exception:
+                return "0"
 
     def _extract_label_and_ref(self, item: object) -> Tuple[str, Optional[str]]:
         # Accept a tuple-like (label, ref), a mapping, or an object with attributes
