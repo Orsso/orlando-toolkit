@@ -106,6 +106,8 @@ class StructureTreeWidget(ttk.Frame):
             # Ensure selected items stay visible even when tree loses focus.
             # Configure a dedicated tag with yellow background (light) and keep fg default.
             self._tree.tag_configure("search-match", background="#ffff99")
+            # Separate tag for heading-filter highlights so it doesn't conflict with search
+            self._tree.tag_configure("filter-match", background="#ffff99")
         except Exception:
             pass
 
@@ -374,6 +376,39 @@ class StructureTreeWidget(ttk.Frame):
             for item_id in self._iter_all_item_ids():
                 try:
                     tags = tuple(t for t in (self._tree.item(item_id, "tags") or ()) if t != "search-match")
+                    self._tree.item(item_id, tags=tags)
+                except Exception:
+                    continue
+        except Exception:
+            pass
+
+    # --- Heading filter specific highlights (separate from search) ---
+
+    def set_filter_highlight_refs(self, refs: List[str]) -> None:
+        """Highlight refs for heading-filter selections without affecting search tags."""
+        try:
+            # Clear existing filter highlights only
+            self.clear_filter_highlight_refs()
+            for ref in refs or []:
+                item_id = self._ref_to_id.get(ref)
+                if not item_id:
+                    continue
+                try:
+                    tags = list(self._tree.item(item_id, "tags") or ())
+                    if "filter-match" not in tags:
+                        tags.append("filter-match")
+                    self._tree.item(item_id, tags=tuple(tags))
+                except Exception:
+                    continue
+        except Exception:
+            pass
+
+    def clear_filter_highlight_refs(self) -> None:
+        """Remove heading-filter highlight tag from all items without touching search tags."""
+        try:
+            for item_id in self._iter_all_item_ids():
+                try:
+                    tags = tuple(t for t in (self._tree.item(item_id, "tags") or ()) if t != "filter-match")
                     self._tree.item(item_id, tags=tags)
                 except Exception:
                     continue

@@ -42,7 +42,7 @@ from orlando_toolkit.ui.controllers.structure_controller import StructureControl
 from orlando_toolkit.ui.widgets.structure_tree import StructureTreeWidget
 from orlando_toolkit.ui.widgets.search_widget import SearchWidget
 from orlando_toolkit.ui.widgets.toolbar_widget import ToolbarWidget
-from orlando_toolkit.ui.dialogs.heading_filter_dialog import HeadingFilterDialog
+from orlando_toolkit.ui.widgets.heading_filter_panel import HeadingFilterPanel
 from orlando_toolkit.ui.dialogs.context_menu import ContextMenuHandler
 
 
@@ -248,11 +248,13 @@ class StructureTab(ttk.Frame):
         # Preview panel on the right
         from orlando_toolkit.ui.widgets.preview_panel import PreviewPanel  # local import to avoid cycles
 
+        self._preview_container = right  # remember where preview/filter panels live
         self._preview_panel = PreviewPanel(
             right,
             on_mode_changed=self._on_preview_mode_changed,
         )
         self._preview_panel.grid(row=0, column=0, sticky="nsew")
+        self._filter_panel: Optional[HeadingFilterPanel] = None
 
         # Context menu handler wired to StructureTab callbacks
         self._ctx_menu = ContextMenuHandler(
@@ -306,15 +308,45 @@ class StructureTab(ttk.Frame):
         self._controller = controller
         self._sync_depth_control()
         self._refresh_tree()
+
+    # Expose the controller's context for callers (e.g., export pipeline)
+    @property
+    def context(self) -> Optional[DitaContext]:
+        try:
+            return self._controller.context if self._controller is not None else None
+        except Exception:
+            return None
+
+    @property
+    def max_depth(self) -> Optional[int]:
+        try:
+            return getattr(self._controller, "max_depth", None) if self._controller is not None else None
+        except Exception:
+            return None
     
     def _sync_depth_control(self) -> None:
         """Apply the default depth (3) to the controller and sync the display."""
         if not hasattr(self, "_depth_var") or self._controller is None:
             return
         try:
-            # Apply default depth of 3 to controller
+            # Read current depth from context metadata when available; fallback to 3
+            depth = 3
+            try:
+                ctx = getattr(self._controller, "context", None)
+                if ctx is not None and hasattr(ctx, "metadata"):
+                    depth = int(getattr(ctx, "metadata", {}).get("topic_depth", 3))
+            except Exception:
+                depth = 3
+
+            # Reflect in the UI control
+            try:
+                self._depth_var.set(depth)
+            except Exception:
+                pass
+
+            # Apply to controller so the visible tree matches the persisted depth
             if hasattr(self._controller, "handle_depth_change"):
-                self._controller.handle_depth_change(3)
+                self._controller.handle_depth_change(depth)
         except Exception:
             pass
 
@@ -772,30 +804,146 @@ class StructureTab(ttk.Frame):
     # ---------------------------------------------------------------------------------
 
     def _on_heading_filters_clicked(self) -> None:
-        """Open HeadingFilterDialog and update controller.heading_filter_exclusions."""
+        """Show the new panel in place of preview; remove old dialog usage."""
         ctrl = self._controller
         if ctrl is None:
             return
 
         try:
-            # Build counts and occurrences by traversing the ditamap root
-            headings_cache = self._build_headings_cache_for_dialog(ctrl.context)
+            # Build counts and occurrences, plus per-style levels for grouping
+            headings_cache = self._build_headings_cache(ctrl.context)
             occurrences_map = self._build_heading_occurrences(ctrl.context)
-
-            dialog = HeadingFilterDialog(self)
+            style_levels = self._build_style_levels(ctrl.context)
             current = dict(getattr(ctrl, "heading_filter_exclusions", {}) or {})
-            # Extend call to pass occurrences for details panel
-            updated = dialog.show_dialog(headings_cache, current, occurrences=occurrences_map)
 
-            # Update controller state: style -> excluded
-            ctrl.heading_filter_exclusions = dict(updated or {})
-            # Refresh the tree to reflect filter changes (controller.max_depth unchanged)
-            self._refresh_tree()
+            # Swap out preview with filter panel if not already visible
+            self._ensure_filter_panel()
+            if self._filter_panel is None:
+                return
+            self._filter_panel.set_data(headings_cache, occurrences_map, style_levels, current)
+            # Clear any previous filter highlights
+            try:
+                self._tree.clear_filter_highlight_refs()  # type: ignore[attr-defined]
+            except Exception:
+                pass
         except Exception:
             pass
 
-    def _build_headings_cache_for_dialog(self, context: Optional[DitaContext]) -> dict:
-        """Construct headings cache for HeadingFilterDialog by traversing context.ditamap_root.
+    def _ensure_filter_panel(self) -> None:
+        try:
+            container = getattr(self, "_preview_container", None)
+            if container is None:
+                return
+            # Hide preview panel if present
+            if self._preview_panel is not None:
+                try:
+                    self._preview_panel.grid_remove()
+                except Exception:
+                    pass
+            # Create once
+            if self._filter_panel is None:
+                self._filter_panel = HeadingFilterPanel(
+                    container,
+                    on_close=self._on_filter_close,
+                    on_apply=self._on_filter_apply,
+                    on_select_style=self._on_filter_select_style,
+                )
+                self._filter_panel.grid(row=0, column=0, sticky="nsew")
+            else:
+                try:
+                    self._filter_panel.grid()
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+    def _on_filter_close(self) -> None:
+        # Hide filter panel, show preview panel back
+        try:
+            if self._filter_panel is not None:
+                self._filter_panel.grid_remove()
+            if self._preview_panel is not None:
+                self._preview_panel.grid()
+            try:
+                self._tree.clear_filter_highlight_refs()  # type: ignore[attr-defined]
+            except Exception:
+                pass
+        except Exception:
+            pass
+
+    def _on_filter_apply(self, exclusions: dict[str, bool]) -> None:
+        ctrl = self._controller
+        if ctrl is None:
+            return
+        try:
+            # Update controller mapping
+            ctrl.heading_filter_exclusions = dict(exclusions or {})
+
+            # Build style exclusion map per levels for merge
+            style_excl_map: dict[int, set[str]] = {}
+            levels_map = self._build_style_levels(ctrl.context)
+            for style, excluded in exclusions.items():
+                if not excluded:
+                    continue
+                # Derive level from computed map; fallback to level 1
+                level = int(levels_map.get(style) or 1)
+                style_excl_map.setdefault(level, set()).add(style)
+
+            # Validate mergability upfront and inform user if some items cannot be merged
+            try:
+                unmergable = self._find_unmergable_for_styles(style_excl_map)
+                if unmergable > 0 and self._filter_panel is not None:
+                    plural = "s" if unmergable > 1 else ""
+                    self._filter_panel.update_status(
+                        f"Unable to filter: {unmergable} topic{plural} doesn't have parent to merge"
+                    )
+            except Exception:
+                pass
+
+            # Apply merge via service (non-destructive; unified merge handles parentless)
+            res = self._controller.editing_service.apply_depth_limit(
+                self._controller.context,
+                getattr(self._controller, "max_depth", 999),
+                style_excl_map or None,
+            )
+            if not getattr(res, "success", False):
+                # Surface minimal info in panel status
+                try:
+                    self._filter_panel.update_status("Failed to apply heading filter")  # type: ignore[attr-defined]
+                except Exception:
+                    pass
+                return
+
+            # Refresh tree and keep preview hidden while panel is up
+            self._refresh_tree()
+            # Optionally, update status
+            try:
+                self._filter_panel.update_status("Filters applied")  # type: ignore[attr-defined]
+            except Exception:
+                pass
+        except Exception:
+            try:
+                if self._filter_panel is not None:
+                    self._filter_panel.update_status("Failed to apply heading filter")
+            except Exception:
+                pass
+
+    def _on_filter_select_style(self, style: str) -> None:
+        # Highlight occurrences of the selected style in the tree (filter-specific highlights)
+        try:
+            occ = self._build_heading_occurrences(self._controller.context)  # type: ignore[attr-defined]
+            style_items = occ.get(style, []) if occ else []
+            refs = [it.get("href") for it in style_items if isinstance(it, dict) and it.get("href")]
+            # Keep search highlights intact; only add filter tag
+            self._tree.set_filter_highlight_refs(refs)  # type: ignore[attr-defined]
+        except Exception:
+            try:
+                self._tree.clear_filter_highlight_refs()  # type: ignore[attr-defined]
+            except Exception:
+                pass
+
+    def _build_headings_cache(self, context: Optional[DitaContext]) -> dict:
+        """Construct headings cache for the filter panel by traversing context.ditamap_root.
 
         Rules:
         - Count occurrences of styles by traversing topicref/topichead nodes.
@@ -1043,6 +1191,165 @@ class StructureTab(ttk.Frame):
                 continue
 
         return occurrences
+
+    def _build_style_levels(self, context: Optional[DitaContext]) -> dict[str, Optional[int]]:
+        """Return a mapping style -> level (int) when derivable, else None.
+
+        Rules mirror other helpers: prefer data-style; else derive from data-level; fallback "Heading" -> None.
+        """
+        result: dict[str, Optional[int]] = {}
+        if context is None:
+            return result
+        root = getattr(context, "ditamap_root", None)
+        if root is None:
+            return result
+        def resolve_style_and_level(node: object) -> tuple[str, Optional[int]]:
+            style = None
+            level = None
+            try:
+                if hasattr(node, "get"):
+                    style = node.get("data-style")
+            except Exception:
+                style = None
+            try:
+                if hasattr(node, "get"):
+                    lv = node.get("data-level")
+                    level = int(lv) if lv is not None else None
+            except Exception:
+                level = None
+            if not style and isinstance(level, int):
+                style = f"Heading {level}"
+            if not style:
+                style = "Heading"
+            return style, level
+        stack = [root]
+        visited = 0
+        max_nodes = 200000
+        while stack and visited < max_nodes:
+            node = stack.pop()
+            visited += 1
+            try:
+                tag = str(getattr(node, "tag", "") or "")
+            except Exception:
+                tag = ""
+            if tag.endswith("topicref") or tag.endswith("topichead") or tag in {"topicref", "topichead"}:
+                style, level = resolve_style_and_level(node)
+                result.setdefault(style, level)
+            try:
+                if hasattr(node, "iterchildren"):
+                    for child in node.iterchildren():
+                        try:
+                            ctag = str(getattr(child, "tag", "") or "")
+                        except Exception:
+                            ctag = ""
+                        if ctag.endswith("topicref") or ctag.endswith("topichead") or ctag in {"topicref", "topichead"}:
+                            stack.append(child)
+                    continue
+            except Exception:
+                pass
+            try:
+                if hasattr(node, "getchildren"):
+                    for child in node.getchildren():  # type: ignore[attr-defined]
+                        try:
+                            ctag = str(getattr(child, "tag", "") or "")
+                        except Exception:
+                            ctag = ""
+                        if ctag.endswith("topicref") or ctag.endswith("topichead") or ctag in {"topicref", "topichead"}:
+                            stack.append(child)
+                    continue
+            except Exception:
+                pass
+            try:
+                if hasattr(node, "findall"):
+                    for child in list(node.findall("./topicref")) + list(node.findall("./topichead")):
+                        stack.append(child)
+            except Exception:
+                pass
+        return result
+
+    def _find_unmergable_for_styles(self, style_excl_map: dict[int, set[str]]) -> int:
+        """Return count of nodes matching excluded (level, style) with no merge parent.
+
+        A node is considered unmergable when it has no ancestor topicref or topichead,
+        i.e., it is a direct child of the map root.
+        """
+        ctrl = self._controller
+        if ctrl is None or ctrl.context is None:
+            return 0
+        root = getattr(ctrl.context, "ditamap_root", None)
+        if root is None:
+            return 0
+
+        def node_style_level(n: object) -> tuple[str, int]:
+            level = 1
+            style = "Heading"
+            try:
+                if hasattr(n, "get"):
+                    lv = n.get("data-level")
+                    if lv is not None:
+                        level = int(lv)
+            except Exception:
+                pass
+            try:
+                if hasattr(n, "get"):
+                    st = n.get("data-style")
+                    if st:
+                        style = st
+                    elif lv is not None:
+                        style = f"Heading {level}"
+            except Exception:
+                pass
+            return style, level
+
+        def has_merge_parent(n: object) -> bool:
+            try:
+                parent = getattr(n, "getparent", lambda: None)()
+                while parent is not None:
+                    tag = str(getattr(parent, "tag", "") or "")
+                    if tag in ("topicref", "topichead") or tag.endswith("topicref") or tag.endswith("topichead"):
+                        return True
+                    parent = getattr(parent, "getparent", lambda: None)()
+            except Exception:
+                return False
+            return False
+
+        unmergable = 0
+        stack = [root]
+        visited = 0
+        max_nodes = 200000
+        while stack and visited < max_nodes:
+            node = stack.pop()
+            visited += 1
+            try:
+                tag = str(getattr(node, "tag", "") or "")
+            except Exception:
+                tag = ""
+            if tag in ("topicref", "topichead") or tag.endswith("topicref") or tag.endswith("topichead"):
+                style, level = node_style_level(node)
+                if level in style_excl_map and style in style_excl_map[level]:
+                    if not has_merge_parent(node):
+                        unmergable += 1
+            try:
+                if hasattr(node, "iterchildren"):
+                    for child in node.iterchildren():
+                        stack.append(child)
+                    continue
+            except Exception:
+                pass
+            try:
+                if hasattr(node, "getchildren"):
+                    for child in node.getchildren():  # type: ignore[attr-defined]
+                        stack.append(child)
+                    continue
+            except Exception:
+                pass
+            try:
+                if hasattr(node, "findall"):
+                    for child in list(node.findall("./topicref")) + list(node.findall("./topichead")):
+                        stack.append(child)
+            except Exception:
+                pass
+        return unmergable
 
     # ---------------------------------------------------------------------------------
     # Keyboard shortcuts

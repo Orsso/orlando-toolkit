@@ -51,7 +51,17 @@ class ConversionService:
     def prepare_package(self, context: DitaContext) -> DitaContext:
         """Apply final renaming of topics and images inside *context*."""
         self.logger.info("Preparing content for packaging...")
-        depth_limit = int(context.metadata.get("topic_depth", 3))
+        # Determine effective depth from metadata, keeping previously applied merge depth if larger
+        # so we do not inadvertently reduce the structure compared to the UI state.
+        try:
+            md_depth = int(context.metadata.get("topic_depth", 3))
+        except Exception:
+            md_depth = 3
+        try:
+            merged_depth = int(context.metadata.get("merged_depth")) if context.metadata.get("merged_depth") is not None else None
+        except Exception:
+            merged_depth = None
+        depth_limit = md_depth if merged_depth is None else int(merged_depth)
 
         # ----------------------------------------------------------------
         # 1) Apply unified merge (depth + style exclusions) in single pass

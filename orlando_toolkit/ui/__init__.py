@@ -24,7 +24,6 @@ from .widgets.search_widget import SearchWidget  # noqa: F401
 from .widgets.toolbar_widget import ToolbarWidget  # noqa: F401
 
 # Dialogs / Handlers
-from .dialogs.heading_filter_dialog import HeadingFilterDialog  # noqa: F401
 from .dialogs.context_menu import ContextMenuHandler  # noqa: F401
 
 __all__: list[str] = [
@@ -35,6 +34,5 @@ __all__: list[str] = [
     "StructureTreeWidget",
     "SearchWidget",
     "ToolbarWidget",
-    "HeadingFilterDialog",
     "ContextMenuHandler",
 ]

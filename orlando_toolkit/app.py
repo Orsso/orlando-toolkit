@@ -268,7 +268,20 @@ class OrlandoToolkit:
                 ctx_export = deepcopy(self.structure_tab.context)
                 # Preserve latest metadata (may have been edited in other tabs)
                 if self.dita_context:
+                    # Keep Structure tab's chosen depth from being overwritten by base context
+                    # Prefer controller's max_depth if available; else metadata
+                    depth_from_structure = None
+                    try:
+                        depth_from_structure = getattr(self.structure_tab, "max_depth", None)
+                    except Exception:
+                        depth_from_structure = None
+                    if depth_from_structure is None:
+                        depth_from_structure = ctx_export.metadata.get("topic_depth")
+                    # Merge global metadata
                     ctx_export.metadata.update(self.dita_context.metadata)
+                    # Restore the structure depth explicitly if known
+                    if depth_from_structure is not None:
+                        ctx_export.metadata["topic_depth"] = depth_from_structure
             else:
                 ctx_export = deepcopy(self.dita_context)
 

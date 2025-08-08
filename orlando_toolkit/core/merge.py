@@ -163,8 +163,18 @@ def _add_title_paragraph(target_el: ET.Element, title_text: str) -> None:
     
     clean_title = " ".join(title_text.split())
     head_p = ET.Element("p", id=generate_dita_id())
-    head_p.text = clean_title
+    # Ensure visible emphasis without relying on external CSS by uppercasing and
+    # wrapping in bold+underline inline elements.
+    try:
+        bold = ET.SubElement(head_p, "b")
+        underline = ET.SubElement(bold, "u")
+        underline.text = clean_title.upper()
+    except Exception:
+        # Fallback to plain text if inline elements cannot be created
+        head_p.text = clean_title.upper()
+    # Mark paragraph for downstream styling (preview + consumers)
     head_p.set("outputclass", "merged-title")
+    # Keep a class for downstream consumers (preview/styling)
 
     parent_body = target_el.find("conbody")
     if parent_body is None:

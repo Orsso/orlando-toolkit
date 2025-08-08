@@ -113,6 +113,13 @@ class StructureController:
 
         # On success, update controller state and report True
         self.max_depth = clamped
+        # Persist chosen depth so packaging/export uses the same value
+        try:
+            if hasattr(self, "context") and hasattr(self.context, "metadata"):
+                self.context.metadata["topic_depth"] = clamped
+        except Exception:
+            # Best-effort only; keep UI responsive even if metadata is not writable
+            pass
         return True
 
     def handle_move_operation(
