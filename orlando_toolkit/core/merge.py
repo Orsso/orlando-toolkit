@@ -112,9 +112,10 @@ def merge_topics_by_titles(ctx: "DitaContext", exclude_titles: set[str]) -> None
                 title_txt = t_el.text if t_el is not None else ""
 
             if _clean_title(title_txt) in targets and ancestor_topic_el is not None and topic_el is not None:
-                # 1) Preserve heading paragraph
+                # 1) Preserve heading paragraph and mark for merged-title styling
                 head_p = ET.Element("p", id=generate_dita_id())
                 head_p.text = title_txt.strip()
+                head_p.set("outputclass", "merged-title")
 
                 parent_body = ancestor_topic_el.find("conbody")
                 if parent_body is None:
@@ -163,6 +164,7 @@ def _add_title_paragraph(target_el: ET.Element, title_text: str) -> None:
     clean_title = " ".join(title_text.split())
     head_p = ET.Element("p", id=generate_dita_id())
     head_p.text = clean_title
+    head_p.set("outputclass", "merged-title")
 
     parent_body = target_el.find("conbody")
     if parent_body is None:

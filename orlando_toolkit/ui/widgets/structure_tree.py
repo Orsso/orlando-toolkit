@@ -78,6 +78,8 @@ class StructureTreeWidget(ttk.Frame):
         
         # Store reference to ditamap_root for section number calculation
         self._ditamap_root: Optional[object] = None
+        # Precomputed section numbers for current ditamap_root
+        self._section_number_map: Dict[object, str] = {}
 
         # Event bindings
         self._tree.bind("<<TreeviewSelect>>", self._on_select_event, add="+")
@@ -149,6 +151,12 @@ class StructureTreeWidget(ttk.Frame):
         if ditamap_root is not None and map_root is not None:
             # Store ditamap_root reference for section number calculation
             self._ditamap_root = ditamap_root
+            # Precompute section numbers once per populate to avoid O(N^2)
+            try:
+                from orlando_toolkit.core.utils import calculate_section_numbers  # local import to avoid cycles
+                self._section_number_map = calculate_section_numbers(ditamap_root) or {}
+            except Exception:
+                self._section_number_map = {}
             # No synthetic visible root label; top-level items are the map children.
             traversed = False
             try:
@@ -202,6 +210,8 @@ class StructureTreeWidget(ttk.Frame):
             # If traversal failed unexpectedly, fall back to flat topics listing under Treeview root.
 
         # No ditamap_root: use existing fallback path (flat list) under Treeview root.
+        # Reset precomputed section numbers as there is no structured map.
+        self._section_number_map = {}
         root_label = self._safe_getattr(context, "title") or "Root"
         root_id = self._insert_item("", root_label, topic_ref=self._safe_getattr(context, "root_ref"))
         self._tree.item(root_id, open=True)
@@ -427,6 +437,7 @@ class StructureTreeWidget(ttk.Frame):
         self._id_to_ref.clear()
         self._ref_to_id.clear()
         self._ditamap_root = None
+        self._section_number_map = {}
 
     # Internal helpers (UI/presentation only)
 
@@ -621,100 +632,92 @@ class StructureTreeWidget(ttk.Frame):
     def _calculate_section_number(self, node: object) -> str:
         """Calculate the section number for a topicref/topichead node.
         
-        Parameters
-        ----------
-        node : object
-            The topicref or topichead element
-            
-        Returns
-        -------
-        str
-            Section number (e.g., "1.2.1") or "0" if not found
+        Returns the precomputed value when available, otherwise falls back to a
+        lightweight parent-walk computation. Returns "0" if not found.
         """
         if self._ditamap_root is None:
             return "0"
-            
+
+        # Fast path: use precomputed map when available
         try:
-            # Import here to avoid circular dependencies
-            from orlando_toolkit.core.utils import get_section_number_for_topicref
-            return get_section_number_for_topicref(node, self._ditamap_root)
+            if self._section_number_map:
+                val = self._section_number_map.get(node)
+                if isinstance(val, str):
+                    return val
         except Exception:
-            # Fallback: calculate manually if import fails
-            try:
-                # Walk up the tree to calculate position at each level
-                counters = []
-                current = node
-                
-                # Get all siblings at each level and find our position
-                while current is not None:
-                    parent = getattr(current, 'getparent', lambda: None)()
-                    if parent is None or parent == self._ditamap_root:
-                        # Count position among siblings in ditamap_root
+            pass
+
+        # Fallback: calculate by walking up parents and counting positions
+        try:
+            counters = []
+            current = node
+
+            while current is not None:
+                parent = getattr(current, 'getparent', lambda: None)()
+                if parent is None or parent == self._ditamap_root:
+                    siblings = []
+                    try:
+                        if hasattr(self._ditamap_root, "iterchildren"):
+                            for child in self._ditamap_root.iterchildren():
+                                try:
+                                    child_tag = str(getattr(child, "tag", "") or "")
+                                except Exception:
+                                    child_tag = ""
+                                if child_tag.endswith("topicref") or child_tag.endswith("topichead") or child_tag in {"topicref", "topichead"}:
+                                    siblings.append(child)
+                        elif hasattr(self._ditamap_root, "getchildren"):
+                            for child in self._ditamap_root.getchildren():
+                                try:
+                                    child_tag = str(getattr(child, "tag", "") or "")
+                                except Exception:
+                                    child_tag = ""
+                                if child_tag.endswith("topicref") or child_tag.endswith("topichead") or child_tag in {"topicref", "topichead"}:
+                                    siblings.append(child)
+                    except Exception:
                         siblings = []
-                        try:
-                            if hasattr(self._ditamap_root, "iterchildren"):
-                                for child in self._ditamap_root.iterchildren():
-                                    try:
-                                        child_tag = str(getattr(child, "tag", "") or "")
-                                    except Exception:
-                                        child_tag = ""
-                                    if child_tag.endswith("topicref") or child_tag.endswith("topichead") or child_tag in {"topicref", "topichead"}:
-                                        siblings.append(child)
-                            elif hasattr(self._ditamap_root, "getchildren"):
-                                for child in self._ditamap_root.getchildren():
-                                    try:
-                                        child_tag = str(getattr(child, "tag", "") or "")
-                                    except Exception:
-                                        child_tag = ""
-                                    if child_tag.endswith("topicref") or child_tag.endswith("topichead") or child_tag in {"topicref", "topichead"}:
-                                        siblings.append(child)
-                        except Exception:
-                            siblings = []
-                        
-                        position = 1
-                        for i, sibling in enumerate(siblings, 1):
-                            if sibling == current:
-                                position = i
-                                break
-                        counters.insert(0, position)
-                        break
-                    else:
-                        # Count position among siblings in parent
-                        siblings = []
-                        try:
-                            if hasattr(parent, "iterchildren"):
-                                for child in parent.iterchildren():
-                                    try:
-                                        child_tag = str(getattr(child, "tag", "") or "")
-                                    except Exception:
-                                        child_tag = ""
-                                    if child_tag.endswith("topicref") or child_tag.endswith("topichead") or child_tag in {"topicref", "topichead"}:
-                                        siblings.append(child)
-                            elif hasattr(parent, "getchildren"):
-                                for child in parent.getchildren():
-                                    try:
-                                        child_tag = str(getattr(child, "tag", "") or "")
-                                    except Exception:
-                                        child_tag = ""
-                                    if child_tag.endswith("topicref") or child_tag.endswith("topichead") or child_tag in {"topicref", "topichead"}:
-                                        siblings.append(child)
-                        except Exception:
-                            siblings = []
-                        
-                        position = 1
-                        for i, sibling in enumerate(siblings, 1):
-                            if sibling == current:
-                                position = i
-                                break
-                        counters.insert(0, position)
-                        current = parent
-                
-                if counters:
-                    return ".".join(str(c) for c in counters)
+
+                    position = 1
+                    for i, sibling in enumerate(siblings, 1):
+                        if sibling == current:
+                            position = i
+                            break
+                    counters.insert(0, position)
+                    break
                 else:
-                    return "0"
-            except Exception:
-                return "0"
+                    siblings = []
+                    try:
+                        if hasattr(parent, "iterchildren"):
+                            for child in parent.iterchildren():
+                                try:
+                                    child_tag = str(getattr(child, "tag", "") or "")
+                                except Exception:
+                                    child_tag = ""
+                                if child_tag.endswith("topicref") or child_tag.endswith("topichead") or child_tag in {"topicref", "topichead"}:
+                                    siblings.append(child)
+                        elif hasattr(parent, "getchildren"):
+                            for child in parent.getchildren():
+                                try:
+                                    child_tag = str(getattr(child, "tag", "") or "")
+                                except Exception:
+                                    child_tag = ""
+                                if child_tag.endswith("topicref") or child_tag.endswith("topichead") or child_tag in {"topicref", "topichead"}:
+                                    siblings.append(child)
+                    except Exception:
+                        siblings = []
+
+                    position = 1
+                    for i, sibling in enumerate(siblings, 1):
+                        if sibling == current:
+                            position = i
+                            break
+                    counters.insert(0, position)
+                    current = parent
+
+            if counters:
+                return ".".join(str(c) for c in counters)
+            return "0"
+        except Exception:
+            return "0"
 
     def _extract_label_and_ref(self, item: object) -> Tuple[str, Optional[str]]:
         # Accept a tuple-like (label, ref), a mapping, or an object with attributes

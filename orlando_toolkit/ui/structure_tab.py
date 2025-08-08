@@ -556,7 +556,15 @@ class StructureTab(ttk.Frame):
 
         try:
             if getattr(res, "success", False) and isinstance(getattr(res, "content", None), str):
-                panel.set_content(getattr(res, "content"))
+                content = getattr(res, "content")
+                # Ensure XML appears as preformatted when in XML mode
+                if mode == "xml":
+                    try:
+                        from html import escape as _escape
+                        content = f"<pre style=\"white-space:pre-wrap;\">{_escape(content)}</pre>"
+                    except Exception:
+                        pass
+                panel.set_content(content)
             else:
                 msg = getattr(res, "message", None) or "Unable to render preview"
                 panel.show_error(str(msg))

@@ -32,13 +32,20 @@ import tkinter as tk
 from tkinter import ttk
 from tkinter.scrolledtext import ScrolledText
 
-# Optional HTML rendering support
+# Optional HTML rendering support (prefer tkinterweb if available)
 try:
-    from tkhtmlview import HTMLScrolledText
-    HTML_RENDERING_AVAILABLE = True
-except ImportError:
-    HTML_RENDERING_AVAILABLE = False
-    HTMLScrolledText = None
+    from tkinterweb import HtmlFrame  # type: ignore
+    HTML_WEB_AVAILABLE = True
+except Exception:
+    HTML_WEB_AVAILABLE = False
+    HtmlFrame = None  # type: ignore
+
+try:
+    from tkhtmlview import HTMLScrolledText  # type: ignore
+    TKHTMLVIEW_AVAILABLE = True
+except Exception:
+    TKHTMLVIEW_AVAILABLE = False
+    HTMLScrolledText = None  # type: ignore
 
 
 Mode = Literal["html", "xml"]
@@ -105,25 +112,41 @@ class PreviewPanel(ttk.Frame):
         self._title_var = tk.StringVar(value="")  # retained for API compatibility
         self._title_label = None  # type: ignore[assignment]
 
-        # Decision: Use HTMLScrolledText for visual rendering despite selection limitation
-        # The visual improvement outweighs the selection highlighting issue
-        if HTML_RENDERING_AVAILABLE:
+        # Prefer a real HTML widget when available for better table support
+        self._html_rendering_enabled = False
+        self._html_widget_kind = "text"  # 'tkinterweb' | 'tkhtmlview' | 'text'
+
+        if HTML_WEB_AVAILABLE:
             try:
-                self._text = HTMLScrolledText(self, height=10)
+                self._text = HtmlFrame(
+                    self,
+                    horizontal_scrollbar="auto",  # type: ignore[arg-type]
+                    vertical_scrollbar="auto",    # type: ignore[arg-type]
+                    messages_enabled=False,        # silence debug banner
+                )
                 self._html_rendering_enabled = True
+                self._html_widget_kind = "tkinterweb"
             except Exception:
-                # Fallback if HTMLScrolledText fails to initialize
-                self._text = ScrolledText(self, wrap="word", height=10)
-                self._html_rendering_enabled = False
-        else:
+                # Fallback chain continues below
+                pass
+
+        if not self._html_rendering_enabled and TKHTMLVIEW_AVAILABLE:
+            try:
+                self._text = HTMLScrolledText(self, height=10)  # type: ignore[call-arg]
+                self._html_rendering_enabled = True
+                self._html_widget_kind = "tkhtmlview"
+            except Exception:
+                pass
+
+        if not self._html_rendering_enabled:
             self._text = ScrolledText(self, wrap="word", height=10)
-            self._html_rendering_enabled = False
+            self._html_widget_kind = "text"
         
         # Place directly under header and expand
         self._text.grid(row=1, column=0, sticky="nsew", padx=4, pady=(0, 4))
         
         # Configure text selection and read-only behavior
-        if self._html_rendering_enabled:
+        if self._html_rendering_enabled and self._html_widget_kind == "tkhtmlview":
             try:
                 # Make HTMLScrolledText read-only by binding key events
                 self._text.configure(state="normal")
@@ -142,7 +165,7 @@ class PreviewPanel(ttk.Frame):
                 
             except Exception:
                 pass
-        else:
+        elif self._html_widget_kind == "text":
             # For ScrolledText, make it read-only but selectable
             self._text.configure(state="disabled")
 
@@ -182,28 +205,34 @@ class PreviewPanel(ttk.Frame):
     def set_content(self, text: str) -> None:
         """Set body content with HTML rendering if available and in HTML mode."""
         try:
-            current_mode = self.get_mode()
-            
-            # Use HTML rendering for HTML content if available
-            if (current_mode == "html" and 
-                self._html_rendering_enabled and 
-                hasattr(self._text, 'set_html')):
+            # Prefer HTML engine whenever content looks like HTML (both HTML mode and XML-wrapped-in-<pre>)
+            content_str = text or ""
+            looks_like_html = isinstance(content_str, str) and content_str.lstrip().startswith("<")
+
+            if self._html_rendering_enabled and looks_like_html:
+                if self._html_widget_kind == "tkinterweb" and hasattr(self._text, 'load_html'):
+                    try:
+                        self._text.load_html(content_str)
+                        return
+                    except Exception:
+                        pass
+                if self._html_widget_kind == "tkhtmlview" and hasattr(self._text, 'set_html'):
+                    try:
+                        self._text.set_html(content_str)
+                        return
+                    except Exception:
+                        pass
+
+            # Fallback: render as plain text (only reliable on ScrolledText)
+            if isinstance(getattr(self, "_html_widget_kind", None), str) and self._html_widget_kind == "text":
                 try:
-                    self._text.set_html(text or "")
+                    self._text.configure(state="normal")
+                    self._text.delete("1.0", "end")
+                    self._text.insert("1.0", content_str)
+                    self._text.configure(state="disabled")
                     return
                 except Exception:
-                    # HTML rendering failed, fallback to plain text below
                     pass
-            
-            # Plain text mode (for XML mode or HTML fallback)
-            if hasattr(self._text, 'configure'):
-                self._text.configure(state="normal")
-                self._text.delete("1.0", "end")
-                self._text.insert("1.0", text or "")
-                
-                # Only disable if it's a plain ScrolledText widget, not HTMLScrolledText
-                if not self._html_rendering_enabled:
-                    self._text.configure(state="disabled")
             
         except Exception:
             # Ensure widget remains in a consistent state
