@@ -272,6 +272,12 @@ class StructureTab(ttk.Frame):
         self.bind("<Alt-Down>", lambda e: self._on_shortcut_move("down"))
         self.bind("<Alt-Left>", lambda e: self._on_shortcut_move("promote"))
         self.bind("<Alt-Right>",lambda e: self._on_shortcut_move("demote"))
+        # Ensure shortcuts work regardless of focused child by binding at the application level
+        try:
+            self.bind_all("<Control-z>", self._on_shortcut_undo, add=True)
+            self.bind_all("<Control-y>", self._on_shortcut_redo, add=True)
+        except Exception:
+            pass
         # Ensure this widget can receive keyboard focus
         self.focus_set()
         # Initial population
@@ -762,7 +768,7 @@ class StructureTab(ttk.Frame):
             new_title = simpledialog.askstring("Rename topic", "New title:", parent=self)
             if not new_title:
                 return
-            res = self._controller.editing_service.rename_topic(self._controller.context, refs[0], new_title)  # type: ignore[attr-defined]
+            res = self._controller.handle_rename(refs[0], new_title)  # type: ignore[attr-defined]
             if not getattr(res, "success", False):
                 # Keep UI non-blocking; panel-based errors are handled elsewhere.
                 return
@@ -774,7 +780,7 @@ class StructureTab(ttk.Frame):
         if not refs:
             return
         try:
-            res = self._controller.editing_service.delete_topics(self._controller.context, refs)  # type: ignore[attr-defined]
+            res = self._controller.handle_delete(refs)  # type: ignore[attr-defined]
             if not getattr(res, "success", False):
                 # Keep UI non-blocking; errors are handled elsewhere.
                 return
@@ -791,7 +797,7 @@ class StructureTab(ttk.Frame):
         if len(refs) < 2:
             return
         try:
-            res = self._controller.editing_service.merge_topics(self._controller.context, refs)  # type: ignore[attr-defined]
+            res = self._controller.handle_merge(refs)  # type: ignore[attr-defined]
             if not getattr(res, "success", False):
                 # Keep UI non-blocking; errors are handled elsewhere.
                 return
@@ -900,12 +906,8 @@ class StructureTab(ttk.Frame):
             except Exception:
                 pass
 
-            # Apply merge via service (non-destructive; unified merge handles parentless)
-            res = self._controller.editing_service.apply_depth_limit(
-                self._controller.context,
-                getattr(self._controller, "max_depth", 999),
-                style_excl_map or None,
-            )
+            # Apply via controller to ensure undo snapshots are recorded
+            res = self._controller.handle_apply_filters(style_excl_map or None)  # type: ignore[attr-defined]
             if not getattr(res, "success", False):
                 # Surface minimal info in panel status
                 try:

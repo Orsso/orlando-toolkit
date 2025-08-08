@@ -1,4 +1,4 @@
-from typing import List, Dict, Literal, Optional
+from typing import List, Dict, Literal, Optional, Callable, Any, Set
 
 from orlando_toolkit.core.models import DitaContext
 from orlando_toolkit.core.services.structure_editing_service import (
@@ -55,6 +55,56 @@ class StructureController:
         self.selected_items: List[str] = []
         self.heading_filter_exclusions: Dict[str, bool] = {}  # style -> excluded
 
+    # ---------------------------------------------------------------------------------
+    # Internal helpers
+    # ---------------------------------------------------------------------------------
+
+    def _recorded_edit(self, mutate: Callable[[], Any]) -> Any:
+        """Execute a mutating operation with pre/post undo snapshots.
+
+        - Pushes a snapshot before mutation; failure is non-fatal.
+        - Executes the provided callable.
+        - On success (OperationResult.success True or boolean True), pushes a post snapshot.
+        - Returns the original result.
+
+        This preserves business logic in services and keeps snapshot policy DRY.
+        """
+        pre_snapshot_failed = False
+        try:
+            self.undo_service.push_snapshot(self.context)
+        except Exception:
+            pre_snapshot_failed = True
+
+        result = None
+        try:
+            result = mutate()
+        except Exception:
+            return result
+
+        # Determine success flag conservatively
+        success = False
+        if isinstance(result, bool):
+            success = result
+        else:
+            success = bool(getattr(result, "success", False))
+
+        if success:
+            try:
+                self.undo_service.push_snapshot(self.context)
+            except Exception:
+                # Non-fatal – the operation already succeeded; redo may be limited
+                pass
+
+        # Optionally augment message if pre-snapshot failed
+        if pre_snapshot_failed and hasattr(result, "success") and getattr(result, "success"):
+            msg = getattr(result, "message", "") or ""
+            warning = " Warning: Undo snapshot failed - undo may not be available for this operation."
+            try:
+                result.message = f"{msg}{warning}".strip()
+            except Exception:
+                pass
+        return result
+
     def handle_depth_change(self, new_depth: int) -> bool:
         """Handle a change in the maximum depth to display.
 
@@ -84,10 +134,11 @@ class StructureController:
 
         # Only proceed when the clamped value differs from current max_depth.
         # Push an undo snapshot (non-fatal on failure).
+        pre_failed = False
         try:
             self.undo_service.push_snapshot(self.context)
         except Exception:
-            # If a logger exists, warn; otherwise continue silently.
+            pre_failed = True
             if hasattr(self, "logger"):
                 self.logger.warning("Failed to push undo snapshot for depth change", exc_info=True)
 
@@ -120,6 +171,13 @@ class StructureController:
         except Exception:
             # Best-effort only; keep UI responsive even if metadata is not writable
             pass
+        # Push post-mutation snapshot to enable redo
+        try:
+            self.undo_service.push_snapshot(self.context)
+        except Exception:
+            # Non-fatal: operation already applied
+            pass
+
         return True
 
     def handle_move_operation(
@@ -157,30 +215,72 @@ class StructureController:
             # Construct a conservative unsuccessful result without raising.
             return OperationResult(success=False, message="No selection")
 
-        # Push snapshot prior to mutation to enable undo, per spec.
-        snapshot_failed = False
         try:
-            self.undo_service.push_snapshot(self.context)
-        except Exception:
-            # Be conservative: if snapshot fails, still attempt the move but
-            # track the failure to include in the result message.
-            snapshot_failed = True
-
-        try:
-            result = self.editing_service.move_topic(self.context, first_ref, direction)
-            
-            # If snapshot failed, modify the result message to inform the user
-            if snapshot_failed and result.success:
-                warning_msg = "Warning: Undo snapshot failed - undo may not be available for this operation."
-                if result.message:
-                    result.message = f"{result.message} {warning_msg}"
-                else:
-                    result.message = warning_msg
-                    
-            return result
+            return self._recorded_edit(
+                lambda: self.editing_service.move_topic(self.context, first_ref, direction)
+            )
         except Exception:
             # Non-raising for routine errors: return an unsuccessful result.
             return OperationResult(success=False, message="Move operation failed")
+
+    def handle_rename(self, topic_ref: str, new_title: str) -> OperationResult:
+        """Rename a topic via the editing service wrapped with undo snapshots."""
+        if not isinstance(topic_ref, str) or not topic_ref:
+            return OperationResult(success=False, message="No topic selected to rename")
+        if not isinstance(new_title, str) or not new_title.strip():
+            return OperationResult(success=False, message="Empty title is not allowed")
+        try:
+            return self._recorded_edit(
+                lambda: self.editing_service.rename_topic(self.context, topic_ref, new_title)
+            )
+        except Exception:
+            return OperationResult(success=False, message="Rename operation failed")
+
+    def handle_delete(self, topic_refs: List[str]) -> OperationResult:
+        """Delete topics via the editing service wrapped with undo snapshots."""
+        refs = [r for r in (topic_refs or []) if isinstance(r, str) and r]
+        if not refs:
+            return OperationResult(success=False, message="No topics selected to delete")
+        try:
+            return self._recorded_edit(
+                lambda: self.editing_service.delete_topics(self.context, refs)
+            )
+        except Exception:
+            return OperationResult(success=False, message="Delete operation failed")
+
+    def handle_merge(self, topic_refs: List[str]) -> OperationResult:
+        """Merge topics via the editing service with undo snapshots.
+
+        Policy: first ref is target, remaining are sources. Requires >= 2 refs.
+        Falls back to a two-arg merge signature if service expects it.
+        """
+        refs = [r for r in (topic_refs or []) if isinstance(r, str) and r]
+        if len(refs) < 2:
+            return OperationResult(success=False, message="Select at least two topics to merge")
+        target_id = refs[0]
+        source_ids = refs[1:]
+
+        def _call_merge():
+            try:
+                # Preferred signature: (context, source_ids, target_id)
+                return self.editing_service.merge_topics(self.context, source_ids, target_id)
+            except TypeError:
+                # Fallback legacy signature: (context, refs)
+                return self.editing_service.merge_topics(self.context, refs)  # type: ignore[arg-type]
+
+        try:
+            return self._recorded_edit(_call_merge)
+        except Exception:
+            return OperationResult(success=False, message="Merge operation failed")
+
+    def handle_apply_filters(self, style_excl_map: Optional[Dict[int, Set[str]]] = None) -> OperationResult:
+        """Apply heading-style filters through the depth-limit service with snapshots."""
+        try:
+            return self._recorded_edit(
+                lambda: self.editing_service.apply_depth_limit(self.context, self.max_depth, style_excl_map)
+            )
+        except Exception:
+            return OperationResult(success=False, message="Failed to apply filters")
 
     def handle_search(self, term: str) -> List[str]:
         """Handle a search request and store transient search state.

@@ -187,8 +187,9 @@ def generate_dita_from_structure(
             navtitle_ref = ET.SubElement(topicmeta_ref, "navtitle")
             navtitle_ref.text = node.text
             critdates_ref = ET.SubElement(topicmeta_ref, "critdates")
-            ET.SubElement(critdates_ref, "created", date=metadata.get("revision_date"))
-            ET.SubElement(critdates_ref, "revised", modified=metadata.get("revision_date"))
+            _rev_date = metadata.get("revision_date") or datetime.now().strftime("%Y-%m-%d")
+            ET.SubElement(critdates_ref, "created", date=_rev_date)
+            ET.SubElement(critdates_ref, "revised", modified=_rev_date)
             ET.SubElement(topicmeta_ref, "othermeta", name="tocIndex", content=toc_index)
             ET.SubElement(topicmeta_ref, "othermeta", name="foldout", content="false")
             ET.SubElement(topicmeta_ref, "othermeta", name="tdm", content="false")
@@ -257,8 +258,9 @@ def generate_dita_from_structure(
             navtitle_ref = ET.SubElement(topicmeta_ref, "navtitle")
             navtitle_ref.text = node.text
             critdates_ref = ET.SubElement(topicmeta_ref, "critdates")
-            ET.SubElement(critdates_ref, "created", date=metadata.get("revision_date"))
-            ET.SubElement(critdates_ref, "revised", modified=metadata.get("revision_date"))
+            _rev_date2 = metadata.get("revision_date") or datetime.now().strftime("%Y-%m-%d")
+            ET.SubElement(critdates_ref, "created", date=_rev_date2)
+            ET.SubElement(critdates_ref, "revised", modified=_rev_date2)
             ET.SubElement(topicmeta_ref, "othermeta", name="tocIndex", content=toc_index)
             ET.SubElement(topicmeta_ref, "othermeta", name="foldout", content="false")
             ET.SubElement(topicmeta_ref, "othermeta", name="tdm", content="false")

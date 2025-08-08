@@ -136,7 +136,8 @@ class UndoService:
         - If popping the top leaves no baseline, do NOT mutate the context; move the popped snapshot to redo and report success.
         - Otherwise restore the baseline and move the popped snapshot to redo.
         """
-        if not self._undo_stack:
+        # Need at least two snapshots to perform an undo (baseline + post)
+        if len(self._undo_stack) < 2:
             return False
     
         # Validate top snapshot type; if not a proper _Snapshot, do not alter stacks.
@@ -146,21 +147,6 @@ class UndoService:
     
         # Pop the latest (post/current) snapshot to move to redo
         post_snap = self._undo_stack.pop()
-    
-        # If no baseline remains, restore the popped snapshot into context but
-        # treat it as undone by moving it to the redo stack. This keeps context valid
-        # and allows redo to re-apply deterministically.
-        if not self._undo_stack:
-            if not self._restore_snapshot_into_context(context, post_snap):
-                # If restore fails, revert and fail conservatively
-                self._undo_stack.append(post_snap)
-                return False
-            self._redo_stack.append(post_snap)
-            if len(self._redo_stack) > self._max_history:
-                overflow = len(self._redo_stack) - self._max_history
-                if overflow > 0:
-                    del self._redo_stack[0:overflow]
-            return True
     
         # Previous snapshot on top is the baseline to restore
         baseline_snap = self._undo_stack[-1]
