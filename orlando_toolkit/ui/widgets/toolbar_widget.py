@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import tkinter as tk
 from tkinter import ttk
+from orlando_toolkit.ui.custom_widgets import Tooltip
 from typing import Callable, Optional
 from typing import Literal
 
@@ -39,12 +40,21 @@ class ToolbarWidget(ttk.Frame):
         super().__init__(master)
         self._on_move = on_move
 
-        # Create buttons with accessible text labels.
-        # Arrow glyphs could be added if desired, but text is the reliable baseline.
-        self._btn_up = ttk.Button(self, text="Up", command=self._make_handler("up"))
-        self._btn_down = ttk.Button(self, text="Down", command=self._make_handler("down"))
-        self._btn_promote = ttk.Button(self, text="Promote", command=self._make_handler("promote"))
-        self._btn_demote = ttk.Button(self, text="Demote", command=self._make_handler("demote"))
+        # Create buttons with compact pictograms (arrows) instead of text labels.
+        self._btn_up = ttk.Button(self, text="↑", width=3, command=self._make_handler("up"))
+        self._btn_down = ttk.Button(self, text="↓", width=3, command=self._make_handler("down"))
+        # Promote = move left (outdent), Demote = move right (indent)
+        self._btn_promote = ttk.Button(self, text="←", width=3, command=self._make_handler("promote"))
+        self._btn_demote = ttk.Button(self, text="→", width=3, command=self._make_handler("demote"))
+
+        # Hover tooltips
+        try:
+            Tooltip(self._btn_up, "Move up")
+            Tooltip(self._btn_down, "Move down")
+            Tooltip(self._btn_promote, "Promote (move left)")
+            Tooltip(self._btn_demote, "Demote (move right)")
+        except Exception:
+            pass
 
         # Compact row layout.
         self._btn_up.grid(row=0, column=0, padx=(0, 4), pady=2)

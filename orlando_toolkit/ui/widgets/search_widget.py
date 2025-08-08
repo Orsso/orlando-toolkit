@@ -46,6 +46,7 @@ class SearchWidget(ttk.Frame):
         *,
         on_term_changed: Optional[Callable[[str], None]] = None,
         on_navigate: Optional[Callable[[Literal["prev", "next"]], None]] = None,
+        entry_width: Optional[int] = None,
     ) -> None:
         super().__init__(master)
 
@@ -59,19 +60,30 @@ class SearchWidget(ttk.Frame):
         # Layout: Entry | Clear | Prev | Next
         self.columnconfigure(0, weight=1)
 
-        self._entry = ttk.Entry(self, textvariable=self._term_var)
-        self._entry.grid(row=0, column=0, padx=(0, 4), pady=0, sticky="nsew")
+        entry_kwargs = {"textvariable": self._term_var}
+        if isinstance(entry_width, int) and entry_width > 0:
+            entry_kwargs["width"] = entry_width
+        self._entry = ttk.Entry(self, **entry_kwargs)
+        self._entry.grid(row=0, column=0, padx=(0, 4), pady=0, sticky="w")
 
         # Optional clear button (×)
         self._clear_btn = ttk.Button(self, text="×", width=2, command=self._on_clear_clicked)
         self._clear_btn.grid(row=0, column=1, padx=(0, 4), pady=0, sticky="nsew")
 
-        # Navigation buttons
-        self._prev_btn = ttk.Button(self, text="Prev", command=lambda: self.navigate_results("prev"))
+        # Navigation buttons (pictograms)
+        self._prev_btn = ttk.Button(self, text="◀", width=3, command=lambda: self.navigate_results("prev"))
         self._prev_btn.grid(row=0, column=2, padx=(0, 4), pady=0, sticky="nsew")
 
-        self._next_btn = ttk.Button(self, text="Next", command=lambda: self.navigate_results("next"))
+        self._next_btn = ttk.Button(self, text="▶", width=3, command=lambda: self.navigate_results("next"))
         self._next_btn.grid(row=0, column=3, padx=0, pady=0, sticky="nsew")
+
+        # Optional hover hints
+        try:
+            from orlando_toolkit.ui.custom_widgets import Tooltip
+            Tooltip(self._prev_btn, "Previous match")
+            Tooltip(self._next_btn, "Next match")
+        except Exception:
+            pass
 
         # Bindings
         # Use variable trace to catch programmatic and user edits

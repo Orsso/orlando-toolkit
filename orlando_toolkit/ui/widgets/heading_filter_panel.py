@@ -81,14 +81,9 @@ class HeadingFilterPanel(ttk.Frame):
             row=0, column=0, sticky="w"
         )
 
+        # Actions removed (Refresh/Close/Apply no longer used). Keep a minimal spacer.
         actions = ttk.Frame(header)
         actions.grid(row=0, column=1, sticky="e")
-        self._btn_reset = ttk.Button(actions, text="Reset", command=self._on_reset)
-        self._btn_reset.grid(row=0, column=0, padx=(0, 6))
-        self._btn_apply = ttk.Button(actions, text="Apply", command=self._on_apply)
-        self._btn_apply.grid(row=0, column=1, padx=(0, 6))
-        self._btn_close = ttk.Button(actions, text="Close", command=self._on_close)
-        self._btn_close.grid(row=0, column=2)
 
         # Status label (warnings/info)
         self._status_var = tk.StringVar(value="")
@@ -234,11 +229,12 @@ class HeadingFilterPanel(ttk.Frame):
     # --- Actions ---
 
     def _on_close(self) -> None:
+        # Deprecated: button removed; method kept for compatibility.
         if callable(self.on_close):
             self.on_close()
 
     def _on_apply(self) -> None:
-        # Collect exclusions and fire callback
+        # Auto-apply is triggered by checkbox/var changes; explicit button removed.
         try:
             for style, var in self._vars_by_style.items():
                 self._exclusions[style] = bool(var.get())

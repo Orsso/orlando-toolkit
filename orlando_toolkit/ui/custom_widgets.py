@@ -9,6 +9,93 @@ from tkinter import ttk
 from PIL import Image, ImageTk
 
 
+class Tooltip:
+    """Lightweight tooltip helper for ttk widgets.
+
+    Shows a small label near the mouse pointer on hover. Safe across platforms
+    and themes, avoids complex dependencies. Use as:
+
+        Tooltip(widget, text="Your text")
+
+    The instance keeps itself alive by holding references on the target widget.
+    """
+
+    def __init__(self, widget: tk.Widget, text: str = "", *, delay_ms: int = 1000) -> None:
+        self.widget = widget
+        self.text = text
+        self._tip_window: tk.Toplevel | None = None
+        self._delay_ms: int = max(0, int(delay_ms))
+        self._after_id: str | None = None
+        try:
+            self.widget.bind("<Enter>", self._on_enter, add="+")
+            self.widget.bind("<Leave>", self._on_leave, add="+")
+            self.widget.bind("<Motion>", self._on_motion, add="+")
+        except Exception:
+            pass
+
+    def _on_enter(self, _event: tk.Event) -> None:
+        # Schedule delayed show
+        try:
+            self._cancel_scheduled()
+            self._after_id = self.widget.after(self._delay_ms, self._show)
+        except Exception:
+            self._show()
+
+    def _on_leave(self, _event: tk.Event) -> None:
+        self._cancel_scheduled()
+        self._hide()
+
+    def _on_motion(self, _event: tk.Event) -> None:
+        # Move tooltip with the cursor when visible
+        if self._tip_window is not None:
+            try:
+                x = self.widget.winfo_pointerx() + 12
+                y = self.widget.winfo_pointery() + 12
+                self._tip_window.geometry(f"+{x}+{y}")
+            except Exception:
+                pass
+
+    def _show(self) -> None:
+        if self._tip_window is not None or not self.text:
+            return
+        self._cancel_scheduled()
+        try:
+            self._tip_window = tw = tk.Toplevel(self.widget)
+            tw.wm_overrideredirect(True)
+            tw.wm_attributes("-topmost", True)
+            # Place near mouse pointer
+            x = self.widget.winfo_pointerx() + 12
+            y = self.widget.winfo_pointery() + 12
+            tw.geometry(f"+{x}+{y}")
+
+            # Style-safe tooltip using ttk
+            frm = ttk.Frame(tw, padding=(6, 3))
+            frm.pack(fill="both", expand=True)
+            lbl = ttk.Label(frm, text=self.text)
+            lbl.pack()
+        except Exception:
+            # Best-effort: on any failure, ensure window is cleaned
+            self._hide()
+
+    def _hide(self) -> None:
+        try:
+            if self._tip_window is not None:
+                self._tip_window.destroy()
+        except Exception:
+            pass
+        finally:
+            self._tip_window = None
+
+    def _cancel_scheduled(self) -> None:
+        try:
+            if self._after_id is not None:
+                self.widget.after_cancel(self._after_id)
+        except Exception:
+            pass
+        finally:
+            self._after_id = None
+
+
 class ToggledFrame(tk.Frame):
     """A collapsible container that can show or hide its content."""
 

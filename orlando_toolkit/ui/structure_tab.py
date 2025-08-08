@@ -119,28 +119,55 @@ class StructureTab(ttk.Frame):
         self.columnconfigure(0, weight=1)
         self.rowconfigure(2, weight=1)
 
-        # Toolbar
+        # Toolbar (now below the modified header row)
         self._toolbar = ToolbarWidget(self, on_move=self._on_toolbar_move_clicked)
-        self._toolbar.grid(row=0, column=0, sticky="ew", padx=8, pady=(8, 4))
+        self._toolbar.grid(row=1, column=0, sticky="ew", padx=8, pady=(0, 6))
 
-        # Search widget row (contains search and heading filter button)
+        # Search row layout (left tools | search | toggles | spacer | depth controls)
         search_row = ttk.Frame(self)
-        search_row.grid(row=1, column=0, sticky="ew", padx=8, pady=(0, 6))
-        search_row.columnconfigure(0, weight=1)
+        search_row.grid(row=0, column=0, sticky="ew", padx=8, pady=(8, 4))
+        # Column 3 is a flexible spacer to push depth controls to the far right
+        search_row.columnconfigure(3, weight=1)
 
+        # Left tools: Expand/Collapse all, placed completely to the left of search bar
+        left_tools = ttk.Frame(search_row)
+        left_tools.grid(row=0, column=0, padx=(0, 8))
+
+        try:
+            self._expand_all_btn = ttk.Button(left_tools, text="⊞", width=3, command=self._on_expand_all)
+            self._expand_all_btn.grid(row=0, column=0, padx=(0, 4))
+            try:
+                from orlando_toolkit.ui.custom_widgets import Tooltip
+                Tooltip(self._expand_all_btn, "Expand all", delay_ms=1000)
+            except Exception:
+                pass
+        except Exception:
+            self._expand_all_btn = None  # type: ignore[assignment]
+        try:
+            self._collapse_all_btn = ttk.Button(left_tools, text="⊟", width=3, command=self._on_collapse_all)
+            self._collapse_all_btn.grid(row=0, column=1)
+            try:
+                from orlando_toolkit.ui.custom_widgets import Tooltip
+                Tooltip(self._collapse_all_btn, "Collapse all", delay_ms=1000)
+            except Exception:
+                pass
+        except Exception:
+            self._collapse_all_btn = None  # type: ignore[assignment]
+
+        # Search widget: make it noticeably narrower via explicit entry width
         self._search = SearchWidget(
             search_row,
             on_term_changed=self._on_search_term_changed,
             on_navigate=self._on_search_navigate,
+            entry_width=30,
         )
-        self._search.grid(row=0, column=0, sticky="ew")
+        # Do not stretch the search widget; keep compact
+        self._search.grid(row=0, column=1, sticky="w")
 
-        self._heading_filter_btn = ttk.Button(
-            search_row, text="Heading filters…", command=self._on_heading_filters_clicked
-        )
-        self._heading_filter_btn.grid(row=0, column=1, padx=(8, 0))
+        # Spacer column between search and right-aligned controls
+        # Column 3 is configured as the expanding spacer above
 
-        # Depth control (Label + Spinbox) placed alongside existing toolbar/search widgets
+        # Depth control (Label + Spinbox) placed just right of the spacer (to the right, before toggles)
         try:
             # Default depth is 3, controller will be synced later
             self._depth_var = tk.IntVar(value=3)
@@ -173,39 +200,38 @@ class StructureTab(ttk.Frame):
             # Non-fatal if depth control cannot be created
             pass
 
-        # Add expand/collapse buttons next to Depth
-        try:
-            self._expand_all_btn = ttk.Button(
-                depth_container, text="⊞", width=3, command=self._on_expand_all
-            )
-            self._expand_all_btn.grid(row=0, column=2, padx=(8, 2))
-            # Add tooltip-style hint via balloon help simulation
-            try:
-                # Store tooltip text in button for potential future tooltip system
-                self._expand_all_btn.tooltip_text = "Expand all items"
-            except Exception:
-                pass
-            
-            self._collapse_all_btn = ttk.Button(
-                depth_container, text="⊟", width=3, command=self._on_collapse_all
-            )
-            self._collapse_all_btn.grid(row=0, column=3, padx=(2, 8))
-            try:
-                self._collapse_all_btn.tooltip_text = "Collapse all items"
-            except Exception:
-                pass
-        except Exception:
-            self._expand_all_btn = None  # type: ignore[assignment]
-            self._collapse_all_btn = None  # type: ignore[assignment]
+        # Toggle buttons group (Filters | Preview) with pictograms, placed far right
+        toggles = ttk.Frame(search_row)
+        toggles.grid(row=0, column=4, padx=(12, 0), sticky="e")
 
-        # Add Preview button (shows preview panel and hides filter panel if open)
+        # Track active states for toggle feedback and behavior
+        self._preview_active: bool = True
+        self._filter_active: bool = False
+
+        # Filters toggle: gear/filter pictogram
+        self._filter_toggle_btn = ttk.Button(
+            toggles,
+            text="≡",  # hamburger (triple bar) icon for heading filters
+            command=self._on_filter_toggle_clicked,
+            width=3,
+        )
+        self._filter_toggle_btn.grid(row=0, column=0, padx=(0, 4))
         try:
-            self._preview_toggle_btn = ttk.Button(
-                depth_container, text="Preview", command=self._on_show_preview
-            )
-            self._preview_toggle_btn.grid(row=0, column=4, padx=(8, 0))
+            self._filter_toggle_btn.tooltip_text = "Heading filters"  # type: ignore[attr-defined]
         except Exception:
-            self._preview_toggle_btn = None  # type: ignore[assignment]
+            pass
+
+        # Preview toggle: eye pictogram
+        self._preview_toggle_btn = ttk.Button(
+            toggles,
+            text="👁",
+            command=self._on_preview_toggle_clicked,
+            width=3,
+            style="Accent.TButton",  # active by default
+        )
+        self._preview_toggle_btn.grid(row=0, column=1)
+
+        # Spacer in column 3 already stretches; no extra controls here
 
         # Main area: PanedWindow with tree (left) and preview panel (right)
         self._paned = ttk.PanedWindow(self, orient="horizontal")
@@ -263,6 +289,12 @@ class StructureTab(ttk.Frame):
         )
         self._preview_panel.grid(row=0, column=0, sticky="nsew")
         self._filter_panel: Optional[HeadingFilterPanel] = None
+
+        # Initialize toggle visuals to match default active preview
+        try:
+            self._set_toggle_states(True, False)
+        except Exception:
+            pass
 
         # Context menu handler wired to StructureTab callbacks
         self._ctx_menu = ContextMenuHandler(
@@ -833,8 +865,8 @@ class StructureTab(ttk.Frame):
             style_levels = self._build_style_levels(ctrl.context)
             current = dict(getattr(ctrl, "heading_filter_exclusions", {}) or {})
 
-            # Swap out preview with filter panel if not already visible
-            self._ensure_filter_panel()
+            # Ensure right pane exists and show filter panel
+            self._set_active_panel("filter")
             if self._filter_panel is None:
                 return
             self._filter_panel.set_data(headings_cache, occurrences_map, style_levels, current)
@@ -851,6 +883,18 @@ class StructureTab(ttk.Frame):
             container = getattr(self, "_preview_container", None)
             if container is None:
                 return
+            # Make sure right pane is present in the PanedWindow
+            paned = getattr(self, "_paned", None)
+            right = getattr(self, "_right_pane", None)
+            try:
+                if paned is not None and right is not None and str(right) not in paned.panes():
+                    paned.add(right, weight=2)
+                    try:
+                        paned.paneconfigure(right, minsize=150)
+                    except Exception:
+                        pass
+            except Exception:
+                pass
             # Hide preview panel if present
             if self._preview_panel is not None:
                 try:
@@ -892,6 +936,7 @@ class StructureTab(ttk.Frame):
                 self._tree.clear_filter_highlight_refs()  # type: ignore[attr-defined]
             except Exception:
                 pass
+            self._set_toggle_states(True, False)
         except Exception:
             pass
 
@@ -1441,6 +1486,7 @@ class StructureTab(ttk.Frame):
 
             # Refresh current selection preview content
             self._update_side_preview()
+            # Visual toggle state handled by _set_active_panel
         except Exception:
             pass
 
@@ -1505,6 +1551,150 @@ class StructureTab(ttk.Frame):
         """Re-render preview when mode toggle changes."""
         try:
             self._update_side_preview()
+        except Exception:
+            pass
+
+    # -------------------------------------------------------------------------
+    # Toggle buttons behavior and visuals
+    # -------------------------------------------------------------------------
+
+    def _on_filter_toggle_clicked(self) -> None:
+        """Toggle the heading filter panel on/off."""
+        try:
+            if getattr(self, "_active_right_kind", "preview") == "filter":
+                self._set_active_panel("none")
+            else:
+                self._set_active_panel("filter")
+                # Populate data after showing/ensuring the panel exists
+                try:
+                    ctrl = self._controller
+                    if ctrl is not None:
+                        headings_cache = self._build_headings_cache(ctrl.context)
+                        occurrences_map = self._build_heading_occurrences(ctrl.context)
+                        style_levels = self._build_style_levels(ctrl.context)
+                        current = dict(getattr(ctrl, "heading_filter_exclusions", {}) or {})
+                        if self._filter_panel is not None:
+                            self._filter_panel.set_data(headings_cache, occurrences_map, style_levels, current)
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+    def _on_preview_toggle_clicked(self) -> None:
+        """Toggle the preview panel on/off (hide if already visible)."""
+        try:
+            if getattr(self, "_active_right_kind", "preview") == "preview":
+                self._set_active_panel("none")
+            else:
+                self._set_active_panel("preview")
+        except Exception:
+            pass
+
+    def _set_toggle_states(self, preview_active: bool, filter_active: bool) -> None:
+        try:
+            self._preview_active = bool(preview_active)
+            self._filter_active = bool(filter_active)
+            self._apply_toggle_visuals()
+        except Exception:
+            pass
+
+    def _apply_toggle_visuals(self) -> None:
+        """Apply blue accent style to the active toggle button; neutral style otherwise."""
+        try:
+            if hasattr(self, "_filter_toggle_btn") and self._filter_toggle_btn is not None:
+                self._filter_toggle_btn.configure(style=("Accent.TButton" if self._filter_active else "TButton"))
+            if hasattr(self, "_preview_toggle_btn") and self._preview_toggle_btn is not None:
+                self._preview_toggle_btn.configure(style=("Accent.TButton" if self._preview_active else "TButton"))
+        except Exception:
+            pass
+
+    def _set_active_panel(self, kind: str) -> None:
+        """Switch right-side panel between 'preview', 'filter', or 'none'."""
+        try:
+            paned = getattr(self, "_paned", None)
+            right = getattr(self, "_right_pane", None)
+
+            if kind == "none":
+                if paned is not None and right is not None:
+                    try:
+                        if str(right) in paned.panes():
+                            paned.forget(right)
+                    except Exception:
+                        pass
+                self._active_right_kind = "none"
+                self._set_toggle_states(False, False)
+                return
+
+            # Ensure right pane exists
+            if paned is not None and right is not None:
+                try:
+                    if str(right) not in paned.panes():
+                        paned.add(right, weight=2)
+                        try:
+                            paned.paneconfigure(right, minsize=150)
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
+
+            if kind == "preview":
+                # Show preview, hide filter
+                try:
+                    if getattr(self, "_filter_panel", None) is not None:
+                        self._filter_panel.grid_remove()
+                except Exception:
+                    pass
+                try:
+                    if getattr(self, "_preview_panel", None) is not None:
+                        self._preview_panel.grid()
+                except Exception:
+                    pass
+                self._active_right_kind = "preview"
+                try:
+                    self.after_idle(self._restore_sash_position)
+                except Exception:
+                    pass
+                # Update content
+                try:
+                    self._update_side_preview()
+                except Exception:
+                    pass
+                self._set_toggle_states(True, False)
+                return
+
+            if kind == "filter":
+                # Ensure filter panel exists and is visible
+                container = getattr(self, "_preview_container", None)
+                if container is not None:
+                    if getattr(self, "_filter_panel", None) is None:
+                        try:
+                            self._filter_panel = HeadingFilterPanel(
+                                container,
+                                on_close=self._on_filter_close,
+                                on_apply=self._on_filter_apply,
+                                on_select_style=self._on_filter_select_style,
+                            )
+                            self._filter_panel.grid(row=0, column=0, sticky="nsew")
+                        except Exception:
+                            pass
+                    else:
+                        try:
+                            self._filter_panel.grid()
+                        except Exception:
+                            pass
+                # Hide preview
+                try:
+                    if getattr(self, "_preview_panel", None) is not None:
+                        self._preview_panel.grid_remove()
+                except Exception:
+                    pass
+                self._active_right_kind = "filter"
+                try:
+                    self.after_idle(self._restore_sash_position)
+                except Exception:
+                    pass
+                self._set_toggle_states(False, True)
+                return
         except Exception:
             pass
 
