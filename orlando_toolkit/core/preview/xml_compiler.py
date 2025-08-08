@@ -227,8 +227,10 @@ def render_html_preview(ctx: "DitaContext", tref: ET.Element, *, pretty: bool = 
         <tr><xsl:apply-templates/></tr>
       </xsl:template>
       <xsl:template match="*[local-name()='entry' or local-name()='stentry']">
+        <!-- Column width from matching colspec when single-column cell -->
         <xsl:variable name="cw" select="ancestor::*[local-name()='tgroup']/*[local-name()='colspec'][@colname=current()/@colname]/@colwidth"/>
-        <xsl:variable name="isHeader" select="boolean(ancestor::*[local-name()='thead'])"/>
+        <!-- Header detection: thead OR row marked as header-row via outputclass -->
+        <xsl:variable name="isHeader" select="boolean(ancestor::*[local-name()='thead']) or boolean(ancestor::*[local-name()='row'][contains(@outputclass,'header-row')])"/>
         <xsl:variable name="oc" select="@outputclass"/>
         <xsl:variable name="colorStyle">
           <xsl:choose>
@@ -239,11 +241,37 @@ def render_html_preview(ctx: "DitaContext", tref: ET.Element, *, pretty: bool = 
             <xsl:otherwise/>
           </xsl:choose>
         </xsl:variable>
+        <!-- Compute HTML spans from CALS attributes -->
+        <xsl:variable name="rowspan">
+          <xsl:choose>
+            <xsl:when test="@morerows"><xsl:value-of select="number(@morerows) + 1"/></xsl:when>
+            <xsl:otherwise>1</xsl:otherwise>
+          </xsl:choose>
+        </xsl:variable>
+        <xsl:variable name="colspan">
+          <xsl:choose>
+            <xsl:when test="@namest and @nameend">
+              <xsl:value-of select="number(substring-after(@nameend,'column-')) - number(substring-after(@namest,'column-')) + 1"/>
+            </xsl:when>
+            <xsl:otherwise>1</xsl:otherwise>
+          </xsl:choose>
+        </xsl:variable>
+        <!-- Map DITA @valign to CSS vertical-align -->
+        <xsl:variable name="vAlign">
+          <xsl:choose>
+            <xsl:when test="@valign='middle'">middle</xsl:when>
+            <xsl:when test="@valign='bottom'">bottom</xsl:when>
+            <xsl:otherwise>top</xsl:otherwise>
+          </xsl:choose>
+        </xsl:variable>
         <xsl:choose>
           <xsl:when test="$isHeader">
             <th>
+              <!-- Apply spans when greater than 1 -->
+              <xsl:if test="$rowspan &gt; 1"><xsl:attribute name="rowspan"><xsl:value-of select="$rowspan"/></xsl:attribute></xsl:if>
+              <xsl:if test="$colspan &gt; 1"><xsl:attribute name="colspan"><xsl:value-of select="$colspan"/></xsl:attribute></xsl:if>
               <xsl:attribute name="style">
-                <xsl:text>border:1px solid #888;padding:4px;text-align:left;vertical-align:top;background:#f6f6f6;</xsl:text>
+                <xsl:text>border:1px solid #888;padding:4px;text-align:left;background:#f6f6f6;vertical-align:</xsl:text><xsl:value-of select="$vAlign"/><xsl:text>;</xsl:text>
                 <xsl:value-of select="$colorStyle"/>
                 <xsl:if test="$cw and string-length(normalize-space($cw)) &gt; 0">
                   <xsl:text>width:</xsl:text><xsl:value-of select="$cw"/><xsl:text>;</xsl:text>
@@ -257,8 +285,11 @@ def render_html_preview(ctx: "DitaContext", tref: ET.Element, *, pretty: bool = 
           </xsl:when>
           <xsl:otherwise>
             <td>
+              <!-- Apply spans when greater than 1 -->
+              <xsl:if test="$rowspan &gt; 1"><xsl:attribute name="rowspan"><xsl:value-of select="$rowspan"/></xsl:attribute></xsl:if>
+              <xsl:if test="$colspan &gt; 1"><xsl:attribute name="colspan"><xsl:value-of select="$colspan"/></xsl:attribute></xsl:if>
               <xsl:attribute name="style">
-                <xsl:text>border:1px solid #888;padding:4px;vertical-align:top;</xsl:text>
+                <xsl:text>border:1px solid #888;padding:4px;vertical-align:</xsl:text><xsl:value-of select="$vAlign"/><xsl:text>;</xsl:text>
                 <xsl:value-of select="$colorStyle"/>
                 <xsl:if test="$cw and string-length(normalize-space($cw)) &gt; 0">
                   <xsl:text>width:</xsl:text><xsl:value-of select="$cw"/><xsl:text>;</xsl:text>

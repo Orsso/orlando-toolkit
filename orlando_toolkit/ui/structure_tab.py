@@ -224,6 +224,17 @@ class StructureTab(ttk.Frame):
         # Old: left=3, right=2 (40% preview). New: left=4, right=2 (~33% preview)
         self._paned.add(left, weight=4)
         self._paned.add(right, weight=2)
+        # Prevent zero-width panes by setting a reasonable minimum size for the preview pane
+        try:
+            self._paned.paneconfigure(right, minsize=150)
+        except Exception:
+            pass
+
+        # Keep handles to panes so we can properly hide/show the preview pane
+        self._left_pane = left  # type: ignore[assignment]
+        self._right_pane = right  # type: ignore[assignment]
+        # Store sash position as a fraction of total width for robust restoration
+        self._last_sash_ratio = 0.67  # type: ignore[assignment]
 
         # Tree widget on the left
         self._tree = StructureTreeWidget(
@@ -392,6 +403,10 @@ class StructureTab(ttk.Frame):
             pos = int(width * 0.67)
             try:
                 paned.sashpos(0, pos)
+                try:
+                    self._last_sash_ratio = max(0.05, min(0.95, pos / max(1, width)))  # type: ignore[assignment]
+                except Exception:
+                    pass
             except Exception:
                 # Some Tk variants may not support sashpos right away; retry once
                 self.after(50, self._set_initial_sash_position)
@@ -1070,20 +1085,91 @@ class StructureTab(ttk.Frame):
             self._preview_visible = not getattr(self, "_preview_visible", True)
             if self._preview_toggle_btn is not None:
                 self._preview_toggle_btn.configure(text=("Show Preview" if not self._preview_visible else "Hide Preview"))
-            # Hide by unmapping the preview panel's container
-            panel = getattr(self, "_preview_panel", None)
-            if panel is None:
+            # Properly hide/show the preview by removing/adding the right pane
+            paned = getattr(self, "_paned", None)
+            right = getattr(self, "_right_pane", None)
+            if paned is None or right is None:
                 return
             if self._preview_visible:
                 try:
-                    panel.master.grid()  # type: ignore[attr-defined]
+                    panes = paned.panes()
+                    if str(right) not in panes:
+                        # Ensure the left pane exists; add it first if needed
+                        try:
+                            if str(self._left_pane) not in panes:
+                                paned.add(self._left_pane, weight=4)
+                                panes = paned.panes()
+                        except Exception:
+                            pass
+                        # Append the right pane so it sits to the right of the left pane
+                        paned.add(right, weight=2)
+                        try:
+                            paned.paneconfigure(right, minsize=150)
+                        except Exception:
+                            pass
+                        # Restore sash position after idle to ensure layout is realized
+                        try:
+                            self.after_idle(self._restore_sash_position)
+                        except Exception:
+                            try:
+                                self.after(0, self._restore_sash_position)
+                            except Exception:
+                                pass
                 except Exception:
                     pass
             else:
                 try:
-                    panel.master.grid_remove()  # type: ignore[attr-defined]
+                    try:
+                        # Capture current sash position as fraction before hiding
+                        # Flush layout then capture ratio
+                        paned.update_idletasks()
+                        width = paned.winfo_width()
+                        if width and width > 0:
+                            pos_px = int(paned.sashpos(0))
+                            ratio = max(0.05, min(0.95, float(pos_px) / float(width)))
+                            self._last_sash_ratio = ratio  # type: ignore[assignment]
+                        else:
+                            # Keep previous ratio; do not overwrite with None
+                            pass
+                    except Exception:
+                        self._last_sash_ratio = None  # type: ignore[assignment]
+                    panes = paned.panes()
+                    if str(right) in panes:
+                        paned.forget(right)
                 except Exception:
                     pass
+        except Exception:
+            pass
+
+    def _restore_sash_position(self) -> None:
+        """Restore sash to last known position or default fraction when showing preview."""
+        try:
+            paned = getattr(self, "_paned", None)
+            if paned is None:
+                return
+            paned.update_idletasks()
+            width = paned.winfo_width()
+            if width <= 1:
+                self.after(50, self._restore_sash_position)
+                return
+            ratio = getattr(self, "_last_sash_ratio", None)
+            if not isinstance(ratio, float) or ratio <= 0.05 or ratio >= 0.95:
+                ratio = 0.67
+            pos = int(width * ratio)
+            try:
+                paned.sashpos(0, pos)
+            except Exception:
+                # Retry once more in case layout isn't ready
+                self.after(50, lambda: self._safe_set_sash(pos))
+        except Exception:
+            pass
+
+    def _safe_set_sash(self, pos: int) -> None:
+        try:
+            paned = getattr(self, "_paned", None)
+            if paned is None:
+                return
+            paned.sashpos(0, pos)
         except Exception:
             pass
 

@@ -293,13 +293,26 @@ def create_dita_table(table: Table, image_map: Dict[str, str]) -> ET.Element:
     # --- Thead and Tbody ---
     header_rows = [r for r, row in enumerate(table.rows) if _is_header_row(row._tr)]
     has_header = len(header_rows) > 0
-    thead = ET.SubElement(tgroup, 'thead', id=generate_dita_id()) if has_header else None
+
+    # Determine if header rows form a contiguous prefix at the top
+    def _is_contiguous_prefix(indices: list[int]) -> bool:
+        if not indices:
+            return False
+        expected = list(range(min(indices), min(indices) + len(indices)))
+        return indices == expected and min(indices) == 0
+
+    headers_are_top_prefix = _is_contiguous_prefix(header_rows)
+
+    thead = ET.SubElement(tgroup, 'thead', id=generate_dita_id()) if has_header and headers_are_top_prefix else None
     tbody = ET.SubElement(tgroup, 'tbody', id=generate_dita_id())
 
     for r_idx, grid_row in enumerate(grid):
         is_header = r_idx in header_rows
-        row_parent = thead if is_header and thead is not None else tbody
+        row_parent = thead if (is_header and thead is not None) else tbody
         row_el = ET.SubElement(row_parent, 'row', id=generate_dita_id())
+        # If we decided not to use thead (headers mid-table), mark header rows for preview styling
+        if is_header and thead is None:
+            row_el.set('outputclass', 'header-row')
 
         for c_idx, cell_info in enumerate(grid_row):
             if cell_info == "omitted" or cell_info is None:
