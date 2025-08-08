@@ -119,10 +119,11 @@ class UndoService:
         self._undo_stack.append(snap)
         # New user action invalidates redo history
         self._redo_stack.clear()
-        # Enforce capacity
-        if len(self._undo_stack) > self._max_history:
-            # Trim oldest
-            overflow = len(self._undo_stack) - self._max_history
+        # Enforce capacity: keep baseline + up to max_history post states
+        # This allows performing up to `max_history` undos.
+        if len(self._undo_stack) > (self._max_history + 1):
+            # Trim oldest beyond baseline window
+            overflow = len(self._undo_stack) - (self._max_history + 1)
             if overflow > 0:
                 del self._undo_stack[0:overflow]
 
@@ -184,8 +185,8 @@ class UndoService:
 
         # Push restored post state back onto undo stack
         self._undo_stack.append(post_snap)
-        if len(self._undo_stack) > self._max_history:
-            overflow = len(self._undo_stack) - self._max_history
+        if len(self._undo_stack) > (self._max_history + 1):
+            overflow = len(self._undo_stack) - (self._max_history + 1)
             if overflow > 0:
                 del self._undo_stack[0:overflow]
         return True

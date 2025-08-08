@@ -198,11 +198,10 @@ class StructureTab(ttk.Frame):
             self._expand_all_btn = None  # type: ignore[assignment]
             self._collapse_all_btn = None  # type: ignore[assignment]
 
-        # Add show/hide preview toggle button next to expand/collapse buttons
+        # Add Preview button (shows preview panel and hides filter panel if open)
         try:
-            self._preview_visible = True
             self._preview_toggle_btn = ttk.Button(
-                depth_container, text="Hide Preview", command=self._on_toggle_preview
+                depth_container, text="Preview", command=self._on_show_preview
             )
             self._preview_toggle_btn.grid(row=0, column=4, padx=(8, 0))
         except Exception:
@@ -1388,65 +1387,40 @@ class StructureTab(ttk.Frame):
     # Preview panel wiring
     # -------------------------------------------------------------------------
 
-    def _on_toggle_preview(self) -> None:
-        """Show/hide the right-hand preview pane."""
+    def _on_show_preview(self) -> None:
+        """Ensure the preview panel is visible and the heading filter panel is closed."""
         try:
-            self._preview_visible = not getattr(self, "_preview_visible", True)
-            if self._preview_toggle_btn is not None:
-                self._preview_toggle_btn.configure(text=("Show Preview" if not self._preview_visible else "Hide Preview"))
-            # Properly hide/show the preview by removing/adding the right pane
+            # Show right pane in paned window (if somehow removed)
             paned = getattr(self, "_paned", None)
             right = getattr(self, "_right_pane", None)
-            if paned is None or right is None:
-                return
-            if self._preview_visible:
-                try:
-                    panes = paned.panes()
-                    if str(right) not in panes:
-                        # Ensure the left pane exists; add it first if needed
-                        try:
-                            if str(self._left_pane) not in panes:
-                                paned.add(self._left_pane, weight=4)
-                                panes = paned.panes()
-                        except Exception:
-                            pass
-                        # Append the right pane so it sits to the right of the left pane
-                        paned.add(right, weight=2)
-                        try:
-                            paned.paneconfigure(right, minsize=150)
-                        except Exception:
-                            pass
-                        # Restore sash position after idle to ensure layout is realized
-                        try:
-                            self.after_idle(self._restore_sash_position)
-                        except Exception:
-                            try:
-                                self.after(0, self._restore_sash_position)
-                            except Exception:
-                                pass
-                except Exception:
-                    pass
-            else:
-                try:
+            if paned is not None and right is not None:
+                panes = paned.panes()
+                if str(right) not in panes:
+                    paned.add(right, weight=2)
                     try:
-                        # Capture current sash position as fraction before hiding
-                        # Flush layout then capture ratio
-                        paned.update_idletasks()
-                        width = paned.winfo_width()
-                        if width and width > 0:
-                            pos_px = int(paned.sashpos(0))
-                            ratio = max(0.05, min(0.95, float(pos_px) / float(width)))
-                            self._last_sash_ratio = ratio  # type: ignore[assignment]
-                        else:
-                            # Keep previous ratio; do not overwrite with None
-                            pass
+                        paned.paneconfigure(right, minsize=150)
                     except Exception:
-                        self._last_sash_ratio = None  # type: ignore[assignment]
-                    panes = paned.panes()
-                    if str(right) in panes:
-                        paned.forget(right)
+                        pass
+                # Restore sash position to a reasonable fraction
+                try:
+                    self.after_idle(self._restore_sash_position)
                 except Exception:
                     pass
+
+            # Hide filter panel if shown, and show preview panel
+            if getattr(self, "_filter_panel", None) is not None:
+                try:
+                    self._filter_panel.grid_remove()
+                except Exception:
+                    pass
+            if getattr(self, "_preview_panel", None) is not None:
+                try:
+                    self._preview_panel.grid()
+                except Exception:
+                    pass
+
+            # Refresh current selection preview content
+            self._update_side_preview()
         except Exception:
             pass
 

@@ -43,6 +43,30 @@ class HeadingFilterPanel(ttk.Frame):
         self._style_levels: Dict[str, Optional[int]] = {}
         self._exclusions: Dict[str, bool] = {}
         self._vars_by_style: Dict[str, tk.BooleanVar] = {}
+        self._labels_by_style: Dict[str, ttk.Label] = {}
+        self._occ_labels_by_style: Dict[str, ttk.Label] = {}
+        self._selected_style: Optional[str] = None
+
+        # Styles for hover/selection feedback (best-effort, safe across themes)
+        try:
+            style = ttk.Style()
+            # Base label style for filter rows (inherits from default theme)
+            style.configure("HeadingFilter.Row.TLabel")
+            # Hover visually distinct; use foreground emphasis and slight background tint when supported
+            style.configure("HeadingFilter.Hover.TLabel", foreground="#0B6BD3")
+            style.map(
+                "HeadingFilter.Hover.TLabel",
+                foreground=[("active", "#0A58CC")],
+            )
+            # Selected style: stronger emphasis
+            style.configure("HeadingFilter.Selected.TLabel", foreground="#0B6BD3")
+            try:
+                # Bold font may not exist on all platforms; ignore failures
+                style.configure("HeadingFilter.Selected.TLabel", font=("", 9, "bold"))
+            except Exception:
+                pass
+        except Exception:
+            pass
 
         # Layout
         self.columnconfigure(0, weight=1)
@@ -94,6 +118,8 @@ class HeadingFilterPanel(ttk.Frame):
         self._style_levels = dict(style_levels or {})
         self._exclusions = dict(current_exclusions or {})
         self._vars_by_style.clear()
+        self._labels_by_style.clear()
+        self._occ_labels_by_style.clear()
         self._populate_tabs()
 
     def update_status(self, text: str) -> None:
@@ -163,17 +189,34 @@ class HeadingFilterPanel(ttk.Frame):
                 var = tk.BooleanVar(value=excluded_default)
                 self._vars_by_style[style] = var
 
-                chk = ttk.Checkbutton(inner, variable=var)
-                lbl_style = ttk.Label(inner, text=str(style), anchor="w")
+                # Widgets per row
+                chk = ttk.Checkbutton(inner, variable=var, command=lambda s=style: self._on_checkbox_toggled(s))
+                lbl_style = ttk.Label(inner, text=str(style), anchor="w", style="HeadingFilter.Row.TLabel")
                 occ = int(self._headings_count.get(style, 0))
-                lbl_occ = ttk.Label(inner, text=str(occ), width=12, anchor="e")
+                lbl_occ = ttk.Label(inner, text=str(occ), width=12, anchor="e", style="HeadingFilter.Row.TLabel")
+
+                # Keep references for selection/hover styling
+                self._labels_by_style[style] = lbl_style
+                self._occ_labels_by_style[style] = lbl_occ
 
                 # Clicking style label triggers selection highlight callback
-                if self.on_select_style is not None:
-                    try:
-                        lbl_style.bind("<Button-1>", lambda _e, s=style: self.on_select_style(s))
-                    except Exception:
-                        pass
+                try:
+                    lbl_style.bind("<Button-1>", lambda _e, s=style: self._on_style_clicked(s))
+                except Exception:
+                    pass
+
+                # Hover feedback (non-intrusive)
+                try:
+                    lbl_style.bind("<Enter>", lambda _e, s=style: self._on_style_hover(s, True))
+                    lbl_style.bind("<Leave>", lambda _e, s=style: self._on_style_hover(s, False))
+                except Exception:
+                    pass
+
+                # Also auto-apply when variable changes by any means
+                try:
+                    var.trace_add("write", lambda *_args, s=style: self._on_var_changed(s))
+                except Exception:
+                    pass
 
                 chk.grid(row=i, column=0, sticky="w", padx=(6, 0), pady=2)
                 lbl_style.grid(row=i, column=1, sticky="w", padx=(12, 6), pady=2)
@@ -218,6 +261,77 @@ class HeadingFilterPanel(ttk.Frame):
             pass
         # Clear status upon reset
         self.update_status("")
+
+    # --- Internal interaction handlers ---
+
+    def _on_style_clicked(self, style: str) -> None:
+        # Persist selection highlight and notify external callback
+        try:
+            self._selected_style = style
+            self._refresh_row_styles()
+        except Exception:
+            pass
+        try:
+            if callable(self.on_select_style):
+                self.on_select_style(style)
+        except Exception:
+            pass
+
+    def _on_style_hover(self, style: str, enter: bool) -> None:
+        # Temporary hover feedback without breaking persisted selection
+        try:
+            if style == self._selected_style:
+                return  # selected has its own style
+            lbl = self._labels_by_style.get(style)
+            occ_lbl = self._occ_labels_by_style.get(style)
+            if lbl is not None:
+                lbl.configure(style=("HeadingFilter.Hover.TLabel" if enter else "HeadingFilter.Row.TLabel"))
+            if occ_lbl is not None:
+                occ_lbl.configure(style=("HeadingFilter.Hover.TLabel" if enter else "HeadingFilter.Row.TLabel"))
+        except Exception:
+            pass
+
+    def _refresh_row_styles(self) -> None:
+        # Apply styles to reflect selected row
+        try:
+            for s, lbl in self._labels_by_style.items():
+                occ_lbl = self._occ_labels_by_style.get(s)
+                if s == self._selected_style:
+                    try:
+                        lbl.configure(style="HeadingFilter.Selected.TLabel")
+                        if occ_lbl is not None:
+                            occ_lbl.configure(style="HeadingFilter.Selected.TLabel")
+                    except Exception:
+                        pass
+                else:
+                    try:
+                        lbl.configure(style="HeadingFilter.Row.TLabel")
+                        if occ_lbl is not None:
+                            occ_lbl.configure(style="HeadingFilter.Row.TLabel")
+                    except Exception:
+                        pass
+        except Exception:
+            pass
+
+    def _on_checkbox_toggled(self, style: str) -> None:
+        # Sync internal map and auto-apply
+        try:
+            var = self._vars_by_style.get(style)
+            if var is not None:
+                self._exclusions[style] = bool(var.get())
+        except Exception:
+            pass
+        self._on_apply()
+
+    def _on_var_changed(self, style: str) -> None:
+        # Same as toggle handler, but invoked when var changes programmatically as well
+        try:
+            var = self._vars_by_style.get(style)
+            if var is not None:
+                self._exclusions[style] = bool(var.get())
+        except Exception:
+            pass
+        self._on_apply()
 
 
 

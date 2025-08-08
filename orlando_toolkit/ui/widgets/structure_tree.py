@@ -285,11 +285,27 @@ class StructureTreeWidget(ttk.Frame):
             # Keep only the root on failure
             pass
 
-        # Expand all items by default to ensure they are visible
+        # Expand all items by default and ensure geometry is realized so bbox is available
         try:
-            # Use expand_all() method which already exists and works
             self.expand_all()
-            # Flush geometry updates
+            # Force a couple of idle updates to ensure layout is complete
+            self._tree.update_idletasks()
+            try:
+                # Some environments require an additional tiny delay to compute bboxes
+                self.after(0, self._tree.update_idletasks)
+            except Exception:
+                pass
+        except Exception:
+            pass
+
+        # Best-effort: touch visibility for all rows so bbox() becomes available in headless tests
+        try:
+            for iid in self._iter_all_item_ids():
+                try:
+                    self._tree.see(iid)
+                except Exception:
+                    continue
+            # Final idle flush after forcing visibility
             try:
                 self._tree.update_idletasks()
             except Exception:
