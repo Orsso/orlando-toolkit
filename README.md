@@ -22,6 +22,10 @@ For a high‑level design, see the [Architecture Overview](docs/architecture_ove
 - One‑click ZIP packaging for import
 - YAML‑based configuration with user overrides
 
+## Disclaimer
+
+Orlando Toolkit is an independent, open-source project and is not affiliated with, endorsed by, or sponsored by Orlando or Infotel. "Orlando" and any related names may be trademarks of their respective owners. Any references are for identification and descriptive purposes only.
+
 ---
 
 ## Quick start
@@ -46,8 +50,6 @@ cd orlando-toolkit
 python -m pip install -r requirements.txt
 python run.py
 ```
-
-
 
 ---
 
@@ -78,4 +80,8 @@ Optional dependency: `tkinterweb` enables richer HTML rendering; the app gracefu
 
 
 
+
+## License
+
+This project is licensed under the MIT License. See the `LICENSE` file for details.
 
