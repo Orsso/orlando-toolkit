@@ -4,6 +4,4 @@ python-docx
 Pillow
 sv-ttk 
 pyyaml
-
-# HTML preview engine
 tkinterweb>=3.13

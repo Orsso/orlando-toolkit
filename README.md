@@ -63,14 +63,14 @@ python run.py
 Output layout:
 - `DATA/topics/` – generated DITA topics
 - `DATA/media/` – extracted images
-- root ditamap with Orlando metadata
+- `DATA/<manual_code>.ditamap` – root map with metadata
 
 ---
 
 ## Preview and editing
 
 - HTML preview via the internal compiler; falls back to readable XML/plain text
-- Images embedded as data URIs are saved to temp files for display
+- Images are saved to temporary files for display in the preview
 - Structure editing is safe and bounded.
 - Undo/redo maintains a snapshot history of the current DITA context
 

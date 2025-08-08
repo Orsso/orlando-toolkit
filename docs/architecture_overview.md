@@ -13,7 +13,7 @@ flowchart TD
     C --> D["Parser & Helpers"]
     C --> E["Generators"]
     C --> F["Config Manager"]
-    C --> G["Resources (DTD package)"]
+    %% Resources (DTD package) removed; DTDs are not embedded in packages
     B --> H["Packaging I/O"]
 ```
 
@@ -28,17 +28,18 @@ orlando_toolkit/
     app.py                 # GUI entry-point widget (Tk)
     logging_config.py      # Centralised logging setup
     core/
-        models.py          # Immutable data structures (DitaContext…)
+        models/            # Immutable data structures (DitaContext, HeadingNode)
         parser/            # WordprocessingML traversal utilities
-        converter/         # DOCX→DITA conversion logic (pure functions, no I/O)
+        converter/         # DOCX→DITA conversion logic + packaging helpers
         generators/        # XML builders (tables etc.) kept separate from the main algorithm for clarity
+        preview/           # Read-only XML/HTML preview utilities
         services/          # Business-logic façade (ConversionService)
+        merge.py           # Depth/style-based merging helpers for structure filtering
         utils.py           # Helper utilities (slugify, XML save, colour mapping)
     config/
         manager.py         # YAML loader + runtime overrides
-    dtd_package/           # Bundled OASIS & vendor DTDs  (≈ 9 MB)
-    ui/                    # Modernised Tkinter tabs/widgets
-    resources/            # (reserved)
+        default_color_rules.yml
+    ui/                    # Tkinter tabs/widgets
 ```
 
 Runtime artefacts
@@ -59,9 +60,8 @@ Runtime artefacts
    * emits DITA topics/maps through the generators, and
    * fills a `DitaContext` with in-memory XML trees and blobs.
 4. On "Generate package" the service
-   * renames files (stable IDs),
-   * copies bundled DTDs, and
-   * writes a zipped archive.
+   * renames topics and images (stable IDs), and
+   * writes a zipped archive to the chosen path.
 
 Errors propagate as exceptions. The GUI shows message boxes; future CLI wrappers will map them to exit codes.
 
@@ -78,7 +78,7 @@ Errors propagate as exceptions. The GUI shows message boxes; future CLI wrappers
 | `converter.helpers`  | Small utilities migrated from legacy script to keep `docx_to_dita` lean. |
 | `generators.dita_builder` | XML builders for tables (Phase 3 extraction). |
 | `services.conversion_service` | Orchestrates end-to-end workflow and filesystem I/O. |
-| `merge.merge_topics_below_depth` | Merges deep topics into parent when depth is limited (used by GUI & packaging). |
+| `merge.merge_topics_unified` | Unified depth/style merge for structure filtering (used by Structure tab and export). |
 
 ---
 
@@ -96,14 +96,14 @@ If PyYAML is missing, built-in defaults guarantee the application still runs.
 
 ## 6 Resources
 
-As of Phase-9 the generated ZIP is **self-contained without embedded DTDs or ditaval files**.  All public identifiers remain intact so any downstream toolchain (incl. Orlando CMS) can resolve them through its own catalog. The legacy `dtd_package` folder is still shipped for backward compatibility but is no longer copied during packaging.
+Generated packages do not embed DTDs or ditaval files. XML documents declare standard PUBLIC identifiers (e.g., concept.dtd, map.dtd) and rely on the target toolchain's catalog to resolve them. No `dtd_package` is bundled or copied during packaging.
 
 ---
 
 ## 7 Build & distribution
 
-* **Windows executable** – `build_exe.py` calls PyInstaller with
-  single-file, windowed mode, bundling assets and DTDs.
+* **Windows executable** – `build_exe.py` calls PyInstaller in
+  single-file, windowed mode, bundling application assets (icon/theme) only.
 * **Source distribution** – `python -m build` produces a PEP 517 wheel; no C-extensions.
 
 

@@ -60,4 +60,4 @@ pyyaml - Configuration management
 ## Distribution
 - **Windows executable** - Single file, no installation required
 - **Python wheel** - Cross-platform source distribution
-- **Self-contained** - Bundles all assets and DTDs
+- **No embedded DTDs** - XML uses PUBLIC IDs; toolchains resolve via catalogs

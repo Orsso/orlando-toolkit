@@ -37,7 +37,7 @@ orlando_toolkit/
 │   ├── widgets/          # Custom UI components
 │   ├── *_tab.py         # Main application tabs
 │   └── custom_widgets.py # Reusable UI elements
-└── dtd_package/          # Bundled DITA DTDs (legacy)
+└── (no bundled DTDs)     # Packages reference PUBLIC IDs; no embedded DTDs
 ```
 
 ## Architecture Principles
