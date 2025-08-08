@@ -23,6 +23,7 @@ from orlando_toolkit.core.models import DitaContext
 from orlando_toolkit.core.services import ConversionService
 from orlando_toolkit.ui.metadata_tab import MetadataTab
 from orlando_toolkit.ui.image_tab import ImageTab
+from orlando_toolkit.ui.widgets.metadata_form import MetadataForm
 
 logger = logging.getLogger(__name__)
 
@@ -48,6 +49,10 @@ class OrlandoToolkit:
         self.structure_tab = None  # will be StructureTab
         self.main_actions_frame: Optional[ttk.Frame] = None
         self.generation_progress: Optional[ttk.Progressbar] = None
+        # Inline metadata editor shown on the post-conversion summary screen
+        self.inline_metadata: Optional[MetadataForm] = None
+        self.home_center: Optional[ttk.Frame] = None
+        self.version_label: Optional[ttk.Label] = None
 
         self.create_home_screen()
         self.root.protocol("WM_DELETE_WINDOW", self.on_close)
@@ -61,27 +66,27 @@ class OrlandoToolkit:
         self.home_frame = ttk.Frame(self.root)
         self.home_frame.pack(expand=True, fill="both", padx=20, pady=20)
 
-        center = ttk.Frame(self.home_frame)
-        center.place(relx=0.5, rely=0.5, anchor="center")
+        self.home_center = ttk.Frame(self.home_frame)
+        self.home_center.place(relx=0.5, rely=0.5, anchor="center")
 
         # Logo -----------------------------------------------------------
         try:
             logo_path = Path(__file__).resolve().parent.parent / "assets" / "app_icon.png"
             if logo_path.exists():
                 logo_img = tk.PhotoImage(file=logo_path)
-                logo_lbl = ttk.Label(center, image=logo_img)
+                logo_lbl = ttk.Label(self.home_center, image=logo_img)
                 logo_lbl.image = logo_img  # keep reference
                 logo_lbl.pack(pady=(0, 20))
         except Exception as exc:
             logger.warning("Could not load logo: %s", exc)
 
-        ttk.Label(center, text="Orlando Toolkit", font=("Arial", 24, "bold")).pack(pady=20)
-        ttk.Label(center, text="DOCX to DITA converter", font=("Arial", 12), foreground="gray").pack(pady=(0, 10))
+        ttk.Label(self.home_center, text="Orlando Toolkit", font=("Arial", 24, "bold")).pack(pady=20)
+        ttk.Label(self.home_center, text="DOCX to DITA converter", font=("Arial", 12), foreground="gray").pack(pady=(0, 10))
 
-        self.load_button = ttk.Button(center, text="Load Document (.docx)", style="Accent.TButton", command=self.start_conversion_workflow)
+        self.load_button = ttk.Button(self.home_center, text="Load Document (.docx)", style="Accent.TButton", command=self.start_conversion_workflow)
         self.load_button.pack(pady=20, ipadx=20, ipady=10)
 
-        self.status_label = ttk.Label(center, text="", font=("Arial", 10))
+        self.status_label = ttk.Label(self.home_center, text="", font=("Arial", 10))
         self.status_label.pack(pady=10)
 
         # Attach logging→GUI bridge the first time the home screen is built
@@ -93,7 +98,15 @@ class OrlandoToolkit:
             logging.getLogger("orlando_toolkit.core").addHandler(self._log_to_status)
             logging.getLogger("orlando_toolkit.core").setLevel(logging.INFO)
 
-        self.progress_bar = ttk.Progressbar(center, mode="indeterminate")
+        self.progress_bar = ttk.Progressbar(self.home_center, mode="indeterminate")
+
+        # Discreet version label anchored to the bottom-right of the landing area
+        try:
+            if self.version_label is None or not self.version_label.winfo_exists():
+                self.version_label = ttk.Label(self.home_frame, text="v1.1", font=("Arial", 9), foreground="#888888")
+                self.version_label.place(relx=1.0, rely=1.0, x=-8, y=-6, anchor="se")
+        except Exception:
+            pass
 
     # ------------------------------------------------------------------
     # Conversion workflow
@@ -135,34 +148,39 @@ class OrlandoToolkit:
     # ------------------------------------------------------------------
 
     def on_conversion_success(self, context: DitaContext) -> None:
+        """Handle a successful conversion by showing a summary on the home screen.
+
+        Instead of immediately opening the main tabbed UI, we keep a compact
+        landing screen with a green success summary, counts, and an inline
+        metadata form. A Continue button opens the full workspace.
+        """
         self.dita_context = context
-        if self.home_frame:
-            self.home_frame.destroy()
-        # Resize main window to a wider, more comfortable workspace
-        try:
-            # Expand by 10 % but enforce a comfortable minimum size
-            cur_x, cur_y = self.root.winfo_rootx(), self.root.winfo_rooty()
-            cur_w, cur_h = self.root.winfo_width(), self.root.winfo_height()
 
-            width = max(int(cur_w * 1.10), 1100)
-            height = max(int(cur_h * 1.05), 700)
+        # Stop and hide any in-flight progress UI
+        if self.progress_bar:
+            try:
+                self.progress_bar.stop()
+            except Exception:
+                pass
+            self.progress_bar.pack_forget()
+        if self.status_label:
+            self.status_label.config(text="")
 
-            # Do not exceed screen bounds (leave a 50-px margin)
-            sw, sh = self.root.winfo_screenwidth(), self.root.winfo_screenheight()
-            width = min(width, sw - 50)
-            height = min(height, sh - 50)
+        # Clear the content area and build the summary UI in-place keeping the same layout
+        if self.home_center and self.home_center.winfo_exists():
+            for child in self.home_center.winfo_children():
+                try:
+                    child.destroy()
+                except Exception:
+                    pass
+        else:
+            # Recreate if needed
+            self.home_frame = ttk.Frame(self.root)
+            self.home_frame.pack(expand=True, fill="both", padx=20, pady=20)
+            self.home_center = ttk.Frame(self.home_frame)
+            self.home_center.place(relx=0.5, rely=0.5, anchor="center")
 
-            pos_x = cur_x + (cur_w - width) // 2
-            pos_y = cur_y + (cur_h - height) // 2
-            self.root.geometry(f"{width}x{height}+{pos_x}+{pos_y}")
-        except Exception:
-            pass
-
-        self.setup_main_ui()
-        if self.metadata_tab and self.image_tab and self.structure_tab:
-            self.metadata_tab.load_context(context)
-            self.image_tab.load_context(context)
-            self.structure_tab.load_context(context)
+        self.show_post_conversion_summary()
 
     def on_conversion_failure(self, error: Exception) -> None:
         if self.progress_bar:
@@ -185,17 +203,16 @@ class OrlandoToolkit:
         self.notebook = ttk.Notebook(tabs_frame)
         self.notebook.pack(expand=True, fill="both")
 
+        # Place Structure first (leftmost) and select by default
+        from orlando_toolkit.ui.structure_tab import StructureTab
+        self.structure_tab = StructureTab(self.notebook)
+        self.notebook.add(self.structure_tab, text="Structure")
+
         self.metadata_tab = MetadataTab(self.notebook)
         self.notebook.add(self.metadata_tab, text="Metadata")
 
         self.image_tab = ImageTab(self.notebook)
         self.notebook.add(self.image_tab, text="Images")
- 
-        # New Structure/Config tab
-        from orlando_toolkit.ui.structure_tab import StructureTab
-        # Instantiate without stray positional None; optional args are keyword-only
-        self.structure_tab = StructureTab(self.notebook)
-        self.notebook.add(self.structure_tab, text="Structure")
 
         self.metadata_tab.set_metadata_change_callback(self.on_metadata_change)
 
@@ -205,16 +222,142 @@ class OrlandoToolkit:
         ttk.Button(self.main_actions_frame, text="← Back to Home", command=self.back_to_home).pack(side="left")
         ttk.Button(self.main_actions_frame, text="Generate DITA Package", style="Accent.TButton", command=self.generate_package).pack(side="right")
 
+        # Default to Structure view
+        try:
+            if self.structure_tab is not None:
+                self.notebook.select(self.structure_tab)
+        except Exception:
+            pass
+
+    # ------------------------------------------------------------------
+    # Post-conversion summary (home screen)
+    # ------------------------------------------------------------------
+
+    def show_post_conversion_summary(self) -> None:
+        """Render a compact summary with results and metadata on the home screen."""
+        assert self.dita_context is not None
+
+        # Keep the exact same window size as the initial landing screen for consistency
+
+        # Header: reproduce the same logo and title as initial screen
+        try:
+            logo_path = Path(__file__).resolve().parent.parent / "assets" / "app_icon.png"
+            if logo_path.exists():
+                logo_img = tk.PhotoImage(file=logo_path)
+                # If the logo is too tall, subsample to reduce size slightly (2x shrink if height > 96)
+                try:
+                    if logo_img.height() > 96:
+                        factor = 2 if logo_img.height() // 2 >= 48 else 1
+                        if factor > 1:
+                            logo_img = logo_img.subsample(factor, factor)
+                except Exception:
+                    pass
+                logo_lbl = ttk.Label(self.home_center, image=logo_img)
+                logo_lbl.image = logo_img
+                logo_lbl.pack(pady=(0, 12))
+        except Exception:
+            pass
+        ttk.Label(self.home_center, text="Orlando Toolkit", font=("Arial", 20, "bold")).pack(pady=12)
+        ttk.Label(self.home_center, text="DOCX to DITA converter", font=("Arial", 12), foreground="gray").pack(pady=(0, 10))
+
+        # Success summary with checkmark and separate lines
+        summary = ttk.Frame(self.home_center)
+        # Center the result lines horizontally under the logo
+        summary.pack(pady=(10, 6))
+        ok_style = {"foreground": "#2e7d32", "font": ("Arial", 11, "bold")}
+        err_style = {"foreground": "#c62828", "font": ("Arial", 11, "bold")}
+        num_topics = len(self.dita_context.topics) if self.dita_context.topics else 0
+        num_images = len(self.dita_context.images) if self.dita_context.images else 0
+        # Line 1: topics
+        if num_topics > 0:
+            ttk.Label(summary, text=f"✓ {num_topics} topics extracted", **ok_style).pack(anchor="center")
+        else:
+            ttk.Label(summary, text="✗ No topics found", **err_style).pack(anchor="center")
+        # Line 2: images
+        if num_images > 0:
+            ttk.Label(summary, text=f"✓ {num_images} images extracted", **ok_style).pack(anchor="center")
+        else:
+            ttk.Label(summary, text="✗ No images found", **err_style).pack(anchor="center")
+
+        # Inline metadata editor
+        # Unified metadata form with compact styling
+        metadata_frame = ttk.LabelFrame(self.home_center, text="DITA Metadata", padding=8)
+        metadata_frame.pack(fill="x", pady=(4, 14))
+
+        # Use MetadataForm directly to avoid tab-specific decorations; reduced padding
+        form = MetadataForm(metadata_frame, padding=4, font_size=10, on_change=self.on_metadata_change)
+        form.pack(fill="x")
+        form.load_context(self.dita_context)
+        self.inline_metadata = form  # store for value commit if needed
+
+        # Footer button: Continue if anything found; else Quit
+        if num_topics > 0 or num_images > 0:
+            ttk.Button(self.home_center, text="Continue", style="Accent.TButton", command=self.open_main_ui_from_summary).pack(pady=16, ipadx=18, ipady=8)
+        else:
+            ttk.Button(self.home_center, text="Quit", command=self.on_close).pack(pady=16, ipadx=18, ipady=8)
+
+    def _commit_inline_metadata_to_context(self) -> None:
+        """Ensure inline metadata edits are persisted to the context."""
+        if not self.dita_context or not self.inline_metadata:
+            return
+        for key, var in self.inline_metadata.entries.items():
+            try:
+                value = var.get()
+            except Exception:
+                continue
+            if value is None:
+                continue
+            if key not in self.dita_context.metadata or self.dita_context.metadata.get(key) != value:
+                self.dita_context.metadata[key] = value
+        # Let dependent widgets react if needed
+        try:
+            self.on_metadata_change()
+        except Exception:
+            pass
+
+    def open_main_ui_from_summary(self) -> None:
+        """Switch from the summary to the full workspace, defaulting to Structure."""
+        # Persist any in-flight edits from the inline metadata form
+        self._commit_inline_metadata_to_context()
+
+        # Maximize the window for the main workspace
+        try:
+            self.root.state("zoomed")
+        except Exception:
+            try:
+                sw, sh = self.root.winfo_screenwidth(), self.root.winfo_screenheight()
+                self.root.geometry(f"{sw-40}x{sh-60}+20+20")
+            except Exception:
+                pass
+
+        # Clear landing UI and build main tabs
+        if self.home_frame and self.home_frame.winfo_exists():
+            try:
+                self.home_frame.destroy()
+            except Exception:
+                pass
+            self.home_frame = None
+        self.inline_metadata = None
+
+        self.setup_main_ui()
+        if self.dita_context and self.metadata_tab and self.image_tab and self.structure_tab:
+            self.metadata_tab.load_context(self.dita_context)
+            self.image_tab.load_context(self.dita_context)
+            self.structure_tab.load_context(self.dita_context)
+        # Ensure Structure tab is selected
+        try:
+            if self.structure_tab is not None:
+                self.notebook.select(self.structure_tab)
+        except Exception:
+            pass
+
     def back_to_home(self) -> None:
         for widget in self.root.winfo_children():
             widget.destroy()
         self.dita_context = None
         self.notebook = self.metadata_tab = self.image_tab = self.main_actions_frame = None
+        self.inline_metadata = None
         self.create_home_screen()
-
-    def on_metadata_change(self) -> None:
-        if self.image_tab:
-            self.image_tab.update_image_names()
 
     # ------------------------------------------------------------------
     # Package generation

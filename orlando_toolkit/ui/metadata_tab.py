@@ -18,45 +18,28 @@ logger = logging.getLogger(__name__)
 class MetadataTab(ttk.Frame):
     def __init__(self, parent, *args, **kwargs):
         super().__init__(parent, *args, **kwargs)
+        from orlando_toolkit.ui.widgets.metadata_form import MetadataForm
+
         self.context: "DitaContext" | None = None
-        self.entries: dict[str, tk.StringVar] = {}
         self.on_metadata_change_callback = None  # Callback for notifying other tabs
 
-        form_frame = ttk.Frame(self, padding=20)
-        form_frame.pack(fill="x", expand=True)
-        form_frame.columnconfigure(1, weight=1)
+        wrapper = ttk.Frame(self, padding=20)
+        wrapper.pack(fill="both", expand=True)
 
-        # Title
-        title_label = ttk.Label(form_frame, text="Document Metadata", font=("Arial", 16, "bold"))
-        title_label.grid(row=0, column=0, columnspan=2, sticky="w", pady=(0, 20))
+        title_label = ttk.Label(wrapper, text="Document Metadata", font=("Arial", 16, "bold"))
+        title_label.pack(anchor="w", pady=(0, 14))
 
-        # The Orlando CMS distinguishes *edition* uploads (no revision number)
-        # from *operator* releases (have a revNumber).  To avoid accidental
-        # operator uploads we stop exposing the "Revision Number" field.  The
-        # value can still be provided programmatically via metadata if ever
-        # needed.
-        metadata_fields = {
-            "manual_title": "Manual Title:",
-            "manual_code": "Manual Code:",
-            "revision_date": "Revision Date:",
-        }
+        # Reuse the unified metadata form widget to ensure consistent style.
+        self._form = MetadataForm(wrapper, padding=6, on_change=self._on_form_change)
+        self._form.pack(fill="x")
 
-        for i, (key, label) in enumerate(metadata_fields.items(), start=1):
-            ttk.Label(form_frame, text=label, font=("Arial", 11)).grid(row=i, column=0, sticky="w", pady=8, padx=(0, 15))
-            var = tk.StringVar()
-            entry = ttk.Entry(form_frame, textvariable=var, font=("Arial", 11))
-            entry.grid(row=i, column=1, sticky="ew", padx=5, pady=5)
-            entry.bind("<FocusOut>", lambda event, k=key: self.update_context_metadata(k))
-            self.entries[key] = var
-
-        # Help text
         help_text = ttk.Label(
-            form_frame,
+            wrapper,
             text="These metadata fields will be included in the generated DITA archive.",
             font=("Arial", 10),
             foreground="gray",
         )
-        help_text.grid(row=len(metadata_fields) + 2, column=0, columnspan=2, sticky="w", pady=(20, 0))
+        help_text.pack(anchor="w", pady=(12, 0))
 
     # ---------------------------------------------------------------------
     # Public API
@@ -64,34 +47,20 @@ class MetadataTab(ttk.Frame):
 
     def load_context(self, context: "DitaContext") -> None:
         self.context = context
-        for key, var in self.entries.items():
-            var.set(self.context.metadata.get(key, ""))
+        self._form.load_context(context)
 
-    def update_context_metadata(self, key: str) -> None:
-        if self.context:
-            new_value = self.entries[key].get()
-            if key in self.context.metadata and self.context.metadata[key] != new_value:
-                self.context.metadata[key] = new_value
-                logger.info("Context updated: %s = %s", key, new_value)
-                # Forward metadata update to structure tab context copies so
-                # that generate_package uses the latest value.
-                if hasattr(self.master.master, "structure_tab") and self.master.master.structure_tab:
-                    st = self.master.master.structure_tab
-                    for ctx_attr in ("context", "_orig_context", "_main_context"):
-                        if hasattr(st, ctx_attr) and getattr(st, ctx_attr):
-                            getattr(st, ctx_attr).metadata[key] = new_value
-                if self.on_metadata_change_callback:
-                    self.on_metadata_change_callback()
-            elif key not in self.context.metadata:
-                self.context.metadata[key] = new_value
-                logger.info("Context updated: %s = %s", key, new_value)
-                if hasattr(self.master.master, "structure_tab") and self.master.master.structure_tab:
-                    st = self.master.master.structure_tab
-                    for ctx_attr in ("context", "_orig_context", "_main_context"):
-                        if hasattr(st, ctx_attr) and getattr(st, ctx_attr):
-                            getattr(st, ctx_attr).metadata[key] = new_value
-                if self.on_metadata_change_callback:
-                    self.on_metadata_change_callback()
+    def _on_form_change(self) -> None:
+        # Form already synced context; just propagate to other tabs and caller
+        if not self.context:
+            return
+        # Keep Structure tab context copies synchronized for export
+        if hasattr(self.master.master, "structure_tab") and self.master.master.structure_tab:
+            st = self.master.master.structure_tab
+            for ctx_attr in ("context", "_orig_context", "_main_context"):
+                if hasattr(st, ctx_attr) and getattr(st, ctx_attr):
+                    getattr(st, ctx_attr).metadata.update(self.context.metadata)
+        if self.on_metadata_change_callback:
+            self.on_metadata_change_callback()
 
     def set_metadata_change_callback(self, callback):
         """Register a callback that is called whenever metadata changes."""

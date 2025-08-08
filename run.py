@@ -20,8 +20,8 @@ def main():
     
     root = tk.Tk()
     root.title("Orlando Toolkit")
-    # Desired window size
-    window_width, window_height = 413, 589
+    # Desired window size (slightly larger to accommodate inline metadata + summary)
+    window_width, window_height = 400, 620
     # Calculate position to center the window
     screen_width = root.winfo_screenwidth()
     screen_height = root.winfo_screenheight()

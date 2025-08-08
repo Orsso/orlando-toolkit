@@ -219,10 +219,9 @@ class StructureTab(ttk.Frame):
         right.columnconfigure(0, weight=1)
         right.rowconfigure(0, weight=1)
 
-        # Make preview panel about ~15% narrower than before by adjusting weights
-        # Old: left=3, right=2 (40% preview). New: left=4, right=2 (~33% preview)
-        self._paned.add(left, weight=4)
-        self._paned.add(right, weight=2)
+        # Equal weights; we will set the sash explicitly to 50/50 by default
+        self._paned.add(left, weight=1)
+        self._paned.add(right, weight=1)
         # Prevent zero-width panes by setting a reasonable minimum size for the preview pane
         try:
             self._paned.paneconfigure(right, minsize=150)
@@ -232,8 +231,18 @@ class StructureTab(ttk.Frame):
         # Keep handles to panes so we can properly hide/show the preview pane
         self._left_pane = left  # type: ignore[assignment]
         self._right_pane = right  # type: ignore[assignment]
-        # Store sash position as a fraction of total width for robust restoration
-        self._last_sash_ratio = 0.67  # type: ignore[assignment]
+        # Store sash ratios independently per right panel kind (preview/filter)
+        self._sash_ratio_preview: float = 0.5
+        self._sash_ratio_filter: float = 0.5
+        # Back-compat aggregate ratio used elsewhere
+        self._last_sash_ratio = 0.5  # type: ignore[assignment]
+        # Track which right-hand panel is active
+        self._active_right_kind: str = "preview"
+        # Capture user-resized sash ratio on mouse release
+        try:
+            self._paned.bind("<ButtonRelease-1>", lambda _e: self._capture_sash_ratio())
+        except Exception:
+            pass
 
         # Tree widget on the left
         self._tree = StructureTreeWidget(
@@ -281,7 +290,7 @@ class StructureTab(ttk.Frame):
         self.focus_set()
         # Initial population
         self._refresh_tree()
-        # Set initial sash position (~67% left / 33% right)
+        # Set initial sash position to 50/50
         try:
             self.after(0, self._set_initial_sash_position)
         except Exception:
@@ -427,7 +436,7 @@ class StructureTab(ttk.Frame):
             self._toolbar.enable_buttons(False)
 
     def _set_initial_sash_position(self) -> None:
-        """Position the paned window sash so the preview takes ~33% width."""
+        """Position the paned window sash according to active panel ratio (default 50/50)."""
         try:
             paned = getattr(self, "_paned", None)
             if paned is None:
@@ -437,7 +446,10 @@ class StructureTab(ttk.Frame):
             if width <= 1:
                 self.after(50, self._set_initial_sash_position)
                 return
-            pos = int(width * 0.67)
+            ratio = self._sash_ratio_preview if getattr(self, "_active_right_kind", "preview") == "preview" else self._sash_ratio_filter
+            if not isinstance(ratio, float) or ratio <= 0.05 or ratio >= 0.95:
+                ratio = 0.5
+            pos = int(width * ratio)
             try:
                 paned.sashpos(0, pos)
                 try:
@@ -859,6 +871,12 @@ class StructureTab(ttk.Frame):
                     self._filter_panel.grid()
                 except Exception:
                     pass
+            # Activate filter panel and restore its sash ratio
+            try:
+                self._active_right_kind = "filter"
+                self.after_idle(self._restore_sash_position)
+            except Exception:
+                pass
         except Exception:
             pass
 
@@ -870,6 +888,7 @@ class StructureTab(ttk.Frame):
             if self._preview_panel is not None:
                 self._preview_panel.grid()
             try:
+                self._active_right_kind = "preview"
                 self._tree.clear_filter_highlight_refs()  # type: ignore[attr-defined]
             except Exception:
                 pass
@@ -1401,8 +1420,9 @@ class StructureTab(ttk.Frame):
                         paned.paneconfigure(right, minsize=150)
                     except Exception:
                         pass
-                # Restore sash position to a reasonable fraction
+                # Restore sash position to the last preview ratio
                 try:
+                    self._active_right_kind = "preview"
                     self.after_idle(self._restore_sash_position)
                 except Exception:
                     pass
@@ -1425,7 +1445,7 @@ class StructureTab(ttk.Frame):
             pass
 
     def _restore_sash_position(self) -> None:
-        """Restore sash to last known position or default fraction when showing preview."""
+        """Restore sash to last known position for the active right panel, default 50/50."""
         try:
             paned = getattr(self, "_paned", None)
             if paned is None:
@@ -1435,9 +1455,10 @@ class StructureTab(ttk.Frame):
             if width <= 1:
                 self.after(50, self._restore_sash_position)
                 return
-            ratio = getattr(self, "_last_sash_ratio", None)
+            # Choose ratio based on active panel kind
+            ratio = self._sash_ratio_filter if getattr(self, "_active_right_kind", "preview") == "filter" else self._sash_ratio_preview
             if not isinstance(ratio, float) or ratio <= 0.05 or ratio >= 0.95:
-                ratio = 0.67
+                ratio = 0.5
             pos = int(width * ratio)
             try:
                 paned.sashpos(0, pos)
