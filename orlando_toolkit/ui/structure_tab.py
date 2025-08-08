@@ -209,19 +209,21 @@ class StructureTab(ttk.Frame):
             self._preview_toggle_btn = None  # type: ignore[assignment]
 
         # Main area: PanedWindow with tree (left) and preview panel (right)
-        paned = ttk.PanedWindow(self, orient="horizontal")
-        paned.grid(row=2, column=0, sticky="nsew", padx=8, pady=(0, 8))
+        self._paned = ttk.PanedWindow(self, orient="horizontal")
+        self._paned.grid(row=2, column=0, sticky="nsew", padx=8, pady=(0, 8))
 
-        left = ttk.Frame(paned)
+        left = ttk.Frame(self._paned)
         left.columnconfigure(0, weight=1)
         left.rowconfigure(0, weight=1)
 
-        right = ttk.Frame(paned)
+        right = ttk.Frame(self._paned)
         right.columnconfigure(0, weight=1)
         right.rowconfigure(0, weight=1)
 
-        paned.add(left, weight=3)
-        paned.add(right, weight=2)
+        # Make preview panel about ~15% narrower than before by adjusting weights
+        # Old: left=3, right=2 (40% preview). New: left=4, right=2 (~33% preview)
+        self._paned.add(left, weight=4)
+        self._paned.add(right, weight=2)
 
         # Tree widget on the left
         self._tree = StructureTreeWidget(
@@ -238,7 +240,6 @@ class StructureTab(ttk.Frame):
         self._preview_panel = PreviewPanel(
             right,
             on_mode_changed=self._on_preview_mode_changed,
-            on_refresh=self._on_preview_refresh_clicked,
         )
         self._preview_panel.grid(row=0, column=0, sticky="nsew")
 
@@ -262,6 +263,11 @@ class StructureTab(ttk.Frame):
         self.focus_set()
         # Initial population
         self._refresh_tree()
+        # Set initial sash position (~67% left / 33% right)
+        try:
+            self.after(0, self._set_initial_sash_position)
+        except Exception:
+            pass
 
     # ---------------------------------------------------------------------------------
     # Public API shims to preserve external expectations (conservative, presentation-only)
@@ -372,6 +378,26 @@ class StructureTab(ttk.Frame):
         except Exception:
             self._toolbar.enable_buttons(False)
 
+    def _set_initial_sash_position(self) -> None:
+        """Position the paned window sash so the preview takes ~33% width."""
+        try:
+            paned = getattr(self, "_paned", None)
+            if paned is None:
+                return
+            width = paned.winfo_width()
+            # If geometry not ready yet, retry shortly
+            if width <= 1:
+                self.after(50, self._set_initial_sash_position)
+                return
+            pos = int(width * 0.67)
+            try:
+                paned.sashpos(0, pos)
+            except Exception:
+                # Some Tk variants may not support sashpos right away; retry once
+                self.after(50, self._set_initial_sash_position)
+        except Exception:
+            pass
+
     # ---------------------------------------------------------------------------------
     # Tree expansion control callbacks
     # ---------------------------------------------------------------------------------
@@ -436,6 +462,11 @@ class StructureTab(ttk.Frame):
                 changed = bool(ctrl.handle_depth_change(val))
             if changed:
                 self._refresh_tree()
+                # Keep preview in sync when depth affects rendering
+                try:
+                    self._update_side_preview()
+                except Exception:
+                    pass
         except Exception:
             # Keep UI stable; ignore errors
             pass
@@ -472,10 +503,24 @@ class StructureTab(ttk.Frame):
             return
         try:
             results = ctrl.handle_search(term) or []
-            # Optionally select first match
+            # Apply yellow highlight to all matches without changing selection
+            try:
+                if results:
+                    self._tree.set_highlight_refs(list(results))  # type: ignore[attr-defined]
+                else:
+                    self._tree.clear_highlight_refs()  # type: ignore[attr-defined]
+            except Exception:
+                pass
+            # Focus and preview first match when available (no selection change)
             if results:
-                ctrl.select_items([results[0]])
-                self._refresh_tree()
+                try:
+                    self._tree.focus_item_by_ref(results[0])  # type: ignore[attr-defined]
+                except Exception:
+                    pass
+                try:
+                    self._render_preview_for_ref(results[0], self._preview_panel)
+                except Exception:
+                    pass
         except Exception:
             pass
 
@@ -488,21 +533,33 @@ class StructureTab(ttk.Frame):
             results: List[str] = list(getattr(ctrl, "search_results", []) or [])
             if not results:
                 return
-            # Simple cycling
-            try:
-                current = ctrl.get_selection()[0] if ctrl.get_selection() else None
-            except Exception:
-                current = None
-            if current in results:
-                idx = results.index(current)
-            else:
-                idx = -1
+            # Cycle using controller's search_index
+            idx = getattr(ctrl, "search_index", -1)
             if direction == "prev":
-                idx = (idx - 1) % len(results)
+                # Move up if possible; clamp at 0
+                idx = max(0, idx - 1)
             else:
-                idx = (idx + 1) % len(results)
-            ctrl.select_items([results[idx]])
+                # Move down if possible; clamp at last
+                idx = min(len(results) - 1, idx + 1)
+            try:
+                ctrl.search_index = idx  # type: ignore[attr-defined]
+            except Exception:
+                pass
+            # Keep all matches highlighted; select the current item to show default selection highlight
+            try:
+                ctrl.select_items([results[idx]])
+            except Exception:
+                pass
             self._refresh_tree()
+            try:
+                self._tree.set_highlight_refs(list(results))  # type: ignore[attr-defined]
+            except Exception:
+                pass
+            # Trigger preview update for the focused match across sections/levels
+            try:
+                self._render_preview_for_ref(results[idx], self._preview_panel)
+            except Exception:
+                pass
         except Exception:
             pass
 

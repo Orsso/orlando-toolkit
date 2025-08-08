@@ -31,7 +31,7 @@ python -m pytest -v tests/
 python -m pip install -r requirements.txt
 
 # Core dependencies: lxml, python-docx, Pillow, sv-ttk, pyyaml
-# Optional dependencies: tkhtmlview (for HTML preview rendering)
+# HTML preview engine: tkinterweb (used by Structure tab preview)
 ```
 
 ## Architecture Overview

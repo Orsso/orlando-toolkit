@@ -3,8 +3,8 @@
 
 A compact, presentation-only panel that displays either HTML or XML content for a
 selected topic. It contains:
-- Header row with a mode toggle (HTML | XML), a Refresh button, and a status label.
-- Body area with either HTMLScrolledText (if tkhtmlview available) or ScrolledText.
+- Header row with a mode toggle (HTML | XML) and a status label.
+- Body area with a tkinterweb HtmlFrame when available, or ScrolledText fallback.
 
 Public API (UI-only, no services/I/O):
 - set_mode(mode: Literal["html","xml"]) -> None
@@ -17,12 +17,12 @@ Public API (UI-only, no services/I/O):
 
 Callbacks:
 - on_mode_changed: Optional[Callable[[Literal["html","xml"]], None]]
-- on_refresh: Optional[Callable[[], None]]
+- on_refresh: Optional[Callable[[], None]]  # accepted for compatibility; no button is rendered
 
 Notes:
 - No business logic is included here. This widget is purely presentational.
-- HTML content is rendered visually if tkhtmlview is available, otherwise as plain text.
-- Automatic fallback ensures the widget works with or without optional dependencies.
+- HTML content is rendered visually via tkinterweb when available; otherwise plain text.
+- Automatic fallback ensures the widget works even if tkinterweb is missing.
 """
 
 from __future__ import annotations
@@ -32,20 +32,13 @@ import tkinter as tk
 from tkinter import ttk
 from tkinter.scrolledtext import ScrolledText
 
-# Optional HTML rendering support (prefer tkinterweb if available)
+# HTML rendering support (tkinterweb)
 try:
     from tkinterweb import HtmlFrame  # type: ignore
     HTML_WEB_AVAILABLE = True
 except Exception:
     HTML_WEB_AVAILABLE = False
     HtmlFrame = None  # type: ignore
-
-try:
-    from tkhtmlview import HTMLScrolledText  # type: ignore
-    TKHTMLVIEW_AVAILABLE = True
-except Exception:
-    TKHTMLVIEW_AVAILABLE = False
-    HTMLScrolledText = None  # type: ignore
 
 
 Mode = Literal["html", "xml"]
@@ -68,6 +61,7 @@ class PreviewPanel(ttk.Frame):
         super().__init__(parent, **kwargs)
 
         self.on_mode_changed: Optional[Callable[[Mode], None]] = on_mode_changed
+        # Keep for API compatibility, but no UI control triggers it.
         self.on_refresh: Optional[Callable[[], None]] = on_refresh
 
         # Layout
@@ -78,10 +72,9 @@ class PreviewPanel(ttk.Frame):
         # Header row (compact)
         header = ttk.Frame(self)
         header.grid(row=0, column=0, sticky="ew", padx=4, pady=2)
-        # Columns: 0=left group (radiobuttons + status), 1=spacer, 2=refresh btn
+        # Columns: 0=left group (radiobuttons + status), 1=spacer
         header.columnconfigure(0, weight=0)
         header.columnconfigure(1, weight=1)  # stretch spacer
-        header.columnconfigure(2, weight=0)
 
         # Mode toggle - compact
         self._mode_var = tk.StringVar(value="html")
@@ -102,19 +95,15 @@ class PreviewPanel(ttk.Frame):
         self._status_var = tk.StringVar(value="")
 
         self._status_label = ttk.Label(toggle, textvariable=self._status_var)
-        self._status_label.grid(row=0, column=2, padx=(8, 0), pady=0, sticky="w")        # Spacer column (1) stretches
-
-        # Refresh button aligned right, compact paddings
-        self._refresh_btn = ttk.Button(header, text="Refresh", command=self._on_refresh_clicked)
-        self._refresh_btn.grid(row=0, column=2, padx=(4, 0), pady=0, sticky="e")
+        self._status_label.grid(row=0, column=2, padx=(8, 0), pady=0, sticky="w")
 
         # Body: HTML-capable text widget with graceful fallback
         self._title_var = tk.StringVar(value="")  # retained for API compatibility
         self._title_label = None  # type: ignore[assignment]
 
-        # Prefer a real HTML widget when available for better table support
+        # Prefer a real HTML widget when available
         self._html_rendering_enabled = False
-        self._html_widget_kind = "text"  # 'tkinterweb' | 'tkhtmlview' | 'text'
+        self._html_widget_kind = "text"  # 'tkinterweb' | 'text'
 
         if HTML_WEB_AVAILABLE:
             try:
@@ -127,15 +116,7 @@ class PreviewPanel(ttk.Frame):
                 self._html_rendering_enabled = True
                 self._html_widget_kind = "tkinterweb"
             except Exception:
-                # Fallback chain continues below
-                pass
-
-        if not self._html_rendering_enabled and TKHTMLVIEW_AVAILABLE:
-            try:
-                self._text = HTMLScrolledText(self, height=10)  # type: ignore[call-arg]
-                self._html_rendering_enabled = True
-                self._html_widget_kind = "tkhtmlview"
-            except Exception:
+                # Fallback continues below
                 pass
 
         if not self._html_rendering_enabled:
@@ -145,27 +126,8 @@ class PreviewPanel(ttk.Frame):
         # Place directly under header and expand
         self._text.grid(row=1, column=0, sticky="nsew", padx=4, pady=(0, 4))
         
-        # Configure text selection and read-only behavior
-        if self._html_rendering_enabled and self._html_widget_kind == "tkhtmlview":
-            try:
-                # Make HTMLScrolledText read-only by binding key events
-                self._text.configure(state="normal")
-                
-                # Bind events to prevent editing while allowing selection
-                def prevent_edit(event):
-                    # Allow Ctrl+C (copy) but prevent other modifications
-                    if event.state & 0x4:  # Ctrl key pressed
-                        if event.keysym in ('c', 'C'):
-                            return  # Allow copy
-                    return "break"  # Block all other key input
-                
-                self._text.bind('<Key>', prevent_edit)
-                self._text.bind('<Button-2>', lambda e: "break")  # Block middle click paste
-                self._text.bind('<Button-3>', lambda e: "break")  # Block right click for now
-                
-            except Exception:
-                pass
-        elif self._html_widget_kind == "text":
+        # Configure read-only behavior for text fallback
+        if self._html_widget_kind == "text":
             # For ScrolledText, make it read-only but selectable
             self._text.configure(state="disabled")
 
@@ -189,8 +151,6 @@ class PreviewPanel(ttk.Frame):
         """Update loading status indicator."""
         try:
             self._status_var.set("Loading…" if loading else "")
-            # Optionally disable refresh while loading
-            self._refresh_btn.configure(state=("disabled" if loading else "normal"))
         except Exception:
             pass
 
@@ -213,12 +173,6 @@ class PreviewPanel(ttk.Frame):
                 if self._html_widget_kind == "tkinterweb" and hasattr(self._text, 'load_html'):
                     try:
                         self._text.load_html(content_str)
-                        return
-                    except Exception:
-                        pass
-                if self._html_widget_kind == "tkhtmlview" and hasattr(self._text, 'set_html'):
-                    try:
-                        self._text.set_html(content_str)
                         return
                     except Exception:
                         pass
@@ -265,6 +219,7 @@ class PreviewPanel(ttk.Frame):
             except Exception:
                 pass
 
+    # Refresh callback retained for compatibility but unused (no button rendered)
     def _on_refresh_clicked(self) -> None:
         cb = self.on_refresh
         if callable(cb):

@@ -51,6 +51,7 @@ class StructureController:
         self.max_depth: int = 999
         self.search_term: str = ""
         self.search_results: List[str] = []  # e.g., list of topic_ref ids
+        self.search_index: int = -1  # current index into search_results for navigation
         self.selected_items: List[str] = []
         self.heading_filter_exclusions: Dict[str, bool] = {}  # style -> excluded
 
@@ -198,17 +199,142 @@ class StructureController:
         """
         self.search_term = term or ""
         self.search_results = []
+        self.search_index = -1
 
         if not self.search_term:
             return self.search_results
 
-        # Conservative search: try to iterate context topics if available.
+        # Prefer searching the structured ditamap when available so that we
+        # return hrefs that the tree widget understands and can highlight.
         try:
-            # Heuristic: DitaContext might expose collections of topics/refs.
-            # We'll try broadly-named attributes and filter by simple text match.
-            candidates: List[str] = []
+            root = getattr(self.context, "ditamap_root", None)
+        except Exception:
+            root = None
 
-            # Common possible attributes we might find on a context model
+        term_lower = self.search_term.lower()
+
+        if root is not None:
+            try:
+                def iter_heading_children(node: object):
+                    try:
+                        if hasattr(node, "iterchildren"):
+                            for child in node.iterchildren():
+                                try:
+                                    tag = str(getattr(child, "tag", "") or "")
+                                except Exception:
+                                    tag = ""
+                                if tag.endswith("topicref") or tag.endswith("topichead") or tag in {"topicref", "topichead"}:
+                                    yield child
+                            return
+                    except Exception:
+                        pass
+                    try:
+                        if hasattr(node, "getchildren"):
+                            for child in node.getchildren():  # type: ignore[attr-defined]
+                                try:
+                                    tag = str(getattr(child, "tag", "") or "")
+                                except Exception:
+                                    tag = ""
+                                if tag.endswith("topicref") or tag.endswith("topichead") or tag in {"topicref", "topichead"}:
+                                    yield child
+                            return
+                    except Exception:
+                        pass
+                    try:
+                        if hasattr(node, "findall"):
+                            for child in list(node.findall("./topicref")) + list(node.findall("./topichead")):
+                                yield child
+                    except Exception:
+                        return
+
+                def extract_title(node: object) -> str:
+                    # Prefer topicmeta/navtitle, then <title>, else @navtitle
+                    try:
+                        if hasattr(node, "find"):
+                            nav = node.find("topicmeta/navtitle")
+                            if nav is not None:
+                                txt = getattr(nav, "text", None)
+                                if isinstance(txt, str) and txt.strip():
+                                    return txt.strip()
+                            tnode = node.find("title")
+                            if tnode is not None:
+                                ttxt = getattr(tnode, "text", None)
+                                if isinstance(ttxt, str) and ttxt.strip():
+                                    return ttxt.strip()
+                    except Exception:
+                        pass
+                    try:
+                        if hasattr(node, "get"):
+                            alt = node.get("navtitle")
+                            if isinstance(alt, str) and alt.strip():
+                                return alt.strip()
+                    except Exception:
+                        pass
+                    return ""
+
+                def extract_href(node: object) -> str:
+                    try:
+                        if hasattr(node, "get"):
+                            href = node.get("href")
+                            if isinstance(href, str) and href.strip():
+                                return href.strip()
+                    except Exception:
+                        pass
+                    return ""
+
+                matches: List[str] = []
+                stack = [root]
+                visited = 0
+                max_nodes = 200000
+
+                while stack and visited < max_nodes:
+                    node = stack.pop()
+                    visited += 1
+                    try:
+                        tag = str(getattr(node, "tag", "") or "")
+                    except Exception:
+                        tag = ""
+
+                    is_heading = tag.endswith("topicref") or tag.endswith("topichead") or tag in {"topicref", "topichead"}
+                    if is_heading:
+                        title = extract_title(node)
+                        href = extract_href(node)
+                        # Match on title text, full href, file basename
+                        basename = href.split("/")[-1] if href else ""
+                        def _contains(s: str) -> bool:
+                            return bool(s) and term_lower in s.lower()
+                        if _contains(title) or _contains(href) or _contains(basename):
+                            if href:
+                                matches.append(href)
+
+                    try:
+                        # Push children in reverse order so the DFS visit preserves
+                        # the original left-to-right visual order when popping.
+                        children = []
+                        for child in iter_heading_children(node):
+                            children.append(child)
+                        for child in reversed(children):
+                            stack.append(child)
+                    except Exception:
+                        pass
+
+                # Deduplicate while preserving order
+                seen: Dict[str, bool] = {}
+                uniq: List[str] = []
+                for h in matches:
+                    if h not in seen:
+                        seen[h] = True
+                        uniq.append(h)
+                self.search_results = uniq
+                self.search_index = 0 if self.search_results else -1
+                return self.search_results
+            except Exception:
+                # Fall through to attribute-based best-effort search
+                pass
+
+        # Best-effort fallback: probe common attributes and filter by substring
+        try:
+            candidates: List[str] = []
             possible_attrs = [
                 "topics",
                 "topic_refs",
@@ -221,15 +347,12 @@ class StructureController:
                 if hasattr(self.context, attr):
                     value = getattr(self.context, attr)
                     if isinstance(value, dict):
-                        # If dict-like {id: obj/title}, collect keys
                         candidates.extend(list(value.keys()))
                     elif isinstance(value, list):
-                        # If list of ids/objects, try to normalize to ids/strings
                         for entry in value:
                             if isinstance(entry, str):
                                 candidates.append(entry)
                             else:
-                                # Attempt to pull an identifier-like attribute
                                 for id_attr in ["id", "ref", "topic_ref", "uid"]:
                                     if hasattr(entry, id_attr):
                                         ref_val = getattr(entry, id_attr)
@@ -237,21 +360,19 @@ class StructureController:
                                             candidates.append(ref_val)
                                             break
 
-            # Deduplicate candidates
-            seen: Dict[str, bool] = {}
-            unique_candidates = []
+            # Deduplicate
+            seen2: Dict[str, bool] = {}
+            unique_candidates: List[str] = []
             for c in candidates:
-                if c not in seen:
-                    seen[c] = True
+                if c not in seen2:
+                    seen2[c] = True
                     unique_candidates.append(c)
 
-            # Filter by simple substring match on identifier
-            term_lower = self.search_term.lower()
             self.search_results = [c for c in unique_candidates if term_lower in c.lower()]
-
+            self.search_index = 0 if self.search_results else -1
         except Exception:
-            # Remain conservative and non-raising
             self.search_results = []
+            self.search_index = -1
 
         return self.search_results
 

@@ -7,7 +7,6 @@ This module is **read-only** and has *no* GUI dependencies.  It relies only on
 that it can be reused in tests, CLI tools or future features.
 """
 
-from copy import deepcopy
 from typing import Optional
 from lxml import etree as ET  # type: ignore
 
@@ -57,11 +56,14 @@ def render_html_preview(ctx: "DitaContext", tref: ET.Element, *, pretty: bool = 
 
     xml_str = get_raw_topic_xml(ctx, tref, pretty=False)
 
-    # Embed images as data URIs so the HTML preview can show them
+    # Ensure images resolve in HTML preview by materializing them to temp files
+    # and updating hrefs to file URIs (works reliably with tkinterweb).
     try:
         tree = ET.fromstring(xml_str.encode())
 
-        import base64, mimetypes
+        import mimetypes
+        import hashlib
+        import tempfile
         from pathlib import Path
 
         # 1) Ensure merged-title paragraphs render in uppercase even in limited HTML engines
@@ -85,16 +87,25 @@ def render_html_preview(ctx: "DitaContext", tref: ET.Element, *, pretty: bool = 
         except Exception:
             pass
 
-        # 2) Convert embedded images to data URIs for portability within preview
+        # 2) Convert embedded images to temp files and point to file URIs
         for img in tree.findall('.//image'):
             href = img.get('href', '')
             fname = Path(href).name
             if fname in getattr(ctx, 'images', {}):
                 blob = ctx.images[fname]  # type: ignore[attr-defined]
-                b64 = base64.b64encode(blob).decode()
                 mime, _ = mimetypes.guess_type(fname)
                 mime = mime or 'image/png'
-                img.set('href', f'data:{mime};base64,{b64}')
+                # Stable name per content hash
+                h = hashlib.md5(blob).hexdigest()[:12]
+                ext = (mime.split('/')[-1] if '/' in mime else 'png')
+                if ext == 'jpeg':
+                    ext = 'jpg'
+                preview_dir = Path(tempfile.gettempdir()) / 'orlando_preview'
+                preview_dir.mkdir(parents=True, exist_ok=True)
+                out_path = preview_dir / f"img_{h}.{ext}"
+                if not out_path.exists():
+                    out_path.write_bytes(blob)
+                img.set('href', out_path.as_uri())
 
         xml_str = ET.tostring(tree, encoding='unicode')
     except Exception:
@@ -282,165 +293,4 @@ def render_html_preview(ctx: "DitaContext", tref: ET.Element, *, pretty: bool = 
     src = ET.fromstring(xml_str.encode())
     res = transform(src)
     html_content = str(res)
-    
-    # Apply inline styles directly to elements for tkhtmlview compatibility
-    # tkhtmlview doesn't fully support <style> tags, so we post-process to add inline styles
-    
-    try:
-        # Utility: transform HTML tables to div-based layout for better tkhtmlview compatibility
-        # Many tkhtmlview builds do not render <table>/<tr>/<td> correctly. We convert them
-        # into a nested <div> structure using inline-block cells with borders and widths.
-        # Skip this conversion when a full HTML engine (tkinterweb) is likely in use by keeping
-        # standard tables. Rely on caller widget to choose the renderer.
-        from lxml import html as LH  # type: ignore
-        
-        # Simple approach: just return the HTML content with basic formatting
-        # tkhtmlview will handle basic HTML tags without complex CSS
-        
-        # Add some basic inline styling to improve readability
-        def _convert_tables_to_divs(html: str) -> str:
-            try:
-                doc = LH.fromstring(html)
-            except Exception:
-                return html
-
-            # Iterate over all tables
-            for table in doc.xpath('//table'):
-                # Build div.table container
-                div_table = LH.Element('div')
-                div_table.set('style', 'display:block;border:1px solid #888;margin:8px 0;')
-
-                # Gather rows (<tr>)
-                rows = table.xpath('.//tr')
-                for tr in rows:
-                    div_row = LH.SubElement(div_table, 'div')
-                    # Using nowrap to keep cells on the same line; inline-block cells wrap if too narrow
-                    div_row.set('style', 'white-space:nowrap;')
-
-                    # Cells: td or th
-                    cells = tr.xpath('./td|./th')
-                    for cell in cells:
-                        # Extract inline width from style if present (e.g., 'width:30.5%;')
-                        style_attr = cell.get('style') or ''
-                        width_val = ''
-                        if 'width:' in style_attr:
-                            try:
-                                # crude parse: find substring between 'width:' and next ';'
-                                after = style_attr.split('width:', 1)[1]
-                                width_val = after.split(';', 1)[0].strip()
-                            except Exception:
-                                width_val = ''
-
-                        # Build cell div with borders and padding
-                        cell_div = LH.SubElement(div_row, 'div')
-                        base_style = 'display:inline-block;vertical-align:top;border:1px solid #888;padding:4px;margin:-1px 0 0 -1px;'
-                        if width_val:
-                            cell_div.set('style', base_style + f'width:{width_val};')
-                        else:
-                            cell_div.set('style', base_style)
-
-                        # Move children of cell into the cell_div (preserve formatting)
-                        try:
-                            for child in list(cell):
-                                cell.remove(child)
-                                cell_div.append(child)
-                            # Also carry over tail text if any
-                            if cell.text and cell.text.strip():
-                                # Wrap plain text in <span> to ensure it's displayed
-                                span = LH.SubElement(cell_div, 'span')
-                                span.text = cell.text
-                                cell.text = None
-                        except Exception:
-                            pass
-
-                # Replace table with div_table in the document
-                try:
-                    table.getparent().replace(table, div_table)
-                except Exception:
-                    # If replace fails, skip this table
-                    continue
-
-            try:
-                return LH.tostring(doc, encoding='unicode')
-            except Exception:
-                return html
-
-        styled_content = _convert_tables_to_divs(html_content)
-        
-        # Replace div.topic with styled div
-        styled_content = styled_content.replace('<div class="topic">', 
-                                              '<div style="margin-bottom: 20px;">')
-        
-        # Style headings with inline styles
-        styled_content = styled_content.replace('<h1>', '<h1 style="color: #2c3e50; font-size: 1.6em; margin: 16px 0 8px 0;">')
-        styled_content = styled_content.replace('<h2>', '<h2 style="color: #2c3e50; font-size: 1.4em; margin: 14px 0 6px 0;">')
-        styled_content = styled_content.replace('<h3>', '<h3 style="color: #2c3e50; font-size: 1.2em; margin: 12px 0 4px 0;">')
-        
-        # Style paragraphs
-        styled_content = styled_content.replace('<p>', '<p style="margin: 8px 0; line-height: 1.4;">')
-        
-        # Handle images - tkhtmlview doesn't support data URIs, so save images temporarily
-        import re
-        import tempfile
-        import os
-        from pathlib import Path
-        
-        def replace_data_uri_images(match):
-            # Extract the data URI
-            src_match = re.search(r'src=["\']([^"\']*)["\']', match.group(0))
-            if not src_match:
-                return match.group(0)
-                
-            data_uri = src_match.group(1)
-            if not data_uri.startswith('data:'):
-                return match.group(0)  # Not a data URI, keep as is
-            
-            try:
-                # Parse data URI: data:image/png;base64,<data>
-                header, data = data_uri.split(',', 1)
-                mime_part = header.split(':')[1].split(';')[0]  # e.g., 'image/png'
-                
-                # Get file extension from mime type
-                ext = mime_part.split('/')[-1] if '/' in mime_part else 'png'
-                if ext == 'jpeg':
-                    ext = 'jpg'
-                
-                # Decode base64 data
-                import base64
-                image_data = base64.b64decode(data)
-                
-                # Create temporary file for this image
-                temp_dir = tempfile.gettempdir()
-                preview_dir = os.path.join(temp_dir, 'orlando_preview')
-                os.makedirs(preview_dir, exist_ok=True)
-                
-                # Generate unique filename
-                import hashlib
-                hash_obj = hashlib.md5(image_data)
-                filename = f"img_{hash_obj.hexdigest()[:8]}.{ext}"
-                filepath = os.path.join(preview_dir, filename)
-                
-                # Save image file
-                with open(filepath, 'wb') as f:
-                    f.write(image_data)
-                
-                # Replace data URI with file path
-                new_img_tag = match.group(0).replace(data_uri, filepath)
-                return new_img_tag
-                
-            except Exception:
-                # Fallback: use placeholder if image processing fails
-                alt_text = re.search(r'alt=["\']([^"\']*)["\']', match.group(0))
-                alt = alt_text.group(1) if alt_text else 'Image'
-                return f'<span style="background-color: #f0f0f0; padding: 4px 8px; border: 1px dashed #ccc; color: #666; font-style: italic;">[Image: {alt}]</span>'
-        
-        # Replace data URI images with temporary file paths
-        styled_content = re.sub(r'<img[^>]*src=["\']data:[^"\']*["\'][^>]*/?>', replace_data_uri_images, styled_content)
-        
-        # Additional inline styling replacements
-        
-        return styled_content
-        
-    except Exception:
-        # Fallback: return original content if post-processing fails
-        return html_content 
+    return html_content

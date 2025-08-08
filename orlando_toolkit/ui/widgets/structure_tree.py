@@ -60,8 +60,20 @@ class StructureTreeWidget(ttk.Frame):
         self._on_item_activated = on_item_activated
         self._on_context_menu = on_context_menu
 
+        # Configure a custom Treeview style to force blue selection even when unfocused
+        try:
+            style = ttk.Style(self)
+            # Create a dedicated style so we don't affect other Treeviews
+            style_name = "Orlando.Treeview"
+            # Ensure selected rows are blue with white text, even when the widget is not focused
+            style.map(style_name,
+                      background=[('selected', '#0078D4'), ('!focus selected', '#0078D4')],
+                      foreground=[('selected', '#ffffff'), ('!focus selected', '#ffffff')])
+        except Exception:
+            style_name = "Treeview"
+
         # Tree and scrollbar
-        self._tree = ttk.Treeview(self, show="tree", selectmode="extended")
+        self._tree = ttk.Treeview(self, show="tree", selectmode="extended", style=style_name)
         self._vsb = ttk.Scrollbar(self, orient="vertical", command=self._tree.yview)
         self._tree.configure(yscrollcommand=self._vsb.set)
 
@@ -88,6 +100,14 @@ class StructureTreeWidget(ttk.Frame):
 
         # Style exclusions map: style -> excluded flag (True means exclude)
         self._style_exclusions: Dict[str, bool] = {}
+
+        # Tag configuration for search highlights (yellow background)
+        try:
+            # Ensure selected items stay visible even when tree loses focus.
+            # Configure a dedicated tag with yellow background (light) and keep fg default.
+            self._tree.tag_configure("search-match", background="#ffff99")
+        except Exception:
+            pass
 
     # Public API
 
@@ -303,6 +323,75 @@ class StructureTreeWidget(ttk.Frame):
                 self._tree.see(ids[0])
             except Exception:
                 pass
+
+    def focus_item_by_ref(self, topic_ref: str, ensure_visible: bool = True) -> None:
+        """Move focus to the first item matching the given topic_ref without changing selection.
+
+        Parameters
+        ----------
+        topic_ref : str
+            The reference of the item to focus.
+        ensure_visible : bool, optional
+            If True, scrolls the focused item into view, by default True.
+        """
+        try:
+            item_id = self._ref_to_id.get(topic_ref)
+            if not item_id:
+                return
+            self._tree.focus(item_id)
+            if ensure_visible:
+                try:
+                    self._tree.see(item_id)
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+    def set_highlight_refs(self, refs: List[str]) -> None:
+        """Highlight the given topic_refs in yellow using a dedicated tag.
+
+        This does not alter selection. Previously highlighted items are cleared first.
+        """
+        try:
+            self.clear_highlight_refs()
+            for ref in refs or []:
+                item_id = self._ref_to_id.get(ref)
+                if not item_id:
+                    continue
+                try:
+                    tags = list(self._tree.item(item_id, "tags") or ())
+                    if "search-match" not in tags:
+                        tags.append("search-match")
+                    self._tree.item(item_id, tags=tuple(tags))
+                except Exception:
+                    continue
+        except Exception:
+            pass
+
+    def clear_highlight_refs(self) -> None:
+        """Remove the search highlight tag from all items."""
+        try:
+            for item_id in self._iter_all_item_ids():
+                try:
+                    tags = tuple(t for t in (self._tree.item(item_id, "tags") or ()) if t != "search-match")
+                    self._tree.item(item_id, tags=tags)
+                except Exception:
+                    continue
+        except Exception:
+            pass
+
+    def _iter_all_item_ids(self) -> List[str]:
+        """Return a flat list of all item IDs in the tree."""
+        result: List[str] = []
+        try:
+            def walk(parent: str) -> None:
+                for cid in self._tree.get_children(parent):
+                    result.append(cid)
+                    walk(cid)
+            walk("")
+        except Exception:
+            pass
+        return result
 
     def get_selected_items(self) -> List[str]:
         """Return the list of currently selected topic_ref strings.
