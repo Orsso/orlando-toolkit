@@ -105,9 +105,22 @@ class ImageTab(ttk.Frame):
         scrollbar.grid(row=0, column=1, sticky="ns")
         self.image_listbox.config(yscrollcommand=scrollbar.set)
 
-        # Download-all button under the list
-        ttk.Button(left_panel, text="Download All", command=self.download_all_images).grid(
-            row=1, column=0, columnspan=2, sticky="w", pady=(8, 0)
+        # Buttons frame under the list
+        buttons_frame = ttk.Frame(left_panel)
+        buttons_frame.grid(row=1, column=0, columnspan=2, sticky="w", pady=(8, 0))
+        
+        # Open folder button with folder icon 
+        folder_btn = ttk.Button(buttons_frame, text="▣", width=3, command=self.open_images_folder)
+        folder_btn.grid(row=0, column=0, padx=(0, 8))
+        try:
+            from orlando_toolkit.ui.custom_widgets import Tooltip
+            Tooltip(folder_btn, "Open images folder", delay_ms=1000)
+        except Exception:
+            pass
+        
+        # Download-all button
+        ttk.Button(buttons_frame, text="Download All", command=self.download_all_images).grid(
+            row=0, column=1
         )
 
         # --- Right panel: Image preview ---
@@ -683,6 +696,35 @@ class ImageTab(ttk.Frame):
         if self._current_preview_bytes:
             try:
                 self._render_preview_from_bytes(self._current_preview_bytes)
+            except Exception:
+                pass
+
+    def open_images_folder(self) -> None:
+        """Open the images folder used by preview system in the system file explorer."""
+        try:
+            # Use the same directory as xml_compiler.py for consistency 
+            preview_dir = Path(tempfile.gettempdir()) / 'orlando_preview'
+            preview_dir.mkdir(parents=True, exist_ok=True)
+            
+            # Open folder in system explorer
+            if os.name == 'nt':  # Windows
+                os.startfile(str(preview_dir))
+            elif os.name == 'posix':  # macOS and Linux
+                if 'darwin' in os.uname().sysname.lower():  # macOS
+                    subprocess.run(['open', str(preview_dir)])
+                else:  # Linux
+                    subprocess.run(['xdg-open', str(preview_dir)])
+        except Exception:
+            # Fallback: use the temp directory
+            try:
+                temp_dir = Path(tempfile.gettempdir())
+                if os.name == 'nt':
+                    os.startfile(str(temp_dir))
+                elif os.name == 'posix':
+                    if 'darwin' in os.uname().sysname.lower():
+                        subprocess.run(['open', str(temp_dir)])
+                    else:
+                        subprocess.run(['xdg-open', str(temp_dir)])
             except Exception:
                 pass
 

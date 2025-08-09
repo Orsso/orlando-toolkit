@@ -37,11 +37,11 @@ Orlando Toolkit is an independent, open-source project and is not affiliated wit
 build.bat
 ```
 
-Note: `build.bat` installs Python 3.13 via winget if missing, then packages with PyInstaller.
+Note: `build.bat` sets up a portable Python environment if needed, then packages with PyInstaller.
 
 ### Run from source
 
-Requirements: Python 3.13+ (Windows/macOS/Linux)
+Requirements: Python 3.10+ (Windows/macOS/Linux)
 
 ```bash
 git clone https://github.com/Orsso/orlando-toolkit

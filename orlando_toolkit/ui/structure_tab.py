@@ -134,7 +134,7 @@ class StructureTab(ttk.Frame):
         left_tools.grid(row=0, column=0, padx=(0, 8))
 
         try:
-            self._expand_all_btn = ttk.Button(left_tools, text="⊞", width=3, command=self._on_expand_all)
+            self._expand_all_btn = ttk.Button(left_tools, text="+", width=3, command=self._on_expand_all)
             self._expand_all_btn.grid(row=0, column=0, padx=(0, 4))
             try:
                 from orlando_toolkit.ui.custom_widgets import Tooltip
@@ -144,7 +144,7 @@ class StructureTab(ttk.Frame):
         except Exception:
             self._expand_all_btn = None  # type: ignore[assignment]
         try:
-            self._collapse_all_btn = ttk.Button(left_tools, text="⊟", width=3, command=self._on_collapse_all)
+            self._collapse_all_btn = ttk.Button(left_tools, text="-", width=3, command=self._on_collapse_all)
             self._collapse_all_btn.grid(row=0, column=1)
             try:
                 from orlando_toolkit.ui.custom_widgets import Tooltip
@@ -558,6 +558,14 @@ class StructureTab(ttk.Frame):
                 changed = bool(ctrl.handle_depth_change(val))
             if changed:
                 self._refresh_tree()
+                # Re-apply search after tree refresh to preserve search results
+                try:
+                    current_search_term = self._search.get_search_term()
+                    if current_search_term.strip():
+                        # Re-trigger search to update highlights and results
+                        self._on_search_term_changed(current_search_term)
+                except Exception:
+                    pass
                 # Keep preview in sync when depth affects rendering
                 try:
                     self._update_side_preview()
@@ -928,6 +936,7 @@ class StructureTab(ttk.Frame):
         # Hide filter panel, show preview panel back
         try:
             if self._filter_panel is not None:
+                self._filter_panel.clear_selection()
                 self._filter_panel.grid_remove()
             if self._preview_panel is not None:
                 self._preview_panel.grid()
@@ -1523,6 +1532,33 @@ class StructureTab(ttk.Frame):
         except Exception:
             pass
 
+    def _capture_sash_ratio(self) -> None:
+        """Capture current sash position and update the appropriate ratio variable."""
+        try:
+            paned = getattr(self, "_paned", None)
+            if paned is None:
+                return
+            
+            width = paned.winfo_width()
+            if width <= 1:
+                return
+                
+            pos = paned.sashpos(0)
+            # Reuse existing ratio calculation logic from _set_initial_sash_position
+            ratio = max(0.05, min(0.95, pos / max(1, width)))
+            
+            # Update the appropriate ratio based on active panel (same logic as _restore_sash_position)
+            active_kind = getattr(self, "_active_right_kind", "preview")
+            if active_kind == "filter":
+                self._sash_ratio_filter = ratio
+            else:
+                self._sash_ratio_preview = ratio
+            
+            # Update legacy ratio for backward compatibility
+            self._last_sash_ratio = ratio
+        except Exception:
+            pass
+
     def _get_first_selected_ref(self) -> str:
         try:
             ctrl = self._controller
@@ -1615,6 +1651,13 @@ class StructureTab(ttk.Frame):
             right = getattr(self, "_right_pane", None)
 
             if kind == "none":
+                # Clear filter selection before hiding
+                try:
+                    if getattr(self, "_filter_panel", None) is not None:
+                        self._filter_panel.clear_selection()
+                    self._tree.clear_filter_highlight_refs()  # type: ignore[attr-defined]
+                except Exception:
+                    pass
                 if paned is not None and right is not None:
                     try:
                         if str(right) in paned.panes():
@@ -1641,6 +1684,7 @@ class StructureTab(ttk.Frame):
                 # Show preview, hide filter
                 try:
                     if getattr(self, "_filter_panel", None) is not None:
+                        self._filter_panel.clear_selection()
                         self._filter_panel.grid_remove()
                 except Exception:
                     pass
@@ -1657,6 +1701,11 @@ class StructureTab(ttk.Frame):
                 # Update content
                 try:
                     self._update_side_preview()
+                except Exception:
+                    pass
+                # Clear tree highlighting when switching to preview
+                try:
+                    self._tree.clear_filter_highlight_refs()  # type: ignore[attr-defined]
                 except Exception:
                     pass
                 self._set_toggle_states(True, False)

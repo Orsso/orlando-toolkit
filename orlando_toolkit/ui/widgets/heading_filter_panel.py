@@ -123,6 +123,14 @@ class HeadingFilterPanel(ttk.Frame):
         except Exception:
             pass
 
+    def clear_selection(self) -> None:
+        """Clear any selected style and refresh visual styling."""
+        try:
+            self._selected_style = None
+            self._refresh_row_styles()
+        except Exception:
+            pass
+
     # --- UI construction helpers ---
 
     def _populate_tabs(self) -> None:
@@ -261,15 +269,21 @@ class HeadingFilterPanel(ttk.Frame):
     # --- Internal interaction handlers ---
 
     def _on_style_clicked(self, style: str) -> None:
-        # Persist selection highlight and notify external callback
+        # Toggle selection: deselect if already selected, otherwise select
         try:
-            self._selected_style = style
-            self._refresh_row_styles()
-        except Exception:
-            pass
-        try:
-            if callable(self.on_select_style):
-                self.on_select_style(style)
+            if self._selected_style == style:
+                # Deselect current style
+                self._selected_style = None
+                self._refresh_row_styles()
+                # Clear highlighting in tree by calling callback with None/empty
+                if callable(self.on_select_style):
+                    self.on_select_style("")
+            else:
+                # Select new style
+                self._selected_style = style
+                self._refresh_row_styles()
+                if callable(self.on_select_style):
+                    self.on_select_style(style)
         except Exception:
             pass
 

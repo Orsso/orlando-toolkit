@@ -1,7 +1,7 @@
 # Technology Stack & Build System
 
 ## Core Technologies
-- **Python 3.13+** - Main programming language
+- **Python 3.10+** - Main programming language
 - **Tkinter** - GUI framework with sv-ttk theme for modern appearance
 - **lxml** - XML processing and DITA generation
 - **python-docx** - Word document parsing
@@ -30,7 +30,7 @@ python run.py
 
 ### Windows Executable Build
 ```bash
-# Automated build (installs Python 3.13 via winget if missing)
+# Automated build (sets up portable Python environment if missing)
 build.bat
 
 # Manual build
@@ -39,7 +39,7 @@ python build_exe.py
 
 ### Build Tools
 - **PyInstaller** - Creates single-file Windows executable
-- **winget** - Automatic Python installation on Windows
+- **WinPython** - Portable Python runtime for Windows builds
 - **build.bat** - Automated build script with dependency checking
 
 ## Key Dependencies
@@ -49,6 +49,7 @@ python-docx - Word document parsing
 Pillow - Image processing
 sv-ttk - Modern Tkinter theme
 pyyaml - Configuration management
+tkinterweb>=3.13 - HTML rendering for preview panel
 ```
 
 ## Logging & Configuration

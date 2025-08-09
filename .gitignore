@@ -4,6 +4,9 @@ __pycache__/
 
 # runtime logs
 logs/
+release/
+dist/
+build/
 
 # sample / reference documents
 *.docx
@@ -19,3 +22,4 @@ CLAUDE.md
 preview_design.md
 preview_plan.md
 CLAUDE.md
+.claude/
