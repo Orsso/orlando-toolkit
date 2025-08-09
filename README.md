@@ -23,7 +23,7 @@ Orlando Toolkit parses a .docx, builds a DITA map with topics, extracts images, 
 
 ## Disclaimer
 
-Orlando Toolkit is an independent, open-source project and is not affiliated with 'Orlando TechPubs' or Infotel. "Orlando" and any related names may be trademarks of their respective owners. Any references are for identification and descriptive purposes only.
+Orlando Toolkit is an independent, open-source project and is not affiliated with 'Orlando TechPubs' or Infotel. 'Orlando' and any related names may be trademarks of their respective owners. Any references are for identification and descriptive purposes only.
 
 ---
 
