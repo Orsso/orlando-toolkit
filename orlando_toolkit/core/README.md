@@ -14,7 +14,7 @@ Core processing layer used by all front-end interfaces.
 - `merge.py` – unified depth/style merge helpers used for structure filtering.
 - `utils.py` – helpers (slugify, XML save, ID generation, section numbering… ).
 
-## Conversion (grounded)
+## Conversion
 
 - Pass 1: `converter/structure_builder.build_document_structure()` builds a hierarchy of `HeadingNode` using `parser/style_analyzer` and block iteration.
 - Pass 2: `determine_node_roles()` marks nodes as section vs module.

@@ -1,6 +1,6 @@
 # ![Orlando Toolkit](https://github.com/user-attachments/assets/15f610f5-52c0-43c3-93fc-37ae5be11d13) Orlando Toolkit
 
-Convert Microsoft Word (.docx) manuals into clean, Orlando‑ready DITA projects with an approachable desktop UI.
+Convert Microsoft Word (.docx) manuals into Orlando‑ready DITA projects with an approachable desktop UI.
 
 ---
 
@@ -73,9 +73,6 @@ Output layout:
 - Core layer: [orlando_toolkit/core/README.md](orlando_toolkit/core/README.md)
 - UI layer: [orlando_toolkit/ui/README.md](orlando_toolkit/ui/README.md)
 - Config: [orlando_toolkit/config/README.md](orlando_toolkit/config/README.md)
-
-
-Optional dependency: `tkinterweb` enables richer HTML rendering; the app gracefully falls back when unavailable.
 
 ---
 

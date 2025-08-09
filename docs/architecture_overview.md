@@ -14,16 +14,16 @@
 ```mermaid
 flowchart TD
   subgraph UI
-    A1["Tkinter app\n`run.py` → `OrlandoToolkit`"]
-    A2["Tabs & Widgets\n`ui/` (Structure, Images, Metadata)"]
-    A3["Controller\n`StructureController`"]
+    A1["Tkinter app\nrun.py → OrlandoToolkit"]
+    A2["Tabs & Widgets\nui/ (Structure, Images, Metadata)"]
+    A3["Controller\nStructureController"]
   end
   subgraph Core
-    B1["Services\n`ConversionService`\n`PreviewService`\n`UndoService`"]
-    B2["Converter\n`converter/` (two‑pass)"]
-    B3["Parsing & Generators\n`parser/`, `generators/`"]
-    B4["Merge & Utils\n`merge.py`, `utils.py`"]
-    B5["Models\n`DitaContext`, `HeadingNode`"]
+    B1["Services\nConversionService\nPreviewService\nUndoService"]
+    B2["Converter\nconverter/ (two-pass)"]
+    B3["Parsing & Generators\nparser/, generators/"]
+    B4["Merge & Utils\nmerge.py, utils.py"]
+    B5["Models\nDitaContext, HeadingNode"]
   end
   subgraph Config
     C1["Config Manager\nYAML + user overrides"]
@@ -43,7 +43,7 @@ Key properties:
 
 ---
 
-## 2. Code layout (grounded in repo)
+## 2. Code layout
 
 ```
 orlando_toolkit/
@@ -74,7 +74,7 @@ Related sub-docs:
 
 ---
 
-## 3. Runtime workflow (current behavior)
+## 3. Runtime workflow
 
 Summary of the primary flow (see the full sequence in [Runtime Flow](runtime_flow.md)):
 - `run.py` sets up logging, theme, icon, and instantiates `OrlandoToolkit`.
@@ -89,7 +89,7 @@ Notes:
 
 ---
 
-## 4. Conversion pipeline (grounded)
+## 4. Conversion pipeline
 
 Two-pass conversion in `core/converter/`:
 - Pass 1: `structure_builder.build_document_structure()` builds a full heading tree (`HeadingNode`) using style and numbering analysis from `parser/style_analyzer.py`.
@@ -115,7 +115,7 @@ Models:
 
 ---
 
-## 6. Configuration (what exists today)
+## 6. Configuration
 
 `ConfigManager` loads packaged defaults and merges `~/.orlando_toolkit/*.yml` when present. Safe fallbacks apply if PyYAML is missing.
 

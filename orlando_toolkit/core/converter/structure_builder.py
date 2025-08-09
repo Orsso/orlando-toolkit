@@ -62,7 +62,7 @@ def build_document_structure(doc: Document, style_heading_map: dict, all_images_
                 text = block.text.strip()
                 if not text:
                     continue  # Skip empty headings
-                    
+                
                 style_name = getattr(block.style, 'name', None) if block.style else None
                 node = HeadingNode(
                     text=text,
@@ -91,7 +91,7 @@ def build_document_structure(doc: Document, style_heading_map: dict, all_images_
                 if heading_stack:
                     current_heading = heading_stack[-1]
                     current_heading.add_content_block(block)
-                # Note: Content before first heading is ignored (matches current behavior)
+                # Content before first heading is ignored.
                 
         elif isinstance(block, Table):
             # Table block - add to current heading if exists
