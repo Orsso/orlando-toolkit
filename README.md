@@ -8,7 +8,6 @@ Convert Microsoft Word (.docx) manuals into clean, Orlando‑ready DITA projects
 
 Orlando Toolkit parses a .docx, builds a DITA map with topics, extracts images, and produces a ZIP archive ready for import into Orlando. A built‑in preview and structure editor help you validate the result before exporting.
 
-For a high‑level design, see the [Architecture Overview](docs/architecture_overview.md).
 
 ### Features
 
@@ -24,7 +23,7 @@ For a high‑level design, see the [Architecture Overview](docs/architecture_ove
 
 ## Disclaimer
 
-Orlando Toolkit is an independent, open-source project and is not affiliated with, endorsed by, or sponsored by Orlando or Infotel. "Orlando" and any related names may be trademarks of their respective owners. Any references are for identification and descriptive purposes only.
+Orlando Toolkit is an independent, open-source project and is not affiliated with, by Orlando TechPubs or Infotel. "Orlando" and any related names may be trademarks of their respective owners. Any references are for identification and descriptive purposes only.
 
 ---
 
@@ -67,19 +66,18 @@ Output layout:
 
 ---
 
-## Preview and editing
+## Documentation
 
-- HTML preview via the internal compiler; falls back to readable XML/plain text
-- Images are saved to temporary files for display in the preview
-- Structure editing is safe and bounded.
-- Undo/redo maintains a snapshot history of the current DITA context
+- Architecture: [docs/architecture_overview.md](docs/architecture_overview.md)
+- Runtime flow: [docs/runtime_flow.md](docs/runtime_flow.md)
+- Core layer: [orlando_toolkit/core/README.md](orlando_toolkit/core/README.md)
+- UI layer: [orlando_toolkit/ui/README.md](orlando_toolkit/ui/README.md)
+- Config: [orlando_toolkit/config/README.md](orlando_toolkit/config/README.md)
+
 
 Optional dependency: `tkinterweb` enables richer HTML rendering; the app gracefully falls back when unavailable.
 
 ---
-
-
-
 
 ## License
 

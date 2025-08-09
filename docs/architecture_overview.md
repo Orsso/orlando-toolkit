@@ -1,119 +1,153 @@
-# Orlando Toolkit – Architecture Overview
+## Orlando Toolkit — Architecture Overview
 
 ---
 
-## 1 Introduction
+- UI overview: see `orlando_toolkit/app.py` and `orlando_toolkit/ui/`
+- Core processing: see `orlando_toolkit/core/` and its [README](../orlando_toolkit/core/README.md)
+- Configuration: see `orlando_toolkit/config/` and its [README](../orlando_toolkit/config/README.md)
+- End-to-end runtime: see [Runtime Flow](runtime_flow.md)
 
-Orlando Toolkit converts structured Microsoft Word manuals to standalone DITA projects and bundles them as ready-to-publish ZIP archives. The codebase follows a classic layered architecture:
+---
+
+## 1. High-level architecture
 
 ```mermaid
 flowchart TD
-    A["GUI (Tkinter)"] -->|"Facade"| B("ConversionService")
-    B --> C["Core Converter"]
-    C --> D["Parser & Helpers"]
-    C --> E["Generators"]
-    C --> F["Config Manager"]
-    %% Resources (DTD package) removed; DTDs are not embedded in packages
-    B --> H["Packaging I/O"]
+  subgraph UI
+    A1["Tkinter app\n`run.py` → `OrlandoToolkit`"]
+    A2["Tabs & Widgets\n`ui/` (Structure, Images, Metadata)"]
+    A3["Controller\n`StructureController`"]
+  end
+  subgraph Core
+    B1["Services\n`ConversionService`\n`PreviewService`\n`UndoService`"]
+    B2["Converter\n`converter/` (two‑pass)"]
+    B3["Parsing & Generators\n`parser/`, `generators/`"]
+    B4["Merge & Utils\n`merge.py`, `utils.py`"]
+    B5["Models\n`DitaContext`, `HeadingNode`"]
+  end
+  subgraph Config
+    C1["Config Manager\nYAML + user overrides"]
+  end
+
+  A1 --> A2 --> A3 --> B1
+  B1 --> B2 --> B3
+  B1 --> B4
+  B1 --> B5
+  B1 --> C1
 ```
 
-Each layer is import-only towards those below it, giving us clear dependency boundaries and facilitating unit-testing.
+Key properties:
+- UI is a thin layer. Business logic lives in services (`core/services/`).
+- Core conversion is I/O-free (operates in-memory) until packaging.
+- Configuration is optional and layered: packaged defaults + user overrides; safe fallbacks when YAML isn’t available.
 
 ---
 
-## 2 Package structure
+## 2. Code layout (grounded in repo)
 
 ```
 orlando_toolkit/
-    app.py                 # GUI entry-point widget (Tk)
-    logging_config.py      # Centralised logging setup
-    core/
-        models/            # Immutable data structures (DitaContext, HeadingNode)
-        parser/            # WordprocessingML traversal utilities
-        converter/         # DOCX→DITA conversion logic + packaging helpers
-        generators/        # XML builders (tables etc.) kept separate from the main algorithm for clarity
-        preview/           # Read-only XML/HTML preview utilities
-        services/          # Business-logic façade (ConversionService)
-        merge.py           # Depth/style-based merging helpers for structure filtering
-        utils.py           # Helper utilities (slugify, XML save, colour mapping)
-    config/
-        manager.py         # YAML loader + runtime overrides
-        default_color_rules.yml
-    ui/                    # Tkinter tabs/widgets
+  app.py                 # Tk-based app, home → summary → main tabs
+  logging_config.py      # DictConfig + rotating file handler (logs/app.log)
+  core/
+    models/              # DitaContext, HeadingNode
+    parser/              # WordprocessingML traversal, style analysis
+    converter/           # Two-pass DOCX→DITA + packaging helpers
+    generators/          # XML builders (tables, etc.)
+    preview/             # Raw XML + HTML preview (XSLT, temp images)
+    services/            # ConversionService, PreviewService, UndoService
+    merge.py             # Unified depth/style merge for structure filtering
+    utils.py             # Save XML, slugify, ID helpers, etc.
+  config/
+    manager.py           # YAML loader + user overrides
+    default_color_rules.yml  # Packaged default (others fallback to builtin-empty)
+  ui/
+    controllers/         # `StructureController`
+    widgets/             # Structure tree, search, toolbar, preview panel…
+    *_tab.py             # Structure / Images / Metadata tabs
 ```
 
-Runtime artefacts
-* Logs are written to `./logs/` (overridable with `$ORLANDO_LOG_DIR`).
-* Temporary build folders are created under the OS temp directory and removed automatically.
+Related sub-docs:
+- Core details: [orlando_toolkit/core/README.md](../orlando_toolkit/core/README.md)
+- UI details: [orlando_toolkit/ui/README.md](../orlando_toolkit/ui/README.md)
+- Config details: [orlando_toolkit/config/README.md](../orlando_toolkit/config/README.md)
 
 ---
 
-## 3 Runtime workflow
+## 3. Runtime workflow (current behavior)
 
-1. `run.py` initialises logging and instantiates `app.OrlandoToolkit`.
-2. The user selects a `.docx`; the GUI calls
-   ```python
-   ConversionService().convert(docx_path, metadata)
-   ```
-3. The service delegates to `core.converter.convert_docx_to_dita()` which:
-   * extracts images and headings via `core.parser.*`,
-   * emits DITA topics/maps through the generators, and
-   * fills a `DitaContext` with in-memory XML trees and blobs.
-4. On "Generate package" the service
-   * renames topics and images (stable IDs), and
-   * writes a zipped archive to the chosen path.
+Summary of the primary flow (see the full sequence in [Runtime Flow](runtime_flow.md)):
+- `run.py` sets up logging, theme, icon, and instantiates `OrlandoToolkit`.
+- User selects a `.docx` → `ConversionService.convert()` builds an in-memory `DitaContext` using the two-pass converter.
+- The app shows a post-conversion summary on the home screen with counts and inline metadata editing.
+- User continues to the main tabs: Structure, Images, Metadata.
+- On Export, `ConversionService.prepare_package()` applies unified depth/style filtering and renaming; then `write_package()` saves a `DATA/` tree and zips it.
 
-Errors propagate as exceptions. The GUI shows message boxes; future CLI wrappers will map them to exit codes.
+Notes:
+- Structure filtering in the UI uses `StructureEditingService.apply_depth_limit()` under the controller, with undo snapshots via `UndoService`.
+- Preview goes through `PreviewService` and `core/preview/xml_compiler.py` (minimal XSLT, temp files for images). Optional `tkinterweb` enables richer HTML; falls back to readable XML/text.
 
 ---
 
-## 4 Core components
+## 4. Conversion pipeline (grounded)
 
-| Module | Purpose |
-|--------|---------|
-| `models.DitaContext` | Immutable container for topics, images, ditamap & metadata. |
-| `parser.docx_utils`  | Streaming traversal of Word blocks + image extraction. |
-| `parser.style_analyzer` | Infers heading levels from DOCX style/numbering definitions. |
-| `converter.docx_to_dita` | Main algorithm; stateless, pure-function style. |
-| `converter.helpers`  | Small utilities migrated from legacy script to keep `docx_to_dita` lean. |
-| `generators.dita_builder` | XML builders for tables (Phase 3 extraction). |
-| `services.conversion_service` | Orchestrates end-to-end workflow and filesystem I/O. |
-| `merge.merge_topics_unified` | Unified depth/style merge for structure filtering (used by Structure tab and export). |
+Two-pass conversion in `core/converter/`:
+- Pass 1: `structure_builder.build_document_structure()` builds a full heading tree (`HeadingNode`) using style and numbering analysis from `parser/style_analyzer.py`.
+- Pass 2: `structure_builder.determine_node_roles()` marks nodes as section vs module.
+- Generation: `structure_builder.generate_dita_from_structure()` produces a DITA map with `topichead` for sections and concept topics for modules, storing topics and images in `DitaContext`.
+
+Helpers in `converter/helpers.py` handle inline formatting, Wingdings checkbox normalization, and paragraph/table processing. Table XML is created by `generators/dita_builder.py`.
 
 ---
 
-## 5 Configuration
+## 5. Services and editing
 
-`ConfigManager` looks for YAML files packaged within the wheel **and** user overrides under `~/.orlando_toolkit/`. Sections:
-* `style_map`         – overrides for Word style → heading level.
-* `color_rules`       – text-colour → outputclass mapping.
-* `image_naming`      – future: custom image naming templates.
-* `logging`           – optional `logging.yml` applied via `logging.config.dictConfig()`.
+- `ConversionService`
+  - `convert(path, metadata)` → `DitaContext`
+  - `prepare_package(ctx)` → apply unified depth/style merge (`merge.merge_topics_unified`), prune empties, rename topics/images.
+  - `write_package(ctx, output_zip)` → `DATA/` layout and ZIP.
+- `PreviewService` → raw XML and HTML preview through `preview/xml_compiler.py`.
+- `UndoService` → immutable snapshots of the full `DitaContext` for undo/redo.
+- `StructureEditingService` (used via `StructureController`) → move/promote/demote, rename, delete, apply depth/style filters.
 
-If PyYAML is missing, built-in defaults guarantee the application still runs.
-
----
-
-## 6 Resources
-
-Generated packages do not embed DTDs or ditaval files. XML documents declare standard PUBLIC identifiers (e.g., concept.dtd, map.dtd) and rely on the target toolchain's catalog to resolve them. No `dtd_package` is bundled or copied during packaging.
+Models:
+- `DitaContext` now includes helpers to save/restore original structure to make depth filtering reversible in-session.
 
 ---
 
-## 7 Build & distribution
+## 6. Configuration (what exists today)
 
-* **Windows executable** – `build_exe.py` calls PyInstaller in
-  single-file, windowed mode, bundling application assets (icon/theme) only.
-* **Source distribution** – `python -m build` produces a PEP 517 wheel; no C-extensions.
+`ConfigManager` loads packaged defaults and merges `~/.orlando_toolkit/*.yml` when present. Safe fallbacks apply if PyYAML is missing.
 
+Available sections and current state:
+- `color_rules` → has a packaged default (`default_color_rules.yml`).
+- `style_map`, `image_naming`, `logging` → loaded if provided by the user; otherwise empty defaults.
+
+See [orlando_toolkit/config/README.md](../orlando_toolkit/config/README.md).
+
+---
+
+## 7. Packaging and resources
+
+- No DTDs are embedded. Files declare standard PUBLIC identifiers (e.g., `map.dtd`, `concept.dtd`) and rely on the target toolchain’s catalog.
+- Output layout:
+  - `DATA/topics/` — generated topics
+  - `DATA/media/` — extracted images
+  - `DATA/<manual_code>.ditamap` — root map
 
 ---
 
-## 8 Extension points / future work
+## 8. Build & distribution
 
-* Headless CLI wrapper (non-Tk).
-* Plugin system for custom image naming schemes.
-
+- Windows executable: `build_exe.py` (PyInstaller, windowed) and `build.bat` convenience script.
+- From source: `python run.py` after installing `requirements.txt`.
 
 ---
+
+## 9. Links
+
+- Runtime flow: [docs/runtime_flow.md](runtime_flow.md)
+- Core guide: [orlando_toolkit/core/README.md](../orlando_toolkit/core/README.md)
+- UI guide: [orlando_toolkit/ui/README.md](../orlando_toolkit/ui/README.md)
+- Config guide: [orlando_toolkit/config/README.md](../orlando_toolkit/config/README.md)
 
