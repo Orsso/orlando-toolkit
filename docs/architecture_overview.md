@@ -14,19 +14,19 @@
 ```mermaid
 flowchart TD
   subgraph UI
-    A1["Tkinter app\nrun.py → OrlandoToolkit"]
-    A2["Tabs & Widgets\nui/ (Structure, Images, Metadata)"]
-    A3["Controller\nStructureController"]
+    A1["Tkinter app<br/>run.py → OrlandoToolkit"]
+    A2["Tabs & Widgets<br/>ui/ (Structure, Images, Metadata)"]
+    A3["Controller<br/>StructureController"]
   end
   subgraph Core
-    B1["Services\nConversionService\nPreviewService\nUndoService"]
-    B2["Converter\nconverter/ (two-pass)"]
-    B3["Parsing & Generators\nparser/, generators/"]
-    B4["Merge & Utils\nmerge.py, utils.py"]
-    B5["Models\nDitaContext, HeadingNode"]
+    B1["Services<br/>ConversionService<br/>PreviewService<br/>UndoService"]
+    B2["Converter<br/>converter/ (two-pass)"]
+    B3["Parsing & Generators<br/>parser/, generators/"]
+    B4["Merge & Utils<br/>merge.py, utils.py"]
+    B5["Models<br/>DitaContext, HeadingNode"]
   end
   subgraph Config
-    C1["Config Manager\nYAML + user overrides"]
+    C1["Config Manager<br/>YAML + user overrides"]
   end
 
   A1 --> A2 --> A3 --> B1
