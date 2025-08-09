@@ -7,6 +7,7 @@ from orlando_toolkit.core.services.structure_editing_service import (
 )
 from orlando_toolkit.core.services.undo_service import UndoService
 from orlando_toolkit.core.services.preview_service import PreviewService, PreviewResult
+from orlando_toolkit.core.services import heading_analysis_service as _heading_analysis
 
 
 class StructureController:
@@ -281,6 +282,56 @@ class StructureController:
             )
         except Exception:
             return OperationResult(success=False, message="Failed to apply filters")
+
+    # ---------------------------------------------------------------------
+    # Heading analysis wrappers (UI queries)
+    # ---------------------------------------------------------------------
+
+    def get_heading_counts(self) -> Dict[str, int]:
+        """Return counts of headings per style for current context."""
+        try:
+            return _heading_analysis.build_headings_cache(self.context)
+        except Exception:
+            return {}
+
+    def get_heading_occurrences(self) -> Dict[str, List[Dict[str, str]]]:
+        """Return mapping style -> list of occurrences with title/href."""
+        try:
+            return _heading_analysis.build_heading_occurrences(self.context)
+        except Exception:
+            return {}
+
+    def get_style_levels(self) -> Dict[str, Optional[int]]:
+        """Return mapping style -> level (or None)."""
+        try:
+            return _heading_analysis.build_style_levels(self.context)
+        except Exception:
+            return {}
+
+    def estimate_unmergable(self, style_excl_map: Dict[int, Set[str]]) -> int:
+        """Estimate number of items that cannot be merged for given style-level exclusions."""
+        try:
+            return _heading_analysis.count_unmergable_for_styles(self.context, style_excl_map)
+        except Exception:
+            return 0
+
+    def build_style_exclusion_map_from_flags(self, exclusions: Dict[str, bool]) -> Dict[int, Set[str]]:
+        """Convert style->excluded flags to per-level style set map.
+
+        For styles with unknown level, default to level 1 to preserve prior behavior.
+        """
+        levels_map = self.get_style_levels()
+        style_excl_map: Dict[int, Set[str]] = {}
+        try:
+            for style, excluded in (exclusions or {}).items():
+                if not excluded:
+                    continue
+                level_val = levels_map.get(style)
+                level = int(level_val) if isinstance(level_val, int) else 1
+                style_excl_map.setdefault(level, set()).add(style)
+        except Exception:
+            pass
+        return style_excl_map
 
     def handle_search(self, term: str) -> List[str]:
         """Handle a search request and store transient search state.

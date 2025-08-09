@@ -31,7 +31,6 @@ from __future__ import annotations
 from typing import Optional, List
 import tkinter as tk
 from tkinter import ttk
-from tkinter.scrolledtext import ScrolledText
 
 # Required imports per specification
 from orlando_toolkit.core.models import DitaContext
@@ -860,77 +859,9 @@ class StructureTab(ttk.Frame):
     # Heading filter
     # ---------------------------------------------------------------------------------
 
-    def _on_heading_filters_clicked(self) -> None:
-        """Show the new panel in place of preview; remove old dialog usage."""
-        ctrl = self._controller
-        if ctrl is None:
-            return
+    # Removed: legacy handler (replaced by toggle button path)
 
-        try:
-            # Build counts and occurrences, plus per-style levels for grouping
-            headings_cache = self._build_headings_cache(ctrl.context)
-            occurrences_map = self._build_heading_occurrences(ctrl.context)
-            style_levels = self._build_style_levels(ctrl.context)
-            current = dict(getattr(ctrl, "heading_filter_exclusions", {}) or {})
-
-            # Ensure right pane exists and show filter panel
-            self._set_active_panel("filter")
-            if self._filter_panel is None:
-                return
-            self._filter_panel.set_data(headings_cache, occurrences_map, style_levels, current)
-            # Clear any previous filter highlights
-            try:
-                self._tree.clear_filter_highlight_refs()  # type: ignore[attr-defined]
-            except Exception:
-                pass
-        except Exception:
-            pass
-
-    def _ensure_filter_panel(self) -> None:
-        try:
-            container = getattr(self, "_preview_container", None)
-            if container is None:
-                return
-            # Make sure right pane is present in the PanedWindow
-            paned = getattr(self, "_paned", None)
-            right = getattr(self, "_right_pane", None)
-            try:
-                if paned is not None and right is not None and str(right) not in paned.panes():
-                    paned.add(right, weight=2)
-                    try:
-                        paned.paneconfigure(right, minsize=150)
-                    except Exception:
-                        pass
-            except Exception:
-                pass
-            # Hide preview panel if present
-            if self._preview_panel is not None:
-                try:
-                    self._preview_panel.grid_remove()
-                except Exception:
-                    pass
-            # Create once
-            if self._filter_panel is None:
-                self._filter_panel = HeadingFilterPanel(
-                    container,
-                    on_close=self._on_filter_close,
-                    on_apply=self._on_filter_apply,
-                    on_select_style=self._on_filter_select_style,
-                )
-                self._filter_panel.grid(row=0, column=0, sticky="nsew")
-            else:
-                try:
-                    self._filter_panel.grid()
-                except Exception:
-                    pass
-            # Activate filter panel and restore its sash ratio
-            try:
-                self._active_right_kind = "filter"
-                self.after_idle(self._restore_sash_position)
-            except Exception:
-                pass
-        except Exception:
-            pass
+    # Removed: legacy ensure helper (logic unified in _set_active_panel)
 
     def _on_filter_close(self) -> None:
         # Hide filter panel, show preview panel back
@@ -957,19 +888,12 @@ class StructureTab(ttk.Frame):
             # Update controller mapping
             ctrl.heading_filter_exclusions = dict(exclusions or {})
 
-            # Build style exclusion map per levels for merge
-            style_excl_map: dict[int, set[str]] = {}
-            levels_map = self._build_style_levels(ctrl.context)
-            for style, excluded in exclusions.items():
-                if not excluded:
-                    continue
-                # Derive level from computed map; fallback to level 1
-                level = int(levels_map.get(style) or 1)
-                style_excl_map.setdefault(level, set()).add(style)
+            # Build style exclusion map per levels for merge via controller helper
+            style_excl_map = ctrl.build_style_exclusion_map_from_flags(exclusions)
 
             # Validate mergability upfront and inform user if some items cannot be merged
             try:
-                unmergable = self._find_unmergable_for_styles(style_excl_map)
+                unmergable = ctrl.estimate_unmergable(style_excl_map)
                 if unmergable > 0 and self._filter_panel is not None:
                     plural = "s" if unmergable > 1 else ""
                     self._filter_panel.update_status(
@@ -1005,7 +929,7 @@ class StructureTab(ttk.Frame):
     def _on_filter_select_style(self, style: str) -> None:
         # Highlight occurrences of the selected style in the tree (filter-specific highlights)
         try:
-            occ = self._build_heading_occurrences(self._controller.context)  # type: ignore[attr-defined]
+            occ = self._controller.get_heading_occurrences()  # type: ignore[attr-defined]
             style_items = occ.get(style, []) if occ else []
             refs = [it.get("href") for it in style_items if isinstance(it, dict) and it.get("href")]
             # Keep search highlights intact; only add filter tag
@@ -1016,414 +940,7 @@ class StructureTab(ttk.Frame):
             except Exception:
                 pass
 
-    def _build_headings_cache(self, context: Optional[DitaContext]) -> dict:
-        """Construct headings cache for the filter panel by traversing context.ditamap_root.
-
-        Rules:
-        - Count occurrences of styles by traversing topicref/topichead nodes.
-        - Style resolution priority:
-          1) node.get("data-style")
-          2) if missing, derive "Heading {data-level}" when @data-level exists
-          3) fallback to "Heading"
-        """
-        counts: dict[str, int] = {}
-
-        if context is None:
-            return counts
-
-        root = getattr(context, "ditamap_root", None)
-        if root is None:
-            return counts
-
-        # Helper to resolve style according to rules
-        def resolve_style(node: object) -> str:
-            style = None
-            try:
-                if hasattr(node, "get"):
-                    style = node.get("data-style")
-            except Exception:
-                style = None
-            if not style:
-                level = None
-                try:
-                    if hasattr(node, "get"):
-                        level = node.get("data-level")
-                except Exception:
-                    level = None
-                if level:
-                    style = f"Heading {level}"
-            if not style:
-                style = "Heading"
-            return style
-
-        # Helper to iterate children that are topicref/topichead
-        def iter_children(node: object):
-            # Prefer iterchildren if available
-            try:
-                if hasattr(node, "iterchildren"):
-                    for child in node.iterchildren():
-                        try:
-                            tag = str(getattr(child, "tag", "") or "")
-                        except Exception:
-                            tag = ""
-                        if tag.endswith("topicref") or tag.endswith("topichead") or tag in {"topicref", "topichead"}:
-                            yield child
-                    return
-            except Exception:
-                pass
-            # Fallback to getchildren
-            try:
-                if hasattr(node, "getchildren"):
-                    for child in node.getchildren():  # type: ignore[attr-defined]
-                        try:
-                            tag = str(getattr(child, "tag", "") or "")
-                        except Exception:
-                            tag = ""
-                        if tag.endswith("topicref") or tag.endswith("topichead") or tag in {"topicref", "topichead"}:
-                            yield child
-                    return
-            except Exception:
-                pass
-            # Fallback to findall scoped children
-            try:
-                if hasattr(node, "findall"):
-                    for child in list(node.findall("./topicref")) + list(node.findall("./topichead")):
-                        yield child
-            except Exception:
-                pass
-
-        # Stack-based traversal to avoid recursion limits
-        stack = [root]
-        visited = 0
-        max_nodes = 200000  # safety cap
-        while stack and visited < max_nodes:
-            node = stack.pop()
-            visited += 1
-            # Only count topicref/topichead nodes (skip the map root itself unless it matches)
-            try:
-                tag = str(getattr(node, "tag", "") or "")
-            except Exception:
-                tag = ""
-            if tag.endswith("topicref") or tag.endswith("topichead") or tag in {"topicref", "topichead"}:
-                style = resolve_style(node)
-                counts[style] = counts.get(style, 0) + 1
-            # Push children
-            try:
-                for child in iter_children(node):
-                    stack.append(child)
-            except Exception:
-                continue
-
-        return counts
-
-    def _build_heading_occurrences(self, context: Optional[DitaContext]) -> dict[str, list[dict[str, str]]]:
-        """Construct mapping: style -> list of occurrences with 'title' and 'href'.
-
-        Traverses context.ditamap_root and for each topicref/topichead node:
-        - Derive style using same rules as counts:
-          * data-style
-          * else "Heading {data-level}" when data-level present
-          * else "Heading"
-        - Derive title with priority:
-          * topicmeta/navtitle text
-          * else title text
-          * else @href
-          * else "Untitled"
-        - href is @href if present (topichead may be missing it).
-        """
-        occurrences: dict[str, list[dict[str, str]]] = {}
-        if context is None:
-            return occurrences
-        root = getattr(context, "ditamap_root", None)
-        if root is None:
-            return occurrences
-
-        def resolve_style(node: object) -> str:
-            style = None
-            try:
-                if hasattr(node, "get"):
-                    style = node.get("data-style")
-            except Exception:
-                style = None
-            if not style:
-                level = None
-                try:
-                    if hasattr(node, "get"):
-                        level = node.get("data-level")
-                except Exception:
-                    level = None
-                if level:
-                    style = f"Heading {level}"
-            if not style:
-                style = "Heading"
-            return style
-
-        def get_text_or_none(node: object) -> Optional[str]:
-            try:
-                text = getattr(node, "text", None)
-                if text is not None:
-                    return str(text).strip() or None
-            except Exception:
-                pass
-            return None
-
-        def find_first(node: object, path: str):
-            try:
-                if hasattr(node, "find"):
-                    return node.find(path)
-            except Exception:
-                return None
-            return None
-
-        def extract_title_and_href(node: object) -> tuple[str, Optional[str]]:
-            # Try topicmeta/navtitle
-            navtitle = None
-            try:
-                topicmeta = find_first(node, "./topicmeta")
-                if topicmeta is not None:
-                    nav = find_first(topicmeta, "./navtitle")
-                    if nav is not None:
-                        navtitle = get_text_or_none(nav)
-            except Exception:
-                navtitle = None
-
-            title_text = None
-            if not navtitle:
-                try:
-                    tnode = find_first(node, "./title")
-                    if tnode is not None:
-                        title_text = get_text_or_none(tnode)
-                except Exception:
-                    title_text = None
-
-            href_val = None
-            try:
-                if hasattr(node, "get"):
-                    href_val = node.get("href")
-            except Exception:
-                href_val = None
-
-            title_final = navtitle or title_text or (href_val if href_val else "Untitled")
-            return str(title_final), (str(href_val) if href_val else None)
-
-        def iter_children(node: object):
-            # Prefer iterchildren
-            try:
-                if hasattr(node, "iterchildren"):
-                    for child in node.iterchildren():
-                        try:
-                            tag = str(getattr(child, "tag", "") or "")
-                        except Exception:
-                            tag = ""
-                        if tag.endswith("topicref") or tag.endswith("topichead") or tag in {"topicref", "topichead"}:
-                            yield child
-                    return
-            except Exception:
-                pass
-            # Fallback getchildren
-            try:
-                if hasattr(node, "getchildren"):
-                    for child in node.getchildren():  # type: ignore[attr-defined]
-                        try:
-                            tag = str(getattr(child, "tag", "") or "")
-                        except Exception:
-                            tag = ""
-                        if tag.endswith("topicref") or tag.endswith("topichead") or tag in {"topicref", "topichead"}:
-                            yield child
-                    return
-            except Exception:
-                pass
-            # Fallback findall
-            try:
-                if hasattr(node, "findall"):
-                    for child in list(node.findall("./topicref")) + list(node.findall("./topichead")):
-                        yield child
-            except Exception:
-                pass
-
-        stack = [root]
-        visited = 0
-        max_nodes = 200000
-        while stack and visited < max_nodes:
-            node = stack.pop()
-            visited += 1
-            try:
-                tag = str(getattr(node, "tag", "") or "")
-            except Exception:
-                tag = ""
-            if tag.endswith("topicref") or tag.endswith("topichead") or tag in {"topicref", "topichead"}:
-                style = resolve_style(node)
-                title, href = extract_title_and_href(node)
-                item = {"title": title}
-                if href:
-                    item["href"] = href
-                occurrences.setdefault(style, []).append(item)
-            try:
-                for child in iter_children(node):
-                    stack.append(child)
-            except Exception:
-                continue
-
-        return occurrences
-
-    def _build_style_levels(self, context: Optional[DitaContext]) -> dict[str, Optional[int]]:
-        """Return a mapping style -> level (int) when derivable, else None.
-
-        Rules mirror other helpers: prefer data-style; else derive from data-level; fallback "Heading" -> None.
-        """
-        result: dict[str, Optional[int]] = {}
-        if context is None:
-            return result
-        root = getattr(context, "ditamap_root", None)
-        if root is None:
-            return result
-        def resolve_style_and_level(node: object) -> tuple[str, Optional[int]]:
-            style = None
-            level = None
-            try:
-                if hasattr(node, "get"):
-                    style = node.get("data-style")
-            except Exception:
-                style = None
-            try:
-                if hasattr(node, "get"):
-                    lv = node.get("data-level")
-                    level = int(lv) if lv is not None else None
-            except Exception:
-                level = None
-            if not style and isinstance(level, int):
-                style = f"Heading {level}"
-            if not style:
-                style = "Heading"
-            return style, level
-        stack = [root]
-        visited = 0
-        max_nodes = 200000
-        while stack and visited < max_nodes:
-            node = stack.pop()
-            visited += 1
-            try:
-                tag = str(getattr(node, "tag", "") or "")
-            except Exception:
-                tag = ""
-            if tag.endswith("topicref") or tag.endswith("topichead") or tag in {"topicref", "topichead"}:
-                style, level = resolve_style_and_level(node)
-                result.setdefault(style, level)
-            try:
-                if hasattr(node, "iterchildren"):
-                    for child in node.iterchildren():
-                        try:
-                            ctag = str(getattr(child, "tag", "") or "")
-                        except Exception:
-                            ctag = ""
-                        if ctag.endswith("topicref") or ctag.endswith("topichead") or ctag in {"topicref", "topichead"}:
-                            stack.append(child)
-                    continue
-            except Exception:
-                pass
-            try:
-                if hasattr(node, "getchildren"):
-                    for child in node.getchildren():  # type: ignore[attr-defined]
-                        try:
-                            ctag = str(getattr(child, "tag", "") or "")
-                        except Exception:
-                            ctag = ""
-                        if ctag.endswith("topicref") or ctag.endswith("topichead") or ctag in {"topicref", "topichead"}:
-                            stack.append(child)
-                    continue
-            except Exception:
-                pass
-            try:
-                if hasattr(node, "findall"):
-                    for child in list(node.findall("./topicref")) + list(node.findall("./topichead")):
-                        stack.append(child)
-            except Exception:
-                pass
-        return result
-
-    def _find_unmergable_for_styles(self, style_excl_map: dict[int, set[str]]) -> int:
-        """Return count of nodes matching excluded (level, style) with no merge parent.
-
-        A node is considered unmergable when it has no ancestor topicref or topichead,
-        i.e., it is a direct child of the map root.
-        """
-        ctrl = self._controller
-        if ctrl is None or ctrl.context is None:
-            return 0
-        root = getattr(ctrl.context, "ditamap_root", None)
-        if root is None:
-            return 0
-
-        def node_style_level(n: object) -> tuple[str, int]:
-            level = 1
-            style = "Heading"
-            try:
-                if hasattr(n, "get"):
-                    lv = n.get("data-level")
-                    if lv is not None:
-                        level = int(lv)
-            except Exception:
-                pass
-            try:
-                if hasattr(n, "get"):
-                    st = n.get("data-style")
-                    if st:
-                        style = st
-                    elif lv is not None:
-                        style = f"Heading {level}"
-            except Exception:
-                pass
-            return style, level
-
-        def has_merge_parent(n: object) -> bool:
-            try:
-                parent = getattr(n, "getparent", lambda: None)()
-                while parent is not None:
-                    tag = str(getattr(parent, "tag", "") or "")
-                    if tag in ("topicref", "topichead") or tag.endswith("topicref") or tag.endswith("topichead"):
-                        return True
-                    parent = getattr(parent, "getparent", lambda: None)()
-            except Exception:
-                return False
-            return False
-
-        unmergable = 0
-        stack = [root]
-        visited = 0
-        max_nodes = 200000
-        while stack and visited < max_nodes:
-            node = stack.pop()
-            visited += 1
-            try:
-                tag = str(getattr(node, "tag", "") or "")
-            except Exception:
-                tag = ""
-            if tag in ("topicref", "topichead") or tag.endswith("topicref") or tag.endswith("topichead"):
-                style, level = node_style_level(node)
-                if level in style_excl_map and style in style_excl_map[level]:
-                    if not has_merge_parent(node):
-                        unmergable += 1
-            try:
-                if hasattr(node, "iterchildren"):
-                    for child in node.iterchildren():
-                        stack.append(child)
-                    continue
-            except Exception:
-                pass
-            try:
-                if hasattr(node, "getchildren"):
-                    for child in node.getchildren():  # type: ignore[attr-defined]
-                        stack.append(child)
-                    continue
-            except Exception:
-                pass
-            try:
-                if hasattr(node, "findall"):
-                    for child in list(node.findall("./topicref")) + list(node.findall("./topichead")):
-                        stack.append(child)
-            except Exception:
-                pass
-        return unmergable
+    # Removed: heading analysis helpers moved to controller/service
 
     # ---------------------------------------------------------------------------------
     # Keyboard shortcuts
@@ -1605,9 +1122,9 @@ class StructureTab(ttk.Frame):
                 try:
                     ctrl = self._controller
                     if ctrl is not None:
-                        headings_cache = self._build_headings_cache(ctrl.context)
-                        occurrences_map = self._build_heading_occurrences(ctrl.context)
-                        style_levels = self._build_style_levels(ctrl.context)
+                        headings_cache = ctrl.get_heading_counts()
+                        occurrences_map = ctrl.get_heading_occurrences()
+                        style_levels = ctrl.get_style_levels()
                         current = dict(getattr(ctrl, "heading_filter_exclusions", {}) or {})
                         if self._filter_panel is not None:
                             self._filter_panel.set_data(headings_cache, occurrences_map, style_levels, current)
@@ -1747,12 +1264,7 @@ class StructureTab(ttk.Frame):
         except Exception:
             pass
 
-    def _on_preview_refresh_clicked(self) -> None:
-        """Re-run preview for the current selection."""
-        try:
-            self._update_side_preview()
-        except Exception:
-            pass
+    # Removed: no button binds to this; keep preview refresh via mode/selection changes
 
     def _on_shortcut_move(self, direction: str) -> str:
         ctrl = self._controller
