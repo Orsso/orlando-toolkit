@@ -288,23 +288,59 @@ class StructureController:
     # ---------------------------------------------------------------------
 
     def get_heading_counts(self) -> Dict[str, int]:
-        """Return counts of headings per style for current context."""
+        """Return counts of headings per style for current context using original structure."""
         try:
-            return _heading_analysis.build_headings_cache(self.context)
+            # Temporarily restore original structure to get complete counts
+            original_root = None
+            if hasattr(self.context, 'restore_from_original'):
+                original_root = getattr(self.context, 'ditamap_root', None)  # Save current
+                self.context.restore_from_original()
+            
+            result = _heading_analysis.build_headings_cache(self.context)
+            
+            # Restore the filtered structure
+            if original_root is not None and hasattr(self.context, 'ditamap_root'):
+                self.context.ditamap_root = original_root
+                
+            return result
         except Exception:
             return {}
 
     def get_heading_occurrences(self) -> Dict[str, List[Dict[str, str]]]:
-        """Return mapping style -> list of occurrences with title/href."""
+        """Return mapping style -> list of occurrences with title/href using original structure."""
         try:
-            return _heading_analysis.build_heading_occurrences(self.context)
+            # Temporarily restore original structure to get complete occurrences
+            original_root = None
+            if hasattr(self.context, 'restore_from_original'):
+                original_root = getattr(self.context, 'ditamap_root', None)  # Save current
+                self.context.restore_from_original()
+            
+            result = _heading_analysis.build_heading_occurrences(self.context)
+            
+            # Restore the filtered structure
+            if original_root is not None and hasattr(self.context, 'ditamap_root'):
+                self.context.ditamap_root = original_root
+                
+            return result
         except Exception:
             return {}
 
     def get_style_levels(self) -> Dict[str, Optional[int]]:
-        """Return mapping style -> level (or None)."""
+        """Return mapping style -> level (or None) using original structure."""
         try:
-            return _heading_analysis.build_style_levels(self.context)
+            # Temporarily restore original structure to get complete style levels
+            original_root = None
+            if hasattr(self.context, 'restore_from_original'):
+                original_root = getattr(self.context, 'ditamap_root', None)  # Save current
+                self.context.restore_from_original()
+            
+            result = _heading_analysis.build_style_levels(self.context)
+            
+            # Restore the filtered structure
+            if original_root is not None and hasattr(self.context, 'ditamap_root'):
+                self.context.ditamap_root = original_root
+                
+            return result
         except Exception:
             return {}
 
