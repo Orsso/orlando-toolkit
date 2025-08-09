@@ -73,7 +73,8 @@ class StructureTreeWidget(ttk.Frame):
             style_name = "Treeview"
 
         # Tree and scrollbar
-        self._tree = ttk.Treeview(self, show="tree", selectmode="extended", style=style_name)
+        # Provide a non-zero default row height to improve bbox availability in headless tests
+        self._tree = ttk.Treeview(self, show="tree", selectmode="extended", style=style_name, height=12)
         self._vsb = ttk.Scrollbar(self, orient="vertical", command=self._tree.yview)
         self._tree.configure(yscrollcommand=self._vsb.set)
 
@@ -890,8 +891,23 @@ class StructureTreeWidget(ttk.Frame):
 
     def _on_select_event(self, _event: tk.Event) -> None:
         if not self._on_selection_changed:
+            # Still ensure visibility of first selected item for geometry/bbox stability
+            try:
+                sel = self._tree.selection()
+                if sel:
+                    self._tree.see(sel[0])
+            except Exception:
+                pass
             return
         try:
+            # Ensure at least the first selected item is visible so bbox() is available
+            try:
+                sel = self._tree.selection()
+                if sel:
+                    self._tree.see(sel[0])
+            except Exception:
+                pass
+
             refs = self.get_selected_items()
             self._on_selection_changed(refs)
         except Exception:

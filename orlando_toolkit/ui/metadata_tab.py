@@ -32,6 +32,11 @@ class MetadataTab(ttk.Frame):
         # Reuse the unified metadata form widget to ensure consistent style.
         self._form = MetadataForm(wrapper, padding=6, on_change=self._on_form_change)
         self._form.pack(fill="x")
+        # Prevent default text selection when tab becomes visible
+        try:
+            self.bind("<Visibility>", lambda _e: self._clear_default_selection())
+        except Exception:
+            pass
 
         help_text = ttk.Label(
             wrapper,
@@ -65,3 +70,17 @@ class MetadataTab(ttk.Frame):
     def set_metadata_change_callback(self, callback):
         """Register a callback that is called whenever metadata changes."""
         self.on_metadata_change_callback = callback 
+
+    def _clear_default_selection(self) -> None:
+        """Clear any default selection in entry widgets to avoid preselected text."""
+        try:
+            if hasattr(self, "_form") and hasattr(self._form, "children"):
+                for child in self._form.winfo_children():
+                    try:
+                        if isinstance(child, ttk.Entry):
+                            child.selection_clear()
+                            child.icursor("end")
+                    except Exception:
+                        continue
+        except Exception:
+            pass

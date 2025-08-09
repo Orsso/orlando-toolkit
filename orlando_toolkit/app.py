@@ -208,11 +208,12 @@ class OrlandoToolkit:
         self.structure_tab = StructureTab(self.notebook)
         self.notebook.add(self.structure_tab, text="Structure")
 
-        self.metadata_tab = MetadataTab(self.notebook)
-        self.notebook.add(self.metadata_tab, text="Metadata")
-
+        # Place Images second, Metadata third per updated UX
         self.image_tab = ImageTab(self.notebook)
         self.notebook.add(self.image_tab, text="Images")
+
+        self.metadata_tab = MetadataTab(self.notebook)
+        self.notebook.add(self.metadata_tab, text="Metadata")
 
         self.metadata_tab.set_metadata_change_callback(self.on_metadata_change)
 
@@ -239,17 +240,20 @@ class OrlandoToolkit:
 
         # Keep the exact same window size as the initial landing screen for consistency
 
-        # Header: reproduce the same logo and title as initial screen
+        # Header: show a larger logo without extra titles for a cleaner summary
         try:
             logo_path = Path(__file__).resolve().parent.parent / "assets" / "app_icon.png"
             if logo_path.exists():
                 logo_img = tk.PhotoImage(file=logo_path)
-                # If the logo is too tall, subsample to reduce size slightly (2x shrink if height > 96)
                 try:
-                    if logo_img.height() > 96:
-                        factor = 2 if logo_img.height() // 2 >= 48 else 1
-                        if factor > 1:
-                            logo_img = logo_img.subsample(factor, factor)
+                    h = logo_img.height()
+                    # Prefer a larger logo on the summary screen; scale up when small
+                    if h > 0 and h < 128:
+                        # Simple 2x upscale for small logos
+                        logo_img = logo_img.zoom(2, 2)
+                    elif h >= 220:
+                        # If excessively large, scale down moderately
+                        logo_img = logo_img.subsample(2, 2)
                 except Exception:
                     pass
                 logo_lbl = ttk.Label(self.home_center, image=logo_img)
@@ -257,8 +261,7 @@ class OrlandoToolkit:
                 logo_lbl.pack(pady=(0, 12))
         except Exception:
             pass
-        ttk.Label(self.home_center, text="Orlando Toolkit", font=("Arial", 20, "bold")).pack(pady=12)
-        ttk.Label(self.home_center, text="DOCX to DITA converter", font=("Arial", 12), foreground="gray").pack(pady=(0, 10))
+        # Remove textual headers on the summary view for a minimalist look
 
         # Success summary with checkmark and separate lines
         summary = ttk.Frame(self.home_center)
