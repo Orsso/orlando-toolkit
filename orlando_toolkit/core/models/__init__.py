@@ -37,6 +37,16 @@ class HeadingNode:
     def has_content(self) -> bool:
         """Return True if this heading has associated content blocks."""
         return len(self.content_blocks) > 0
+
+    def has_effective_content(self) -> bool:
+        """Return True if content blocks contain meaningful content.
+
+        Converter-level helpers use a stricter gating than mere presence of blocks.
+        This method remains lightweight and is used only where the full
+        converter helpers are not available. Primary gating lives in the
+        converter module to avoid cross-layer imports.
+        """
+        return any(self.content_blocks)
     
     def add_child(self, child: 'HeadingNode') -> None:
         """Add a child heading and set its parent reference."""

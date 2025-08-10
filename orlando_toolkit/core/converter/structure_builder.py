@@ -30,6 +30,72 @@ from orlando_toolkit.core.converter.helpers import (
 )
 
 
+def _paragraph_has_effective_content(p: Paragraph) -> bool:
+    """Return True if paragraph carries meaningful content.
+
+    Criteria:
+    - Non-whitespace text OR
+    - List item OR
+    - Embedded image
+    """
+    try:
+        if (p.text or "").strip():
+            return True
+        # List item (numbering)
+        if getattr(p._p, "pPr", None) is not None and getattr(p._p.pPr, "numPr", None) is not None:
+            return True
+        # Images (any embedded rel id)
+        for run in getattr(p, "runs", []) or []:
+            r_ids = run.element.xpath(".//@r:embed")
+            if r_ids:
+                return True
+        # SDT-contained text (checkbox or other content that may not appear in p.text)
+        try:
+            for child in p._p.iter():  # type: ignore[attr-defined]
+                tag = getattr(child, "tag", None)
+                if isinstance(tag, str) and tag.endswith("}t"):
+                    if (getattr(child, "text", None) or "").strip():
+                        return True
+        except Exception:
+            pass
+    except Exception:
+        # Be conservative: assume not effective when inspection fails
+        return False
+    return False
+
+
+def _table_has_effective_content(t: Table) -> bool:
+    """Return True if the table has at least one non-empty cell or image."""
+    try:
+        for row in t.rows:
+            for cell in row.cells:
+                # Quick text check
+                if (cell.text or "").strip():
+                    return True
+                # Check images/text within cell paragraphs
+                for p in getattr(cell, "paragraphs", []) or []:
+                    if _paragraph_has_effective_content(p):
+                        return True
+    except Exception:
+        return False
+    return False
+
+
+def _has_effective_content(blocks: List) -> bool:
+    """Return True if any block in *blocks* carries meaningful content."""
+    for block in blocks or []:
+        if isinstance(block, Table):
+            if _table_has_effective_content(block):
+                return True
+        elif isinstance(block, Paragraph):
+            if _paragraph_has_effective_content(block):
+                return True
+        else:
+            # Unknown block types: be conservative and ignore for gating
+            continue
+    return False
+
+
 def build_document_structure(doc: Document, style_heading_map: dict, all_images_map_rid: dict) -> List[HeadingNode]:
     """Build hierarchical document structure from Word document.
     
@@ -201,8 +267,8 @@ def generate_dita_from_structure(
             # Note: No topic file created for sections
             parent_elements[level] = topichead
             
-            # If section has content, create a content module child for it
-            if node.has_content():
+            # If section has effective content, create a content module child for it
+            if _has_effective_content(node.content_blocks):
                 module_file = f"topic_{uuid.uuid4().hex[:10]}.dita"
                 module_id = module_file.replace(".dita", "")
                 
@@ -221,6 +287,12 @@ def generate_dita_from_structure(
                     "topicref",
                     {"href": f"topics/{module_file}", "locktitle": "yes"},
                 )
+                # Ensure structural metadata for correct merge/filter behavior
+                try:
+                    module_topicref.set("data-level", str(level + 1))
+                    module_topicref.set("data-style", f"Heading {level + 1}")
+                except Exception:
+                    pass
                 
                 tm = ET.SubElement(module_topicref, "topicmeta")
                 nt = ET.SubElement(tm, "navtitle")

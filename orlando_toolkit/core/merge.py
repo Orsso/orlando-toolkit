@@ -252,7 +252,14 @@ def _ensure_content_module(ctx: "DitaContext", section_tref: ET.Element) -> ET.E
 
     # Create child topicref
     child_ref = ET.Element("topicref", href=f"topics/{fname}")
-    child_ref.set("data-level", str(int(section_tref.get("data-level", 1)) + 1))
+    # Structural metadata to ensure consistent merge/filter behavior
+    try:
+        next_level = int(section_tref.get("data-level", 1)) + 1
+    except Exception:
+        next_level = 2
+    child_ref.set("data-level", str(next_level))
+    # Standardize style so style-based filters operate predictably
+    child_ref.set("data-style", f"Heading {next_level}")
     # Keep navtitle in sync
     nav = ET.SubElement(child_ref, "topicmeta")
     navtitle = ET.SubElement(nav, "navtitle")
@@ -339,7 +346,7 @@ def merge_topics_unified(ctx: "DitaContext", depth_limit: int, exclude_style_map
                     _recurse(tref, t_level + 1, ancestor_topic_el, ancestor_tref)
                     node.remove(tref)
                     continue
-                    
+                
                 elif ancestor_topic_el is not None and topic_el is not None:
                     # Topic with ancestor: preserve title, copy content, and merge
                     title_text = _extract_title_text(topic_el, is_topichead=False)
@@ -348,7 +355,8 @@ def merge_topics_unified(ctx: "DitaContext", depth_limit: int, exclude_style_map
                     _recurse(tref, t_level + 1, ancestor_topic_el, ancestor_tref)
                     node.remove(tref)
                     removed_topics.add(fname)
-                    
+                    continue
+                
                 elif tref.tag == "topichead" and ancestor_topic_el is None:
                     # topichead without ancestor: find/create parent module
                     parent_module = _find_parent_module(ctx, tref)
@@ -366,6 +374,26 @@ def merge_topics_unified(ctx: "DitaContext", depth_limit: int, exclude_style_map
                     # Topic without ancestor: find/create parent module
                     parent_module = _find_parent_module(ctx, tref)
                     if parent_module is not None:
+                        # Special-case: if parent_module is the same element, this is the section's own
+                        # content module at depth boundary. Keep it as the local anchor, normalize
+                        # its level/style to the parent section, and do NOT remove the topicref.
+                        if parent_module is topic_el:
+                            try:
+                                section_parent = tref.getparent()
+                                if section_parent is not None:
+                                    try:
+                                        section_level = int(section_parent.get("data-level", t_level - 1))
+                                    except Exception:
+                                        section_level = max(1, t_level - 1)
+                                    tref.set("data-level", str(section_level))
+                                    tref.set("data-style", f"Heading {section_level}")
+                            except Exception:
+                                pass
+                            # Use the module as ancestor for its subtree merges
+                            _recurse(tref, t_level + 1, topic_el, tref)
+                            # Keep tref in place; do not remove
+                            continue
+                        # General case: merge this topic into the parent content module and remove tref
                         title_text = _extract_title_text(topic_el, is_topichead=False)
                         _add_title_paragraph(parent_module, title_text)
                         _copy_content(topic_el, parent_module)
@@ -375,9 +403,11 @@ def merge_topics_unified(ctx: "DitaContext", depth_limit: int, exclude_style_map
                         continue
                     # Fallback: traverse deeper without removing
                     _recurse(tref, t_level + 1, ancestor_topic_el, ancestor_tref)
+                    continue
                 else:
                     # No content to merge - just traverse deeper
                     _recurse(tref, t_level + 1, ancestor_topic_el, ancestor_tref)
+                    continue
             else:
                 # Not merging - traverse deeper with updated ancestor
                 # Only update ancestor if this is a topicref with content (has href)
@@ -401,6 +431,11 @@ def merge_topics_unified(ctx: "DitaContext", depth_limit: int, exclude_style_map
 
     # Post-merge cleanup: collapse redundant section + content module structures
     _collapse_redundant_sections(ctx)
+    # Ensure sections at the depth boundary are promoted to topics for usability
+    try:
+        _promote_sections_at_depth_limit(ctx, depth_limit)
+    except Exception:
+        pass
 
     # Note: No final cleanup needed since topichead elements don't have conbody
 
@@ -469,9 +504,15 @@ def _collapse_redundant_sections(ctx: "DitaContext") -> None:
             if content_title_el is not None:
                 content_title_el.text = section_navtitle.text
         
-        # Copy section attributes to content child
+        # Copy section attributes to content child and normalize style to standard Heading {level}
         for attr, value in section_topichead.attrib.items():
             content_child.set(attr, value)
+        try:
+            lvl_val = content_child.get("data-level") or section_topichead.get("data-level")
+            if lvl_val is not None:
+                content_child.set("data-style", f"Heading {int(lvl_val)}")
+        except Exception:
+            pass
         
         # Replace section with content module in the parent
         parent = section_topichead.getparent()
@@ -479,3 +520,73 @@ def _collapse_redundant_sections(ctx: "DitaContext") -> None:
             parent_index = list(parent).index(section_topichead)
             parent.remove(section_topichead)
             parent.insert(parent_index, content_child) 
+
+
+def _promote_sections_at_depth_limit(ctx: "DitaContext", depth_limit: int) -> None:
+    """Ensure sections at the depth limit become content-bearing topics.
+
+    For any topichead with data-level == depth_limit, replace it with its content
+    module (creating one if needed) and transfer metadata. This guarantees that at
+    the boundary, a navigable topic exists rather than a structural topichead.
+    """
+    if ctx.ditamap_root is None:
+        return
+
+    # Collect candidates first to avoid modifying while iterating
+    try:
+        candidates = []
+        for th in ctx.ditamap_root.findall(".//topichead"):
+            try:
+                lvl = int(th.get("data-level", 1))
+            except Exception:
+                lvl = 1
+            if lvl == depth_limit:
+                candidates.append(th)
+    except Exception:
+        candidates = []
+
+    for section_topichead in candidates:
+        # Find or create content module child
+        content_child = None
+        for child in section_topichead:
+            if child.tag == "topicref" and child.get("href"):
+                content_child = child
+                break
+        if content_child is None:
+            # Create new content module for this section
+            content_topic = _ensure_content_module(ctx, section_topichead)
+            # Find the newly inserted child (first child by _ensure_content_module)
+            for child in section_topichead:
+                if child.tag == "topicref" and child.get("href"):
+                    content_child = child
+                    break
+        if content_child is None:
+            continue
+
+        # Transfer metadata and normalize style
+        section_navtitle = section_topichead.find("topicmeta/navtitle")
+        if section_navtitle is not None and section_navtitle.text:
+            href = content_child.get("href")
+            if href:
+                fname = href.split("/")[-1]
+                content_topic = ctx.topics.get(fname)
+                if content_topic is not None:
+                    title_el = content_topic.find("title")
+                    if title_el is not None:
+                        title_el.text = section_navtitle.text
+
+        for attr, value in section_topichead.attrib.items():
+            content_child.set(attr, value)
+        try:
+            lvl_val = content_child.get("data-level") or section_topichead.get("data-level")
+            if lvl_val is not None:
+                content_child.set("data-style", f"Heading {int(lvl_val)}")
+        except Exception:
+            pass
+
+        # Replace in parent
+        parent = section_topichead.getparent()
+        if parent is not None:
+            parent_index = list(parent).index(section_topichead)
+            parent.remove(section_topichead)
+            parent.insert(parent_index, content_child)

@@ -65,7 +65,8 @@ def convert_docx_to_dita(file_path: str, metadata: Dict[str, Any]) -> DitaContex
         # Generic heading-name detection (e.g., "HEADING 5 GM"). Enabled by
         # default but can be disabled with metadata["generic_heading_match"] = False.
         if metadata.get("generic_heading_match", True):
-            heading_rx = re.compile(r"\b(?:heading|titre)[ _]?(\\d)\\b", re.IGNORECASE)
+            # Match literal digits in style names like "Heading 3" or "Titre_2"
+            heading_rx = re.compile(r"\b(?:heading|titre)[ _]?(\d)\b", re.IGNORECASE)
             for sty in doc.styles:  # type: ignore[attr-defined]
                 try:
                     name = sty.name  # type: ignore[attr-defined]

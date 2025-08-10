@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import tkinter as tk
 from tkinter import ttk
+from tkinter import font as tkfont
 from typing import List, Optional, Callable, Dict, Tuple
 
 from orlando_toolkit.core.models import DitaContext
@@ -109,6 +110,22 @@ class StructureTreeWidget(ttk.Frame):
             self._tree.tag_configure("search-match", background="#ffff99")
             # Separate tag for heading-filter highlights so it doesn't conflict with search
             self._tree.tag_configure("filter-match", background="#ffff99")
+            # Distinguish sections (topichead) visually with bold font
+            try:
+                base_font = None
+                try:
+                    base_font = tkfont.nametofont("TkDefaultFont")
+                except Exception:
+                    base_font = None
+                if base_font is not None:
+                    self._font_section = tkfont.Font(self, font=base_font)
+                    self._font_section.configure(weight="bold")
+                    self._tree.tag_configure("section", font=self._font_section)
+                else:
+                    # Fallback tuple if default font lookup fails
+                    self._tree.tag_configure("section", font=("", 9, "bold"))
+            except Exception:
+                pass
         except Exception:
             pass
 
@@ -582,9 +599,9 @@ class StructureTreeWidget(ttk.Frame):
 
     # Internal helpers (UI/presentation only)
 
-    def _insert_item(self, parent: str, text: str, topic_ref: Optional[str]) -> str:
+    def _insert_item(self, parent: str, text: str, topic_ref: Optional[str], tags: Optional[Tuple[str, ...]] = None) -> str:
         safe_text = text if isinstance(text, str) and text else "Untitled"
-        item_id = self._tree.insert(parent, "end", text=safe_text)
+        item_id = self._tree.insert(parent, "end", text=safe_text, tags=(tags or ()))
         if topic_ref is not None:
             self._id_to_ref[item_id] = topic_ref
             # Only store the first id for a ref to satisfy "first Treeview item ID"
@@ -688,7 +705,16 @@ class StructureTreeWidget(ttk.Frame):
             except Exception:
                 ref = None
 
-            current_id = self._insert_item(parent_id, label, ref)
+            # Apply bold styling tag for sections (topichead), default styling for modules (topicref)
+            is_section_node = (
+                tag_name.endswith("topichead") or tag_name == "topichead"
+            )
+            current_id = self._insert_item(
+                parent_id,
+                label,
+                ref,
+                tags=(("section",) if is_section_node else None),
+            )
 
             # Children: topicref or topichead
             children = []
