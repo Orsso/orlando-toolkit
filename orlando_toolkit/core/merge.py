@@ -7,7 +7,7 @@ It must not perform any file I/O so that it can be reused by CLI, GUI and tests.
 """
 
 from copy import deepcopy
-from typing import Set
+from typing import Set, Optional, Tuple
 from lxml import etree as ET  # type: ignore
 
 from orlando_toolkit.core.models import DitaContext  # noqa: F401
@@ -322,6 +322,35 @@ def merge_topics_unified(ctx: "DitaContext", depth_limit: int, exclude_style_map
         
     exclude_style_map = exclude_style_map or {}
     removed_topics: Set[str] = set()
+
+    def _find_prev_content_target(current_tref: ET.Element) -> Tuple[Optional[ET.Element], Optional[ET.Element]]:
+        """Find the closest previous sibling that points to a content topic.
+
+        Returns a tuple (prev_topicref, prev_topic_element). If none is found, returns (None, None).
+        """
+        try:
+            parent = current_tref.getparent()
+            if parent is None:
+                return (None, None)
+            siblings = list(parent)
+            try:
+                idx = siblings.index(current_tref)
+            except ValueError:
+                return (None, None)
+            for i in range(idx - 1, -1, -1):
+                sib = siblings[i]
+                if getattr(sib, "tag", None) != "topicref":
+                    continue
+                href = sib.get("href")
+                if not href:
+                    continue
+                fname = href.split("/")[-1]
+                prev_topic = ctx.topics.get(fname)
+                if prev_topic is not None:
+                    return (sib, prev_topic)
+            return (None, None)
+        except Exception:
+            return (None, None)
     
     def _should_merge(tref: ET.Element) -> bool:
         """Determine if a topicref should be merged based on depth OR style."""
@@ -369,15 +398,81 @@ def merge_topics_unified(ctx: "DitaContext", depth_limit: int, exclude_style_map
 
             # Check if this topic should be merged (unified decision)
             if _should_merge(tref):
-                if tref.tag == "topichead" and ancestor_topic_el is not None:
-                    # topichead with ancestor: convert title to paragraph and merge children
-                    title_text = _extract_title_text(tref, is_topichead=True)
-                    _add_title_paragraph(ancestor_topic_el, title_text)
-                    _recurse(tref, t_level + 1, ancestor_topic_el, ancestor_tref)
-                    node.remove(tref)
-                    continue
-                
-                elif ancestor_topic_el is not None and topic_el is not None:
+                # Determine the merge target for this node when needed
+                if tref.tag == "topichead":
+                    # Prefer provided ancestor; else try same-level previous content topic; else parent module
+                    target_topic = ancestor_topic_el
+                    target_tref = ancestor_tref
+                    if target_topic is None:
+                        prev_tref, prev_topic = _find_prev_content_target(tref)
+                        if prev_topic is not None:
+                            target_topic = prev_topic
+                            target_tref = prev_tref
+                        else:
+                            target_topic = _find_parent_module(ctx, tref)
+                            target_tref = tref if target_topic is not None else None
+
+                    if target_topic is not None:
+                        # 1) Add this section's title as a merged paragraph
+                        title_text = _extract_title_text(tref, is_topichead=True)
+                        _add_title_paragraph(target_topic, title_text)
+
+                        # 2) Merge or re-anchor all children into target before removing the section
+                        for child in list(tref):
+                            if getattr(child, "tag", None) not in ("topicref", "topichead"):
+                                continue
+                            # If child is a content topicref
+                            if child.tag == "topicref" and child.get("href"):
+                                ch_href = child.get("href") or ""
+                                ch_fname = ch_href.split("/")[-1]
+                                ch_topic = ctx.topics.get(ch_fname)
+                                if ch_topic is not None:
+                                    # Decide whether to pre-merge content or let recursion handle
+                                    if not _should_merge(child):
+                                        # Pre-merge child's title + content into target
+                                        ch_title = _extract_title_text(ch_topic, is_topichead=False)
+                                        _add_title_paragraph(target_topic, ch_title)
+                                        _copy_content(ch_topic, target_topic)
+                                    # Recurse into child's subtree anchored to target to process deeper merges
+                                    _recurse(child, t_level + 1, target_topic, target_tref)
+                                    # Remove child if it still exists here (either way, topic file is redundant)
+                                    try:
+                                        if child.getparent() is tref:
+                                            tref.remove(child)
+                                        removed_topics.add(ch_fname)
+                                    except Exception:
+                                        pass
+                                else:
+                                    # Unknown topic file; best effort recurse
+                                    _recurse(child, t_level + 1, target_topic, target_tref)
+                                    try:
+                                        if child.getparent() is tref:
+                                            tref.remove(child)
+                                    except Exception:
+                                        pass
+                            else:
+                                # Structural child topichead: process under same target
+                                _recurse(child, t_level + 1, target_topic, target_tref)
+                                # If the child still hangs under this section, lift it out by removing
+                                try:
+                                    if child.getparent() is tref:
+                                        tref.remove(child)
+                                except Exception:
+                                    pass
+
+                        # 3) Finally remove the section itself
+                        try:
+                            node.remove(tref)
+                        except Exception:
+                            pass
+                        continue
+                    else:
+                        # No viable target → traverse deeper without removal to avoid content loss
+                        _recurse(tref, t_level + 1, ancestor_topic_el, ancestor_tref)
+                        continue
+
+                # tref is a content-bearing topicref here
+                if ancestor_topic_el is not None and topic_el is not None:
                     # Topic with ancestor: preserve title, copy content, and merge
                     title_text = _extract_title_text(topic_el, is_topichead=False)
                     _add_title_paragraph(ancestor_topic_el, title_text)
@@ -386,28 +481,15 @@ def merge_topics_unified(ctx: "DitaContext", depth_limit: int, exclude_style_map
                     node.remove(tref)
                     removed_topics.add(fname)
                     continue
-                
-                elif tref.tag == "topichead" and ancestor_topic_el is None:
-                    # topichead without ancestor: find/create parent module
-                    parent_module = _find_parent_module(ctx, tref)
-                    if parent_module is not None:
-                        title_text = _extract_title_text(tref, is_topichead=True)
-                        _add_title_paragraph(parent_module, title_text)
-                        _recurse(tref, t_level + 1, parent_module, tref)
-                        node.remove(tref)
-                        continue
-                    # Fallback: traverse without removing 
-                    _recurse(tref, t_level + 1, ancestor_topic_el, ancestor_tref)
-                    continue
-                
-                elif ancestor_topic_el is None and topic_el is not None:
-                    # Topic without ancestor: find/create parent module
-                    parent_module = _find_parent_module(ctx, tref)
-                    if parent_module is not None:
-                        # Special-case: if parent_module is the same element, this is the section's own
-                        # content module at depth boundary. Keep it as the local anchor, normalize
-                        # its level/style to the parent section, and do NOT remove the topicref.
-                        if parent_module is topic_el:
+
+                if ancestor_topic_el is None and topic_el is not None:
+                    # Topic without ancestor: try same-level previous topic first; else parent module
+                    prev_tref, prev_topic = _find_prev_content_target(tref)
+                    target_topic = prev_topic if prev_topic is not None else _find_parent_module(ctx, tref)
+                    target_tref = prev_tref if prev_topic is not None else (tref if target_topic is not None else None)
+                    if target_topic is not None:
+                        # Special-case: if target is the same topic (section's auto-module), normalize and keep
+                        if target_topic is topic_el:
                             try:
                                 section_parent = tref.getparent()
                                 if section_parent is not None:
@@ -416,29 +498,26 @@ def merge_topics_unified(ctx: "DitaContext", depth_limit: int, exclude_style_map
                                     except Exception:
                                         section_level = max(1, t_level - 1)
                                     tref.set("data-level", str(section_level))
-                                    # Ensure style is derived from authoritative data-level
                                     tref.set("data-style", f"Heading {section_level}")
                             except Exception:
                                 pass
-                            # Use the module as ancestor for its subtree merges
                             _recurse(tref, t_level + 1, topic_el, tref)
-                            # Keep tref in place; do not remove
                             continue
-                        # General case: merge this topic into the parent content module and remove tref
+                        # General case: merge into target and remove self
                         title_text = _extract_title_text(topic_el, is_topichead=False)
-                        _add_title_paragraph(parent_module, title_text)
-                        _copy_content(topic_el, parent_module)
-                        _recurse(tref, t_level + 1, parent_module, tref)
+                        _add_title_paragraph(target_topic, title_text)
+                        _copy_content(topic_el, target_topic)
+                        _recurse(tref, t_level + 1, target_topic, target_tref)
                         node.remove(tref)
                         removed_topics.add(fname)
                         continue
                     # Fallback: traverse deeper without removing
                     _recurse(tref, t_level + 1, ancestor_topic_el, ancestor_tref)
                     continue
-                else:
-                    # No content to merge - just traverse deeper
-                    _recurse(tref, t_level + 1, ancestor_topic_el, ancestor_tref)
-                    continue
+
+                # No content to merge - just traverse deeper
+                _recurse(tref, t_level + 1, ancestor_topic_el, ancestor_tref)
+                continue
             else:
                 # Not merging - traverse deeper with updated ancestor
                 # Only update ancestor if this is a topicref with content (has href)
