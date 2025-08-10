@@ -288,58 +288,66 @@ class StructureController:
     # ---------------------------------------------------------------------
 
     def get_heading_counts(self) -> Dict[str, int]:
-        """Return counts of headings per style for current context using original structure."""
+        """Return counts of headings per style using the original (pre-merge) structure.
+
+        The filter panel needs to display styles that may currently be excluded
+        or beyond the visible depth. We temporarily restore the original map to
+        compute comprehensive counts, then restore the filtered structure.
+        """
         try:
-            # Temporarily restore original structure to get complete counts
             original_root = None
             if hasattr(self.context, 'restore_from_original'):
-                original_root = getattr(self.context, 'ditamap_root', None)  # Save current
+                original_root = getattr(self.context, 'ditamap_root', None)
                 self.context.restore_from_original()
-            
             result = _heading_analysis.build_headings_cache(self.context)
-            
-            # Restore the filtered structure
             if original_root is not None and hasattr(self.context, 'ditamap_root'):
                 self.context.ditamap_root = original_root
-                
             return result
         except Exception:
             return {}
 
     def get_heading_occurrences(self) -> Dict[str, List[Dict[str, str]]]:
-        """Return mapping style -> list of occurrences with title/href using original structure."""
+        """Return mapping style -> occurrences using the original (pre-merge) structure.
+
+        Ensures styles beyond the current depth/exclusions are still available
+        in the filter panel with their occurrences.
+        """
         try:
-            # Temporarily restore original structure to get complete occurrences
             original_root = None
             if hasattr(self.context, 'restore_from_original'):
-                original_root = getattr(self.context, 'ditamap_root', None)  # Save current
+                original_root = getattr(self.context, 'ditamap_root', None)
                 self.context.restore_from_original()
-            
             result = _heading_analysis.build_heading_occurrences(self.context)
-            
-            # Restore the filtered structure
             if original_root is not None and hasattr(self.context, 'ditamap_root'):
                 self.context.ditamap_root = original_root
-                
             return result
         except Exception:
             return {}
 
-    def get_style_levels(self) -> Dict[str, Optional[int]]:
-        """Return mapping style -> level (or None) using original structure."""
+    def get_heading_occurrences_current(self) -> Dict[str, List[Dict[str, str]]]:
+        """Return style -> occurrences for the current (post-merge) structure.
+
+        Used for UI highlighting so that selections align with what the tree shows now.
+        """
         try:
-            # Temporarily restore original structure to get complete style levels
+            return _heading_analysis.build_heading_occurrences(self.context)
+        except Exception:
+            return {}
+
+    def get_style_levels(self) -> Dict[str, Optional[int]]:
+        """Return mapping style -> level using the original (pre-merge) structure.
+
+        This provides a stable grouping for styles even when the current view
+        has filtered them out.
+        """
+        try:
             original_root = None
             if hasattr(self.context, 'restore_from_original'):
-                original_root = getattr(self.context, 'ditamap_root', None)  # Save current
+                original_root = getattr(self.context, 'ditamap_root', None)
                 self.context.restore_from_original()
-            
             result = _heading_analysis.build_style_levels(self.context)
-            
-            # Restore the filtered structure
             if original_root is not None and hasattr(self.context, 'ditamap_root'):
                 self.context.ditamap_root = original_root
-                
             return result
         except Exception:
             return {}

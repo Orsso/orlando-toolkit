@@ -3,7 +3,7 @@ from __future__ import annotations
 import tkinter as tk
 from tkinter import ttk
 from tkinter import font as tkfont
-from typing import List, Optional, Callable, Dict, Tuple
+from typing import List, Optional, Callable, Dict, Tuple, Any
 
 from orlando_toolkit.core.models import DitaContext
 
@@ -89,6 +89,8 @@ class StructureTreeWidget(ttk.Frame):
         self._id_to_ref: Dict[str, str] = {}
         # Reverse lookup for convenience: topic_ref -> first tree item id
         self._ref_to_id: Dict[str, str] = {}
+        # Store resolved heading style per item id when available (topicref/topichead)
+        self._id_to_style: Dict[str, str] = {}
         
         # Store reference to ditamap_root for section number calculation
         self._ditamap_root: Optional[object] = None
@@ -594,6 +596,7 @@ class StructureTreeWidget(ttk.Frame):
                 pass
         self._id_to_ref.clear()
         self._ref_to_id.clear()
+        self._id_to_style.clear()
         self._ditamap_root = None
         self._section_number_map = {}
 
@@ -601,6 +604,13 @@ class StructureTreeWidget(ttk.Frame):
 
     def _insert_item(self, parent: str, text: str, topic_ref: Optional[str], tags: Optional[Tuple[str, ...]] = None) -> str:
         safe_text = text if isinstance(text, str) and text else "Untitled"
+        # Ensure tree labels are single-line and whitespace-normalized
+        try:
+            if isinstance(safe_text, str):
+                # Collapse all whitespace (including newlines/tabs) to single spaces
+                safe_text = " ".join(safe_text.split())
+        except Exception:
+            pass
         item_id = self._tree.insert(parent, "end", text=safe_text, tags=(tags or ()))
         if topic_ref is not None:
             self._id_to_ref[item_id] = topic_ref
@@ -615,6 +625,7 @@ class StructureTreeWidget(ttk.Frame):
 
         # Helper to resolve style for exclusion checks
         def resolve_style(n: object) -> Optional[str]:
+            # Prefer explicit data-style to preserve custom styles; fall back to level-derived
             try:
                 if hasattr(n, "get"):
                     style = n.get("data-style")
@@ -624,10 +635,11 @@ class StructureTreeWidget(ttk.Frame):
                 style = None
             if style:
                 return style
-            level = None
             try:
                 if hasattr(n, "get"):
                     level = n.get("data-level")
+                else:
+                    level = None
             except Exception:
                 level = None
             if level:
@@ -716,6 +728,30 @@ class StructureTreeWidget(ttk.Frame):
                 tags=(("section",) if is_section_node else None),
             )
 
+            # Record resolved style for this item when available
+            try:
+                # Preserve custom explicit style when available; else synthesize from level
+                exp_style = None
+                try:
+                    if hasattr(node, "get"):
+                        exp_style = node.get("data-style")
+                except Exception:
+                    exp_style = None
+                if exp_style:
+                    node_style = str(exp_style)
+                else:
+                    level_attr = None
+                    try:
+                        if hasattr(node, "get"):
+                            level_attr = node.get("data-level")
+                    except Exception:
+                        level_attr = None
+                    node_style = f"Heading {level_attr}" if level_attr else (resolve_style(node) or "Heading")
+                if isinstance(node_style, str) and node_style:
+                    self._id_to_style[current_id] = node_style
+            except Exception:
+                pass
+
             # Children: topicref or topichead
             children = []
             try:
@@ -766,6 +802,11 @@ class StructureTreeWidget(ttk.Frame):
             or self._safe_getattr(node, "name")
             or "Item"
         )
+        try:
+            if isinstance(label, str):
+                label = " ".join(label.split())
+        except Exception:
+            pass
         ref = self._safe_getattr(node, "ref") or self._safe_getattr(node, "topic_ref")
         current_id = self._insert_item(parent_id, label, ref)
  
@@ -966,3 +1007,50 @@ class StructureTreeWidget(ttk.Frame):
             self._on_context_menu(event, refs)
         except Exception:
             pass
+
+    # --- Context helpers for external callers (e.g., to build context menus) ---
+
+    def get_item_context_at(self, event: tk.Event) -> Dict[str, Any]:
+        """Return context information about the item under the given mouse event.
+
+        Returns a mapping with keys:
+        - 'item_id': internal Treeview item id or ""
+        - 'ref': associated topic_ref (href) when available, else None
+        - 'is_section': True if the item is a section (topichead), else False
+        - 'style': resolved heading style label when available, else None
+        """
+        item_id: str = ""
+        try:
+            item_id = self._tree.identify_row(getattr(event, "y", 0)) or ""
+        except Exception:
+            item_id = ""
+        info: Dict[str, Any] = {"item_id": item_id, "ref": None, "is_section": False, "style": None}
+        if not item_id:
+            return info
+        # Resolve ref
+        try:
+            info["ref"] = self._id_to_ref.get(item_id)
+        except Exception:
+            info["ref"] = None
+        # Resolve section flag via tags
+        try:
+            tags = tuple(self._tree.item(item_id, "tags") or ())
+            info["is_section"] = ("section" in tags)
+        except Exception:
+            info["is_section"] = False
+        # Resolve style when known
+        try:
+            info["style"] = self._id_to_style.get(item_id)
+        except Exception:
+            info["style"] = None
+        return info
+
+    def get_style_for_ref(self, topic_ref: str) -> Optional[str]:
+        """Return resolved style label for the first item matching the given ref, if known."""
+        try:
+            item_id = self._ref_to_id.get(topic_ref)
+            if not item_id:
+                return None
+            return self._id_to_style.get(item_id)
+        except Exception:
+            return None

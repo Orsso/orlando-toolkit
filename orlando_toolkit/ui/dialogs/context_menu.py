@@ -18,7 +18,7 @@ from __future__ import annotations
 import tkinter as tk
 from tkinter import ttk  # noqa: F401  # Imported per requirements; reserved for future extension
 from tkinter import Menu
-from typing import Callable, List, Optional
+from typing import Callable, List, Optional, Dict, Any
 
 
 class ContextMenuHandler:
@@ -60,10 +60,11 @@ class ContextMenuHandler:
         # Track a single active menu instance to allow safe teardown.
         self._menu: Optional[Menu] = None
 
-    def show_context_menu(self, event: "tk.Event", selected_items: List[str]) -> None:
+    def show_context_menu(self, event: "tk.Event", selected_items: List[str], context: Optional[Dict[str, Any]] = None) -> None:
         """Build and display the context menu at the event location.
 
-        The menu contains the following items (in order): Open, separator,
+        The menu contains the following items (in order): a primary action
+        (either a style label for single-topic selection or "Open"), separator,
         Merge, Rename, and Delete. Each item is enabled/disabled based on the
         selection and the corresponding `can_*` validation methods. When an item
         is invoked, the associated callback is called with `selected_items`.
@@ -102,12 +103,34 @@ class ContextMenuHandler:
         can_rename = len(selected_items) == 1 and self.can_rename_selection(selected_items)
         can_delete = len(selected_items) >= 1 and self.can_delete_selection(selected_items)
 
-        # Open
-        menu.add_command(
-            label="Open",
-            state=(tk.NORMAL if can_open else tk.DISABLED),
-            command=lambda: self._execute_command(self._on_open, selected_items),
-        )
+        # Primary action: replace "Open" by style label for single-topic selection when available
+        style_label = None
+        is_topic = False
+        try:
+            if isinstance(context, dict):
+                # Consider as topic only when not a section and a single item is selected
+                is_topic = bool(context.get("is_topic", False) and can_open)
+                style_label = context.get("style")
+                if isinstance(style_label, str) and not style_label.strip():
+                    style_label = None
+        except Exception:
+            style_label = None
+            is_topic = False
+
+        if is_topic and style_label:
+            # Show the style label as the primary action
+            menu.add_command(
+                label=str(style_label),
+                state=tk.NORMAL,
+                command=lambda: self._execute_style_action(context),
+            )
+        else:
+            # Fallback to default Open behavior
+            menu.add_command(
+                label="Open",
+                state=(tk.NORMAL if can_open else tk.DISABLED),
+                command=lambda: self._execute_command(self._on_open, selected_items),
+            )
 
         # Separator
         menu.add_separator()
@@ -153,6 +176,25 @@ class ContextMenuHandler:
                 pass
 
         self._menu = menu
+
+    # Hook for style action; injected via context dict to avoid controller coupling
+    def _execute_style_action(self, context: Optional[Dict[str, Any]]) -> None:
+        """Dispatch a style-click action if provided in context.
+
+        Expected keys in context: 'on_style', 'style'.
+        """
+        try:
+            if not isinstance(context, dict):
+                return
+            callback = context.get("on_style")
+            style = context.get("style")
+            if callable(callback) and isinstance(style, str) and style:
+                try:
+                    callback(style)
+                except Exception:
+                    pass
+        finally:
+            self._teardown_menu_safe()
 
     def can_merge_selection(self, items: List[str]) -> bool:
         """Return whether the provided selection can be merged.

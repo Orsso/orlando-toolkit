@@ -131,6 +131,40 @@ class HeadingFilterPanel(ttk.Frame):
         except Exception:
             pass
 
+    def select_style(self, style: str) -> None:
+        """Programmatically select a style row and fire selection callback.
+
+        If the style does not exist, clears selection.
+        """
+        try:
+            # Ensure the correct level tab is selected
+            target_key = "Other"
+            try:
+                lvl = self._style_levels.get(style)
+                if isinstance(lvl, int):
+                    target_key = f"Level {lvl}"
+            except Exception:
+                target_key = "Other"
+            try:
+                frame = self._level_frames.get(target_key)
+                if frame is not None:
+                    self._notebook.select(frame)
+            except Exception:
+                pass
+
+            if isinstance(style, str) and style and style in self._labels_by_style:
+                self._selected_style = style
+                self._refresh_row_styles()
+                if callable(self.on_select_style):
+                    self.on_select_style(style)
+            else:
+                self._selected_style = None
+                self._refresh_row_styles()
+                if callable(self.on_select_style):
+                    self.on_select_style("")
+        except Exception:
+            pass
+
     # --- UI construction helpers ---
 
     def _populate_tabs(self) -> None:
@@ -138,6 +172,13 @@ class HeadingFilterPanel(ttk.Frame):
         try:
             for tab_id in self._notebook.tabs():
                 self._notebook.forget(tab_id)
+        except Exception:
+            pass
+        # Reset level mappings
+        try:
+            self._level_frames.clear()
+            self._level_canvases.clear()
+            self._level_inners.clear()
         except Exception:
             pass
 
@@ -177,6 +218,13 @@ class HeadingFilterPanel(ttk.Frame):
             vsb.grid(row=0, column=1, sticky="ns")
             container.columnconfigure(0, weight=1)
             container.rowconfigure(0, weight=1)
+
+            # Store per-level widgets
+            try:
+                self._level_canvases[level_key] = canvas
+                self._level_inners[level_key] = inner
+            except Exception:
+                pass
 
             # Header labels
             header = ttk.Frame(inner)

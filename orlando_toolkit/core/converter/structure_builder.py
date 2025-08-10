@@ -7,6 +7,7 @@ allowing for deferred section vs module decisions based on complete context.
 """
 
 from typing import List
+import re
 from docx import Document  # type: ignore
 from docx.text.paragraph import Paragraph  # type: ignore
 from docx.table import Table  # type: ignore
@@ -28,6 +29,30 @@ from orlando_toolkit.core.converter.helpers import (
     process_paragraph_content_and_images,
     apply_paragraph_formatting
 )
+_TOC_PATTERN = re.compile(r"\b(toc|table\s+of\s+contents|sommaire|table\s+des\s+mati[eè]res)\b", re.IGNORECASE)
+
+def _is_toc_paragraph(p: Paragraph) -> bool:
+    """Return True when paragraph is part of a Table of Contents.
+
+    Heuristics:
+    - Style name contains TOC keywords (e.g., "TOC 1", custom styles)
+    - Paragraph text contains common TOC titles (English/French)
+    """
+    try:
+        style_name = getattr(p.style, 'name', None) if p.style else None
+    except Exception:
+        style_name = None
+    try:
+        text_val = (p.text or "").strip()
+    except Exception:
+        text_val = ""
+
+    if isinstance(style_name, str) and style_name and _TOC_PATTERN.search(style_name):
+        return True
+    if text_val and _TOC_PATTERN.search(text_val):
+        return True
+    return False
+
 
 
 def _paragraph_has_effective_content(p: Paragraph) -> bool:
@@ -124,6 +149,12 @@ def build_document_structure(doc: Document, style_heading_map: dict, all_images_
             heading_level = get_heading_level(block, style_heading_map)
             
             if heading_level is not None:
+                # Skip Table of Contents headings entirely
+                try:
+                    if _is_toc_paragraph(block):
+                        continue
+                except Exception:
+                    pass
                 # Create new heading node
                 text = block.text.strip()
                 if not text:
@@ -156,7 +187,14 @@ def build_document_structure(doc: Document, style_heading_map: dict, all_images_
                 # Content block - add to current heading if exists
                 if heading_stack:
                     current_heading = heading_stack[-1]
-                    current_heading.add_content_block(block)
+                    # Ignore TOC lines to avoid polluting content modules
+                    try:
+                        if _is_toc_paragraph(block):
+                            pass
+                        else:
+                            current_heading.add_content_block(block)
+                    except Exception:
+                        current_heading.add_content_block(block)
                 # Content before first heading is ignored.
                 
         elif isinstance(block, Table):
@@ -291,6 +329,7 @@ def generate_dita_from_structure(
                 try:
                     module_topicref.set("data-level", str(level + 1))
                     module_topicref.set("data-style", f"Heading {level + 1}")
+                    module_topicref.set("data-origin", "auto-module")
                 except Exception:
                     pass
                 

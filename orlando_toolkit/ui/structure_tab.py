@@ -793,7 +793,24 @@ class StructureTab(ttk.Frame):
         """Ensure latest selection and show context menu."""
         try:
             current_refs = refs or self._tree.get_selected_items()
-            self._ctx_menu.show_context_menu(event, current_refs)
+            # Build additional context to customize primary action
+            ctx: dict = {}
+            try:
+                info = self._tree.get_item_context_at(event)  # type: ignore[attr-defined]
+            except Exception:
+                info = {"item_id": "", "ref": None, "is_section": False, "style": None}
+            # We only customize for single-topic selection (not section)
+            is_single = len(current_refs) == 1
+            is_section = bool(info.get("is_section"))
+            style = info.get("style") if isinstance(info, dict) else None
+            if is_single and not is_section:
+                ctx["is_topic"] = True
+                ctx["style"] = style
+                # Provide a callback to perform style action
+                ctx["on_style"] = self._ctx_style_action
+            else:
+                ctx["is_topic"] = False
+            self._ctx_menu.show_context_menu(event, current_refs, context=ctx)
         except Exception:
             pass
 
@@ -807,6 +824,33 @@ class StructureTab(ttk.Frame):
             return
         try:
             self._on_tree_item_activated(refs[0])
+        except Exception:
+            pass
+
+    def _ctx_style_action(self, style: str) -> None:
+        """Context menu style primary action: open filter panel and select the style."""
+        try:
+            if not isinstance(style, str) or not style:
+                return
+            # Switch to filter panel
+            self._set_active_panel("filter")
+            # Ensure panel data is populated
+            try:
+                ctrl = self._controller
+                if ctrl is not None and self._filter_panel is not None:
+                    headings_cache = ctrl.get_heading_counts()
+                    occurrences_map = ctrl.get_heading_occurrences()
+                    style_levels = ctrl.get_style_levels()
+                    current = dict(getattr(ctrl, "heading_filter_exclusions", {}) or {})
+                    self._filter_panel.set_data(headings_cache, occurrences_map, style_levels, current)
+            except Exception:
+                pass
+            # Select the requested style in the panel
+            try:
+                if self._filter_panel is not None:
+                    self._filter_panel.select_style(style)  # type: ignore[attr-defined]
+            except Exception:
+                pass
         except Exception:
             pass
 
@@ -927,12 +971,19 @@ class StructureTab(ttk.Frame):
                 pass
 
     def _on_filter_select_style(self, style: str) -> None:
-        # Highlight occurrences of the selected style in the tree (filter-specific highlights)
+        # Highlight occurrences in the tree based on the CURRENT map to match displayed levels
         try:
-            occ = self._controller.get_heading_occurrences()  # type: ignore[attr-defined]
+            ctrl = self._controller
+            if ctrl is None:
+                return
+            occ = {}
+            try:
+                # Prefer current structure for highlighting alignment
+                occ = ctrl.get_heading_occurrences_current()  # type: ignore[attr-defined]
+            except Exception:
+                occ = ctrl.get_heading_occurrences()  # fallback: original structure
             style_items = occ.get(style, []) if occ else []
             refs = [it.get("href") for it in style_items if isinstance(it, dict) and it.get("href")]
-            # Keep search highlights intact; only add filter tag
             self._tree.set_filter_highlight_refs(refs)  # type: ignore[attr-defined]
         except Exception:
             try:
@@ -1122,6 +1173,7 @@ class StructureTab(ttk.Frame):
                 try:
                     ctrl = self._controller
                     if ctrl is not None:
+                        # Use original structure to populate comprehensive data for the panel
                         headings_cache = ctrl.get_heading_counts()
                         occurrences_map = ctrl.get_heading_occurrences()
                         style_levels = ctrl.get_style_levels()

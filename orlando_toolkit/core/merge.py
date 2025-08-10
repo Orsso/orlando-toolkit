@@ -179,6 +179,31 @@ def _add_title_paragraph(target_el: ET.Element, title_text: str) -> None:
     parent_body = target_el.find("conbody")
     if parent_body is None:
         parent_body = ET.SubElement(target_el, "conbody")
+    # De-duplicate: if the closest previous merged-title has the same text, skip
+    try:
+        # Compute new visible text using the canonical cleaned title
+        new_text = clean_title.upper()
+        for el in reversed(list(parent_body)):
+            if getattr(el, 'tag', None) != 'p':
+                continue
+            oc = el.get("outputclass") or ""
+            if "merged-title" not in oc:
+                # Stop only when we encounter a merged-title; other paragraphs are fine to skip
+                continue
+            # Extract previous visible text (handles nested b/u)
+            prev_text = (el.text or "")
+            if not prev_text:
+                try:
+                    txt_nodes = el.xpath(".//text()")
+                    prev_text = "".join(t for t in txt_nodes if isinstance(t, str))
+                except Exception:
+                    prev_text = ""
+            if prev_text.strip().upper() == new_text:
+                return
+            # Different merged-title encountered → do not dedup further
+            break
+    except Exception:
+        pass
     parent_body.append(head_p)
 
 def _extract_title_text(element: ET.Element, is_topichead: bool = False) -> str:
@@ -260,6 +285,11 @@ def _ensure_content_module(ctx: "DitaContext", section_tref: ET.Element) -> ET.E
     child_ref.set("data-level", str(next_level))
     # Standardize style so style-based filters operate predictably
     child_ref.set("data-style", f"Heading {next_level}")
+    # Mark origin for downstream logic (auto-generated content module)
+    try:
+        child_ref.set("data-origin", "auto-module")
+    except Exception:
+        pass
     # Keep navtitle in sync
     nav = ET.SubElement(child_ref, "topicmeta")
     navtitle = ET.SubElement(nav, "navtitle")
@@ -386,6 +416,7 @@ def merge_topics_unified(ctx: "DitaContext", depth_limit: int, exclude_style_map
                                     except Exception:
                                         section_level = max(1, t_level - 1)
                                     tref.set("data-level", str(section_level))
+                                    # Ensure style is derived from authoritative data-level
                                     tref.set("data-style", f"Heading {section_level}")
                             except Exception:
                                 pass
@@ -497,20 +528,45 @@ def _collapse_redundant_sections(ctx: "DitaContext") -> None:
             continue
         
         # Transfer section metadata to the content module
+        # Do not overwrite the child's topic <title>; set navtitle on topicref only.
         section_navtitle = section_topichead.find("topicmeta/navtitle")
         if section_navtitle is not None and section_navtitle.text:
-            # Update content topic title to match section
-            content_title_el = content_topic.find("title")
-            if content_title_el is not None:
-                content_title_el.text = section_navtitle.text
+            tm = content_child.find("topicmeta")
+            if tm is None:
+                tm = ET.SubElement(content_child, "topicmeta")
+            nt = tm.find("navtitle")
+            if nt is None:
+                nt = ET.SubElement(tm, "navtitle")
+            nt.text = section_navtitle.text
         
-        # Copy section attributes to content child and normalize style to standard Heading {level}
+        # Copy section attributes to content child and normalize level to match the section;
+        # but preserve explicit custom data-style from the child when present.
         for attr, value in section_topichead.attrib.items():
             content_child.set(attr, value)
+        # Determine correct level: prefer section's data-level; else compute from tree depth
         try:
-            lvl_val = content_child.get("data-level") or section_topichead.get("data-level")
-            if lvl_val is not None:
-                content_child.set("data-style", f"Heading {int(lvl_val)}")
+            lvl_attr = section_topichead.get("data-level")
+            if lvl_attr is not None:
+                new_level = int(lvl_attr)
+            else:
+                # Compute structural level by walking ancestors conservatively
+                new_level = 1
+                cur = section_topichead.getparent()
+                while cur is not None:
+                    try:
+                        if cur.tag in ("topicref", "topichead"):
+                            new_level += 1
+                    except Exception:
+                        pass
+                    cur = cur.getparent()
+        except Exception:
+            new_level = 1
+        try:
+            content_child.set("data-level", str(new_level))
+            # Preserve child's custom style if it has one; else synthesize from level
+            child_style = content_child.get("data-style")
+            if not child_style:
+                content_child.set("data-style", f"Heading {new_level}")
         except Exception:
             pass
         
@@ -563,24 +619,42 @@ def _promote_sections_at_depth_limit(ctx: "DitaContext", depth_limit: int) -> No
         if content_child is None:
             continue
 
-        # Transfer metadata and normalize style
+        # Transfer section metadata: do not overwrite child topic <title>; set navtitle on topicref
         section_navtitle = section_topichead.find("topicmeta/navtitle")
         if section_navtitle is not None and section_navtitle.text:
-            href = content_child.get("href")
-            if href:
-                fname = href.split("/")[-1]
-                content_topic = ctx.topics.get(fname)
-                if content_topic is not None:
-                    title_el = content_topic.find("title")
-                    if title_el is not None:
-                        title_el.text = section_navtitle.text
+            tm = content_child.find("topicmeta")
+            if tm is None:
+                tm = ET.SubElement(content_child, "topicmeta")
+            nt = tm.find("navtitle")
+            if nt is None:
+                nt = ET.SubElement(tm, "navtitle")
+            nt.text = section_navtitle.text
 
         for attr, value in section_topichead.attrib.items():
             content_child.set(attr, value)
+        # Normalize level to match the section; preserve explicit custom style if present
         try:
-            lvl_val = content_child.get("data-level") or section_topichead.get("data-level")
-            if lvl_val is not None:
-                content_child.set("data-style", f"Heading {int(lvl_val)}")
+            lvl_attr = section_topichead.get("data-level")
+            if lvl_attr is not None:
+                new_level = int(lvl_attr)
+            else:
+                # Compute structural level by walking ancestors conservatively
+                new_level = 1
+                cur = section_topichead.getparent()
+                while cur is not None:
+                    try:
+                        if cur.tag in ("topicref", "topichead"):
+                            new_level += 1
+                    except Exception:
+                        pass
+                    cur = cur.getparent()
+        except Exception:
+            new_level = 1
+        try:
+            content_child.set("data-level", str(new_level))
+            child_style = content_child.get("data-style")
+            if not child_style:
+                content_child.set("data-style", f"Heading {new_level}")
         except Exception:
             pass
 

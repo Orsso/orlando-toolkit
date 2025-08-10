@@ -34,24 +34,24 @@ def build_headings_cache(context: Optional[DitaContext]) -> Dict[str, int]:
         return counts
 
     def resolve_style(node: object) -> str:
-        style = None
+        """Resolve style with priority: data-style → Heading {data-level} → "Heading"."""
+        style_attr = None
         try:
             if hasattr(node, "get"):
-                style = node.get("data-style")
+                style_attr = node.get("data-style")
         except Exception:
-            style = None
-        if not style:
-            level = None
-            try:
-                if hasattr(node, "get"):
-                    level = node.get("data-level")
-            except Exception:
-                level = None
-            if level:
-                style = f"Heading {level}"
-        if not style:
-            style = "Heading"
-        return style
+            style_attr = None
+        if style_attr:
+            return str(style_attr)
+        level_attr = None
+        try:
+            if hasattr(node, "get"):
+                level_attr = node.get("data-level")
+        except Exception:
+            level_attr = None
+        if level_attr:
+            return f"Heading {level_attr}"
+        return "Heading"
 
     def iter_children(node: object):
         try:
@@ -124,24 +124,24 @@ def build_heading_occurrences(context: Optional[DitaContext]) -> Dict[str, List[
         return occurrences
 
     def resolve_style(node: object) -> str:
-        style = None
+        # Prefer explicit style attribute; fall back to synthesized from level
+        style_attr = None
         try:
             if hasattr(node, "get"):
-                style = node.get("data-style")
+                style_attr = node.get("data-style")
         except Exception:
-            style = None
-        if not style:
-            level = None
-            try:
-                if hasattr(node, "get"):
-                    level = node.get("data-level")
-            except Exception:
-                level = None
-            if level:
-                style = f"Heading {level}"
-        if not style:
-            style = "Heading"
-        return style
+            style_attr = None
+        if style_attr:
+            return str(style_attr)
+        level_attr = None
+        try:
+            if hasattr(node, "get"):
+                level_attr = node.get("data-level")
+        except Exception:
+            level_attr = None
+        if level_attr:
+            return f"Heading {level_attr}"
+        return "Heading"
 
     def get_text_or_none(node: object) -> Optional[str]:
         try:
@@ -262,24 +262,24 @@ def build_style_levels(context: Optional[DitaContext]) -> Dict[str, Optional[int
         return result
 
     def resolve_style_and_level(node: object) -> Tuple[str, Optional[int]]:
-        style = None
+        style_attr = None
         level: Optional[int] = None
         try:
             if hasattr(node, "get"):
-                style = node.get("data-style")
+                style_attr = node.get("data-style")
         except Exception:
-            style = None
+            style_attr = None
         try:
             if hasattr(node, "get"):
                 lv = node.get("data-level")
                 level = int(lv) if lv is not None else None
         except Exception:
             level = None
-        if not style and isinstance(level, int):
-            style = f"Heading {level}"
-        if not style:
-            style = "Heading"
-        return style, level
+        if style_attr:
+            return (str(style_attr), level)
+        if isinstance(level, int):
+            return (f"Heading {level}", level)
+        return ("Heading", None)
 
     stack = [root]
     visited = 0
