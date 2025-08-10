@@ -323,17 +323,7 @@ class OrlandoToolkit:
         # Persist any in-flight edits from the inline metadata form
         self._commit_inline_metadata_to_context()
 
-        # Maximize the window for the main workspace
-        try:
-            self.root.state("zoomed")
-        except Exception:
-            try:
-                sw, sh = self.root.winfo_screenwidth(), self.root.winfo_screenheight()
-                self.root.geometry(f"{sw-40}x{sh-60}+20+20")
-            except Exception:
-                pass
-
-        # Clear landing UI and build main tabs
+        # Clear landing UI
         if self.home_frame and self.home_frame.winfo_exists():
             try:
                 self.home_frame.destroy()
@@ -342,17 +332,43 @@ class OrlandoToolkit:
             self.home_frame = None
         self.inline_metadata = None
 
-        self.setup_main_ui()
-        if self.dita_context and self.metadata_tab and self.image_tab and self.structure_tab:
-            self.metadata_tab.load_context(self.dita_context)
-            self.image_tab.load_context(self.dita_context)
-            self.structure_tab.load_context(self.dita_context)
-        # Ensure Structure tab is selected
+        # Show an in-window full overlay with a large hourglass icon
+        self._show_loading_overlay("Loading structure…")
+
+        # Trigger fullscreen immediately for a stable visual
         try:
-            if self.structure_tab is not None:
-                self.notebook.select(self.structure_tab)
+            self.root.state("zoomed")
         except Exception:
-            pass
+            try:
+                sw, sh = self.root.winfo_screenwidth(), self.root.winfo_screenheight()
+                self.root.geometry(f"{sw-40}x{sh-60}+20+20")
+            except Exception:
+                pass
+        try:
+            # Ensure the overlay is painted before heavy UI work
+            try:
+                self.root.update_idletasks()
+            except Exception:
+                pass
+
+            # Build tabs and load data under the overlay
+            self.setup_main_ui()
+            if self.dita_context and self.metadata_tab and self.image_tab and self.structure_tab:
+                self.metadata_tab.load_context(self.dita_context)
+                self.image_tab.load_context(self.dita_context)
+                self.structure_tab.load_context(self.dita_context)
+            # Ensure Structure tab is selected
+            try:
+                if self.structure_tab is not None:
+                    self.notebook.select(self.structure_tab)
+            except Exception:
+                pass
+        finally:
+            # Remove the overlay even if loading fails
+            try:
+                self._hide_loading_overlay()
+            except Exception:
+                pass
 
     def back_to_home(self) -> None:
         for widget in self.root.winfo_children():
@@ -384,11 +400,17 @@ class OrlandoToolkit:
         self.show_generation_progress()
         threading.Thread(target=self.run_generation_thread, args=(save_path,), daemon=True).start()
 
-    def show_generation_progress(self):
-        # Inline progress dialog without legacy import
+    def _show_progress_dialog(self, title: str, message: str):
+        """Create and show a small modal-ish progress dialog. Returns (top, progressbar)."""
         top = tk.Toplevel(self.root)
-        top.title("Generating package…")
-        top.transient(self.root)
+        try:
+            top.title(title)
+        except Exception:
+            pass
+        try:
+            top.transient(self.root)
+        except Exception:
+            pass
         try:
             self.root.update_idletasks()
             w, h = 300, 90
@@ -399,12 +421,57 @@ class OrlandoToolkit:
             top.geometry(f"{w}x{h}+{x}+{y}")
         except Exception:
             pass
-        ttk.Label(top, text="Generating DITA package, please wait…").pack(pady=10)
+        try:
+            ttk.Label(top, text=message).pack(pady=10)
+        except Exception:
+            pass
         prog = ttk.Progressbar(top, mode="indeterminate")
-        prog.pack(fill="x", padx=20, pady=10)
-        prog.start()
+        try:
+            prog.pack(fill="x", padx=20, pady=10)
+        except Exception:
+            pass
+        try:
+            prog.start()
+        except Exception:
+            pass
+        return top, prog
+
+    def show_generation_progress(self):
+        # Reuse generic progress dialog builder
+        top, prog = self._show_progress_dialog("Generating package…", "Generating DITA package, please wait…")
         self.generation_progress = prog
         self._progress_dialog = top
+
+    def _show_loading_overlay(self, message: str = "Loading…") -> None:
+        """Show a simple full-window overlay with a large hourglass and message."""
+        try:
+            overlay = ttk.Frame(self.root)
+            overlay.place(relx=0.0, rely=0.0, relwidth=1.0, relheight=1.0)
+            center = ttk.Frame(overlay)
+            center.place(relx=0.5, rely=0.5, anchor="center")
+            try:
+                ttk.Label(center, text="⌛", font=("Arial", 72)).pack()
+            except Exception:
+                ttk.Label(center, text="Loading", font=("Arial", 32, "bold")).pack()
+            ttk.Label(center, text=message, font=("Arial", 14)).pack(pady=8)
+            try:
+                overlay.lift()
+            except Exception:
+                pass
+            self._loading_overlay = overlay  # type: ignore[attr-defined]
+        except Exception:
+            self._loading_overlay = None  # type: ignore[attr-defined]
+
+    def _hide_loading_overlay(self) -> None:
+        try:
+            overlay = getattr(self, "_loading_overlay", None)
+            if overlay is not None:
+                overlay.destroy()
+        finally:
+            try:
+                self._loading_overlay = None  # type: ignore[attr-defined]
+            except Exception:
+                pass
 
     def run_generation_thread(self, save_path: str):
         try:
