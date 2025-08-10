@@ -61,15 +61,26 @@ class StructureTreeWidget(ttk.Frame):
         self._on_item_activated = on_item_activated
         self._on_context_menu = on_context_menu
 
-        # Configure a custom Treeview style to force blue selection even when unfocused
+        # Configure a custom Treeview style to match Heading Filter (no bg change, blue text)
         try:
             style = ttk.Style(self)
             # Create a dedicated style so we don't affect other Treeviews
             style_name = "Orlando.Treeview"
-            # Ensure selected rows are blue with white text, even when the widget is not focused
-            style.map(style_name,
-                      background=[('selected', '#0078D4'), ('!focus selected', '#0078D4')],
-                      foreground=[('selected', '#ffffff'), ('!focus selected', '#ffffff')])
+            # Store style objects for later dynamic adjustment
+            self._style = style  # type: ignore[assignment]
+            self._style_name = style_name  # type: ignore[assignment]
+            # Determine default row background to use when selection has no highlight
+            try:
+                default_bg = style.lookup("Treeview", "fieldbackground") or style.lookup("Treeview", "background") or ""
+            except Exception:
+                default_bg = ""
+            self._default_row_bg = default_bg  # type: ignore[assignment]
+            # Initial map: keep background stable; set selected foreground to blue
+            style.map(
+                style_name,
+                background=[('selected', default_bg), ('!focus selected', default_bg)],
+                foreground=[('selected', '#0B6BD3'), ('!focus selected', '#0B6BD3')],
+            )
         except Exception:
             style_name = "Treeview"
 
@@ -100,18 +111,62 @@ class StructureTreeWidget(ttk.Frame):
         # Event bindings
         self._tree.bind("<<TreeviewSelect>>", self._on_select_event, add="+")
         self._tree.bind("<Double-1>", self._on_double_click_event, add="+")
+        self._tree.bind("<Button-1>", self._on_single_click_event, add="+")
         self._tree.bind("<Button-3>", self._on_right_click_event, add="+")
 
         # Style exclusions map: style -> excluded flag (True means exclude)
         self._style_exclusions: Dict[str, bool] = {}
 
-        # Tag configuration for search highlights (yellow background)
+        # Tag configuration and marker icons for highlights
         try:
-            # Ensure selected items stay visible even when tree loses focus.
-            # Configure a dedicated tag with yellow background (light) and keep fg default.
-            self._tree.tag_configure("search-match", background="#ffff99")
-            # Separate tag for heading-filter highlights so it doesn't conflict with search
-            self._tree.tag_configure("filter-match", background="#ffff99")
+            # Fixed-width transparent marker slot to avoid shifting text; draw circular dots inside
+            marker_w, marker_h = 16, 16
+            self._marker_none = tk.PhotoImage(width=marker_w, height=marker_h)
+
+            def _draw_circle(img: tk.PhotoImage, cx: int, cy: int, r: int, color: str) -> None:
+                try:
+                    r2 = r * r
+                    for yy in range(max(0, cy - r), min(marker_h, cy + r + 1)):
+                        dy = yy - cy
+                        for xx in range(max(0, cx - r), min(marker_w, cx + r + 1)):
+                            dx = xx - cx
+                            if dx * dx + dy * dy <= r2:
+                                img.put((color,), to=(xx, yy, xx + 1, yy + 1))
+                except Exception:
+                    pass
+
+            def _build_variant(draw_search: bool, draw_filter: bool) -> tk.PhotoImage:
+                img = tk.PhotoImage(width=marker_w, height=marker_h)
+                s_color = "#1976D2"  # blue
+                f_color = "#F57C00"  # orange
+                radius = 3  # results in ~7px diameter dot
+                cy = marker_h // 2
+                # Place dots far enough apart so they never overlap
+                left_cx = 4
+                right_cx = marker_w - 4
+                if draw_search:
+                    _draw_circle(img, cx=left_cx, cy=cy, r=radius, color=s_color)
+                if draw_filter:
+                    _draw_circle(img, cx=right_cx, cy=cy, r=radius, color=f_color)
+                return img
+
+            try:
+                self._marker_search = _build_variant(True, False)
+            except Exception:
+                self._marker_search = self._marker_none  # type: ignore[assignment]
+            try:
+                self._marker_filter = _build_variant(False, True)
+            except Exception:
+                self._marker_filter = self._marker_none  # type: ignore[assignment]
+            try:
+                self._marker_both = _build_variant(True, True)
+            except Exception:
+                self._marker_both = self._marker_none  # type: ignore[assignment]
+            # Tags exist but no background; visual feedback is the marker image
+            self._tree.tag_configure("search-match")
+            self._tree.tag_configure("filter-match")
+            # Ensure tag-based highlighting wins over selection: selection tag has no bg
+            self._tree.tag_configure("selected-row", background="")
             # Distinguish sections (topichead) visually with bold font
             try:
                 base_font = None
@@ -120,12 +175,37 @@ class StructureTreeWidget(ttk.Frame):
                 except Exception:
                     base_font = None
                 if base_font is not None:
+                    # Determine base size and build derived fonts
+                    try:
+                        base_size = int(tkfont.Font(self, font=base_font).cget("size"))
+                    except Exception:
+                        base_size = 9
+                    # Section: base + 2, bold
                     self._font_section = tkfont.Font(self, font=base_font)
-                    self._font_section.configure(weight="bold")
+                    try:
+                        self._font_section.configure(weight="bold", size=base_size + 2)
+                    except Exception:
+                        self._font_section.configure(weight="bold")
                     self._tree.tag_configure("section", font=self._font_section)
+                    # Selected row: base + 4, normal weight
+                    self._font_selected = tkfont.Font(self, font=base_font)
+                    try:
+                        self._font_selected.configure(size=base_size + 4)
+                    except Exception:
+                        self._font_selected.configure()
+                    self._tree.tag_configure("selected-row", font=self._font_selected, foreground="#0B6BD3")
+                    # Selected + highlighted: base + 4, underline (no bold) for clear signal on selection
+                    self._font_selected_highlight = tkfont.Font(self, font=base_font)
+                    try:
+                        self._font_selected_highlight.configure(size=base_size + 4, underline=1)
+                    except Exception:
+                        self._font_selected_highlight.configure(underline=1)
+                    self._tree.tag_configure("selected-highlight", font=self._font_selected_highlight, foreground="#0B6BD3")
                 else:
                     # Fallback tuple if default font lookup fails
-                    self._tree.tag_configure("section", font=("", 9, "bold"))
+                    self._tree.tag_configure("section", font=("", 11, "bold"))
+                    self._tree.tag_configure("selected-row", font=("", 13), foreground="#0B6BD3")
+                    self._tree.tag_configure("selected-highlight", font=("", 13, "underline"), foreground="#0B6BD3")
             except Exception:
                 pass
         except Exception:
@@ -361,6 +441,11 @@ class StructureTreeWidget(ttk.Frame):
                 self._tree.see(ids[0])
             except Exception:
                 pass
+        # Sync bold selection tag
+        try:
+            self._update_selection_tags()
+        except Exception:
+            pass
 
     def focus_item_by_ref(self, topic_ref: str, ensure_visible: bool = True) -> None:
         """Move focus to the first item matching the given topic_ref without changing selection.
@@ -401,8 +486,15 @@ class StructureTreeWidget(ttk.Frame):
                     if "search-match" not in tags:
                         tags.append("search-match")
                     self._tree.item(item_id, tags=tuple(tags))
+                    # Apply marker image (blue). If filter tag also present, prefer filter marker.
+                    self._apply_marker_image(item_id)
                 except Exception:
                     continue
+            # Ensure selection tags are layered under highlight tags
+            try:
+                self._update_selection_tags()
+            except Exception:
+                pass
         except Exception:
             pass
 
@@ -413,8 +505,13 @@ class StructureTreeWidget(ttk.Frame):
                 try:
                     tags = tuple(t for t in (self._tree.item(item_id, "tags") or ()) if t != "search-match")
                     self._tree.item(item_id, tags=tags)
+                    self._apply_marker_image(item_id)
                 except Exception:
                     continue
+            try:
+                self._update_selection_tags()
+            except Exception:
+                pass
         except Exception:
             pass
 
@@ -434,8 +531,15 @@ class StructureTreeWidget(ttk.Frame):
                     if "filter-match" not in tags:
                         tags.append("filter-match")
                     self._tree.item(item_id, tags=tuple(tags))
+                    # Apply marker image (green)
+                    self._apply_marker_image(item_id)
                 except Exception:
                     continue
+            # Ensure selection tags are layered under highlight tags
+            try:
+                self._update_selection_tags()
+            except Exception:
+                pass
         except Exception:
             pass
 
@@ -446,8 +550,91 @@ class StructureTreeWidget(ttk.Frame):
                 try:
                     tags = tuple(t for t in (self._tree.item(item_id, "tags") or ()) if t != "filter-match")
                     self._tree.item(item_id, tags=tags)
+                    self._apply_marker_image(item_id)
                 except Exception:
                     continue
+            try:
+                self._update_selection_tags()
+            except Exception:
+                pass
+        except Exception:
+            pass
+
+    def _update_selection_tags(self) -> None:
+        """Apply or remove the 'selected-row' tag and ensure highlight tags remain on top.
+
+        - Adds 'selected-row' for all selected items (bold + larger font) without altering
+          search/filter tags.
+        - Reorders tags so that 'search-match'/'filter-match' come AFTER 'selected-row' when present,
+          keeping the yellow highlight visible on selected items.
+        """
+        try:
+            selected_ids = set(self._tree.selection())
+            for item_id in self._iter_all_item_ids():
+                try:
+                    tags = list(self._tree.item(item_id, "tags") or ())
+                    has_selected = "selected-row" in tags
+                    if item_id in selected_ids:
+                        if not has_selected and ("section" not in tags):
+                            tags.append("selected-row")
+                        # Reorder so highlight tags are last
+                        has_search = "search-match" in tags
+                        has_filter = "filter-match" in tags
+                        # Remove instances
+                        if has_search:
+                            tags = [t for t in tags if t != "search-match"]
+                        if has_filter:
+                            tags = [t for t in tags if t != "filter-match"]
+                        # Ensure selected-row exists, then append highlights at the end
+                        if ("selected-row" not in tags) and ("section" not in tags):
+                            tags.append("selected-row")
+                        # If selected and highlighted, add special tag to increase contrast
+                        if has_search or has_filter:
+                            if "selected-highlight" not in tags:
+                                tags.append("selected-highlight")
+                        else:
+                            # Remove selected-highlight if no highlight now
+                            tags = [t for t in tags if t != "selected-highlight"]
+                        if has_search:
+                            tags.append("search-match")
+                        if has_filter:
+                            tags.append("filter-match")
+                        self._tree.item(item_id, tags=tuple(tags))
+                        # Keep marker synced
+                        self._apply_marker_image(item_id)
+                    else:
+                        if has_selected:
+                            # Remove only the selection tag, preserving any highlight tags
+                            tags = [t for t in tags if t not in ("selected-row", "selected-highlight")]
+                            self._tree.item(item_id, tags=tuple(tags))
+                        self._apply_marker_image(item_id)
+                except Exception:
+                    continue
+        except Exception:
+            pass
+
+    def _apply_marker_image(self, item_id: str) -> None:
+        """Apply a small two-dot marker image in a fixed slot based on tags.
+
+        Priority/stacking:
+        - Both present -> two dots (blue left, green right).
+        - Filter only -> green dot.
+        - Search only -> blue dot.
+        - None -> transparent/blank slot image.
+        """
+        try:
+            tags = tuple(self._tree.item(item_id, "tags") or ())
+            has_search = ("search-match" in tags)
+            has_filter = ("filter-match" in tags)
+            if has_search and has_filter and getattr(self, "_marker_both", None) is not None:
+                self._tree.item(item_id, image=self._marker_both)
+            elif has_filter and getattr(self, "_marker_filter", None) is not None:
+                self._tree.item(item_id, image=self._marker_filter)
+            elif has_search and getattr(self, "_marker_search", None) is not None:
+                self._tree.item(item_id, image=self._marker_search)
+            else:
+                # No marker: clear the image so level-1 items have no extra left padding
+                self._tree.item(item_id, image="")
         except Exception:
             pass
 
@@ -611,7 +798,8 @@ class StructureTreeWidget(ttk.Frame):
                 safe_text = " ".join(safe_text.split())
         except Exception:
             pass
-        item_id = self._tree.insert(parent, "end", text=safe_text, tags=(tags or ()))
+        # Insert without a reserved marker slot; we only set an image when a marker is needed
+        item_id = self._tree.insert(parent, "end", text=safe_text, image="", tags=(tags or ()))
         if topic_ref is not None:
             self._id_to_ref[item_id] = topic_ref
             # Only store the first id for a ref to satisfy "first Treeview item ID"
@@ -965,6 +1153,11 @@ class StructureTreeWidget(ttk.Frame):
                     self._tree.see(sel[0])
             except Exception:
                 pass
+            # Always update selection visuals
+            try:
+                self._update_selection_tags()
+            except Exception:
+                pass
             return
         try:
             # Ensure at least the first selected item is visible so bbox() is available
@@ -977,6 +1170,11 @@ class StructureTreeWidget(ttk.Frame):
 
             refs = self.get_selected_items()
             self._on_selection_changed(refs)
+            # Update selection visuals to match heading filter
+            try:
+                self._update_selection_tags()
+            except Exception:
+                pass
         except Exception:
             # UI robustness: swallow exceptions from callback
             pass
@@ -988,6 +1186,35 @@ class StructureTreeWidget(ttk.Frame):
             item_id = self._tree.identify_row(event.y)
             ref = self._id_to_ref.get(item_id)
             self._on_item_activated(ref)
+        except Exception:
+            pass
+
+    def _on_single_click_event(self, event: tk.Event) -> None:
+        """Toggle open/closed state on section rows with a single click.
+
+        Also prevent section rows from inheriting the selection style by removing
+        the selection tag when a section is selected.
+        """
+        try:
+            item_id = self._tree.identify_row(event.y)
+            if not item_id:
+                return
+            # Toggle open state if this is a section
+            tags = tuple(self._tree.item(item_id, "tags") or ())
+            if "section" in tags:
+                is_open = bool(self._tree.item(item_id, "open"))
+                self._tree.item(item_id, open=not is_open)
+                # Prevent selection styling from applying to sections
+                try:
+                    current_sel = set(self._tree.selection())
+                    if item_id in current_sel:
+                        # Remove selection of section to avoid selection styling
+                        current_sel.remove(item_id)
+                        self._tree.selection_set(tuple(current_sel))
+                except Exception:
+                    pass
+                # Stop further default handling to avoid double-toggle
+                return
         except Exception:
             pass
 

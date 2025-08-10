@@ -58,8 +58,8 @@ class HeadingFilterPanel(ttk.Frame):
                 "HeadingFilter.Hover.TLabel",
                 foreground=[("active", "#0A58CC")],
             )
-            # Selected style: stronger emphasis
-            style.configure("HeadingFilter.Selected.TLabel", foreground="#0B6BD3")
+            # Selected style: stronger emphasis (match tree style marker orange)
+            style.configure("HeadingFilter.Selected.TLabel", foreground="#F57C00")
             try:
                 # Bold font may not exist on all platforms; ignore failures
                 style.configure("HeadingFilter.Selected.TLabel", font=("", 9, "bold"))
