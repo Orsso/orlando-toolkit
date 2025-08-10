@@ -21,7 +21,7 @@ from typing import List, Optional, Callable
 class ScrollMarkerBar(ttk.Frame):
     """A thin vertical bar that draws normalized markers and viewport band."""
 
-    def __init__(self, master: "tk.Widget", width: int = 12, *, on_jump: Optional[Callable[[float], None]] = None) -> None:
+    def __init__(self, master: "tk.Widget", width: int = 12, *, on_jump: Optional[Callable[[float], None]] = None, on_set_viewport: Optional[Callable[[float], None]] = None) -> None:
         super().__init__(master)
         self._canvas = tk.Canvas(self, width=width, highlightthickness=0, bd=0)
         self._canvas.grid(row=0, column=0, sticky="ns")
@@ -34,6 +34,10 @@ class ScrollMarkerBar(ttk.Frame):
         self._viewport_first: Optional[float] = None
         self._viewport_last: Optional[float] = None
         self._on_jump: Optional[Callable[[float], None]] = on_jump
+        self._on_set_viewport: Optional[Callable[[float], None]] = on_set_viewport
+        self._drag_active: bool = False
+        self._drag_offset: float = 0.0
+        self._band_height: float = 0.0
 
         # Colors aligned with StructureTreeWidget markers
         self._color_search = "#1976D2"  # blue
@@ -44,6 +48,9 @@ class ScrollMarkerBar(ttk.Frame):
         self._canvas.bind("<Configure>", lambda _e: self._redraw(), add="+")
         # Click-to-jump: report normalized Y to caller
         self._canvas.bind("<Button-1>", self._on_click, add="+")
+        # Drag the viewport band like a slider
+        self._canvas.bind("<B1-Motion>", self._on_drag, add="+")
+        self._canvas.bind("<ButtonRelease-1>", self._on_release, add="+")
 
     # ------------------------------------------------------------------ API
     def set_markers(self, search_positions: List[float], filter_positions: List[float]) -> None:
@@ -59,9 +66,14 @@ class ScrollMarkerBar(ttk.Frame):
         try:
             self._viewport_first = float(first)
             self._viewport_last = float(last)
+            try:
+                self._band_height = max(0.0, self._viewport_last - self._viewport_first)
+            except Exception:
+                self._band_height = 0.0
         except Exception:
             self._viewport_first = None
             self._viewport_last = None
+            self._band_height = 0.0
         self._redraw()
 
     # ---------------------------------------------------------------- Internals
@@ -92,7 +104,7 @@ class ScrollMarkerBar(ttk.Frame):
                     y = int(max(0.0, min(1.0, norm_y)) * height)
                     # Ensure visible at least 1px within canvas
                     y = max(0, min(height - 1, y))
-                    c.create_line(1, y, width - 1, y, fill=color)
+                    c.create_line(1, y, width - 2, y, fill=color, width=2)
                 except Exception:
                     pass
 
@@ -113,7 +125,42 @@ class ScrollMarkerBar(ttk.Frame):
             y = int(getattr(event, "y", 0))
             norm = max(0.0, min(1.0, y / float(h)))
             self._on_jump(norm)
+            # Initialize drag state relative to current band
+            if (
+                isinstance(self._viewport_first, float)
+                and isinstance(self._viewport_last, float)
+                and self._on_set_viewport is not None
+            ):
+                self._drag_active = True
+                # Preserve relative position within band if clicking inside it; else center the band on click
+                if self._viewport_first <= norm <= self._viewport_last and self._band_height > 0.0:
+                    self._drag_offset = norm - self._viewport_first
+                else:
+                    self._drag_offset = self._band_height / 2.0
         except Exception:
             pass
+
+    def _on_drag(self, event: tk.Event) -> None:
+        try:
+            if not self._drag_active or self._on_set_viewport is None:
+                return
+            if not isinstance(self._viewport_first, float) or not isinstance(self._viewport_last, float):
+                return
+            h = max(1, int(self._canvas.winfo_height()))
+            y = int(getattr(event, "y", 0))
+            norm = max(0.0, min(1.0, y / float(h)))
+            band = max(0.0, self._band_height)
+            # Compute new top preserving offset; clamp to [0, 1 - band]
+            new_first = norm - self._drag_offset
+            if band >= 1.0:
+                new_first = 0.0
+            else:
+                new_first = max(0.0, min(1.0 - band, new_first))
+            self._on_set_viewport(new_first)
+        except Exception:
+            pass
+
+    def _on_release(self, _event: tk.Event) -> None:
+        self._drag_active = False
 
 

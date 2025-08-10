@@ -93,17 +93,18 @@ class StructureTreeWidget(ttk.Frame):
         self._tree.configure(yscrollcommand=self._on_tree_yscroll)
 
         self._tree.grid(row=0, column=0, sticky="nsew")
-        self._vsb.grid(row=0, column=1, sticky="ns")
-        # Marker bar to the far right (non-stretching)
+        # Marker bar placed to the left of the scrollbar (non-stretching)
         try:
-            self._marker_bar = ScrollMarkerBar(self, width=12, on_jump=self._on_marker_jump)
-            self._marker_bar.grid(row=0, column=2, sticky="ns")
+            self._marker_bar = ScrollMarkerBar(self, width=16, on_jump=self._on_marker_jump, on_set_viewport=self._on_marker_set_viewport)
+            self._marker_bar.grid(row=0, column=1, sticky="ns")
         except Exception:
             self._marker_bar = None  # type: ignore[assignment]
+        # Scrollbar at the far right
+        self._vsb.grid(row=0, column=2, sticky="ns")
 
-        self.columnconfigure(0, weight=1)
-        self.columnconfigure(1, weight=0)
-        self.columnconfigure(2, weight=0)
+        self.columnconfigure(0, weight=1)  # tree
+        self.columnconfigure(1, weight=0)  # marker bar
+        self.columnconfigure(2, weight=0)  # scrollbar
         self.rowconfigure(0, weight=1)
 
         # Internal mappings: tree item id -> topic_ref
@@ -159,11 +160,11 @@ class StructureTreeWidget(ttk.Frame):
                 img = tk.PhotoImage(width=marker_w, height=marker_h)
                 s_color = "#1976D2"  # blue
                 f_color = "#F57C00"  # orange
-                radius = 3  # results in ~7px diameter dot
+                radius = 4  # slightly larger dot for better visibility
                 cy = marker_h // 2
                 # Place dots far enough apart so they never overlap
-                left_cx = 4
-                right_cx = marker_w - 4
+                left_cx = 5
+                right_cx = marker_w - 5
                 if draw_search:
                     _draw_circle(img, cx=left_cx, cy=cy, r=radius, color=s_color)
                 if draw_filter:
@@ -1487,5 +1488,14 @@ class StructureTreeWidget(ttk.Frame):
                             self._tree.yview_scroll(rows, "units")
             except Exception:
                 pass
+        except Exception:
+            pass
+
+    def _on_marker_set_viewport(self, first: float) -> None:
+        """Set tree viewport top (normalized) to align with marker bar drag."""
+        try:
+            # Tk expects 0..1 fractions; yview_moveto sets the top fraction
+            frac = max(0.0, min(1.0, float(first)))
+            self._tree.yview_moveto(frac)
         except Exception:
             pass
