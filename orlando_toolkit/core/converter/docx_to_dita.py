@@ -100,7 +100,7 @@ def convert_docx_to_dita(file_path: str, metadata: Dict[str, Any]) -> DitaContex
         determine_node_roles(root_nodes)
         
         # Pass 3: Generate DITA topics and map structure
-        logger.info("Generating DITA topics...")
+        logger.info("Building topics...")
         heading_counters = [0] * 9
         parent_elements: Dict[int, ET.Element] = {0: map_root}
         

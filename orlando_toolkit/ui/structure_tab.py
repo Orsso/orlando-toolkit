@@ -614,10 +614,10 @@ class StructureTab(ttk.Frame):
                     self._tree.clear_highlight_refs()  # type: ignore[attr-defined]
             except Exception:
                 pass
-            # Focus and preview first match when available (no selection change)
+            # Focus and preview first match when available (center in viewport)
             if results:
                 try:
-                    self._tree.focus_item_by_ref(results[0])  # type: ignore[attr-defined]
+                    self._tree.focus_item_centered_by_ref(results[0])  # type: ignore[attr-defined]
                 except Exception:
                     pass
                 try:
@@ -648,14 +648,19 @@ class StructureTab(ttk.Frame):
                 ctrl.search_index = idx  # type: ignore[attr-defined]
             except Exception:
                 pass
-            # Keep all matches highlighted; select the current item to show default selection highlight
+            # Keep all matches highlighted; select the current item and center it
             try:
                 ctrl.select_items([results[idx]])
             except Exception:
                 pass
-            self._refresh_tree()
+            # Avoid full refresh to prevent marker flashing; update only selection & position
             try:
-                self._tree.set_highlight_refs(list(results))  # type: ignore[attr-defined]
+                self._tree.update_selection([results[idx]])  # type: ignore[attr-defined]
+            except Exception:
+                pass
+            # Center the current match to avoid bottom sticking and reduce visual jumps
+            try:
+                self._tree.focus_item_centered_by_ref(results[idx])  # type: ignore[attr-defined]
             except Exception:
                 pass
             # Trigger preview update for the focused match across sections/levels

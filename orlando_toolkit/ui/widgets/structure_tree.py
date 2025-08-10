@@ -6,6 +6,7 @@ from tkinter import font as tkfont
 from typing import List, Optional, Callable, Dict, Tuple, Any
 
 from orlando_toolkit.core.models import DitaContext
+from orlando_toolkit.ui.widgets.scroll_marker_bar import ScrollMarkerBar
 
 
 class StructureTreeWidget(ttk.Frame):
@@ -88,12 +89,21 @@ class StructureTreeWidget(ttk.Frame):
         # Provide a non-zero default row height to improve bbox availability in headless tests
         self._tree = ttk.Treeview(self, show="tree", selectmode="extended", style=style_name, height=12)
         self._vsb = ttk.Scrollbar(self, orient="vertical", command=self._tree.yview)
-        self._tree.configure(yscrollcommand=self._vsb.set)
+        # Proxy yscroll updates so we can update the marker bar viewport too
+        self._tree.configure(yscrollcommand=self._on_tree_yscroll)
 
         self._tree.grid(row=0, column=0, sticky="nsew")
         self._vsb.grid(row=0, column=1, sticky="ns")
+        # Marker bar to the far right (non-stretching)
+        try:
+            self._marker_bar = ScrollMarkerBar(self, width=12, on_jump=self._on_marker_jump)
+            self._marker_bar.grid(row=0, column=2, sticky="ns")
+        except Exception:
+            self._marker_bar = None  # type: ignore[assignment]
 
         self.columnconfigure(0, weight=1)
+        self.columnconfigure(1, weight=0)
+        self.columnconfigure(2, weight=0)
         self.rowconfigure(0, weight=1)
 
         # Internal mappings: tree item id -> topic_ref
@@ -113,6 +123,16 @@ class StructureTreeWidget(ttk.Frame):
         self._tree.bind("<Double-1>", self._on_double_click_event, add="+")
         self._tree.bind("<Button-1>", self._on_single_click_event, add="+")
         self._tree.bind("<Button-3>", self._on_right_click_event, add="+")
+        # Marker bar updates when branches open/close
+        try:
+            self._tree.bind("<<TreeviewOpen>>", lambda _e: self._schedule_marker_update(), add="+")
+            self._tree.bind("<<TreeviewClose>>", lambda _e: self._schedule_marker_update(), add="+")
+            # On vertical scroll via mouse wheel or touchpad, avoid recomputing markers repeatedly.
+            self._tree.bind("<MouseWheel>", lambda _e: self._throttle_marker_viewport_update(), add="+")
+            self._tree.bind("<Button-4>", lambda _e: self._throttle_marker_viewport_update(), add="+")  # Linux scroll up
+            self._tree.bind("<Button-5>", lambda _e: self._throttle_marker_viewport_update(), add="+")  # Linux scroll down
+        except Exception:
+            pass
 
         # Style exclusions map: style -> excluded flag (True means exclude)
         self._style_exclusions: Dict[str, bool] = {}
@@ -328,6 +348,11 @@ class StructureTreeWidget(ttk.Frame):
                     self._tree.update_idletasks()
                 except Exception:
                     pass
+                # Update marker bar for initial positions
+                try:
+                    self._update_marker_bar_positions()
+                except Exception:
+                    pass
                 return  # done; no fallback root row
             # If traversal failed unexpectedly, fall back to flat topics listing under Treeview root.
 
@@ -413,6 +438,12 @@ class StructureTreeWidget(ttk.Frame):
         except Exception:
             pass
 
+        # After population, update marker bar positions
+        try:
+            self._update_marker_bar_positions()
+        except Exception:
+            pass
+
     def update_selection(self, item_refs: List[str]) -> None:
         """Update the selection to the provided topic_ref values.
 
@@ -470,6 +501,42 @@ class StructureTreeWidget(ttk.Frame):
         except Exception:
             pass
 
+    def focus_item_centered_by_ref(self, topic_ref: str) -> None:
+        """Focus the item and center it vertically in the viewport when possible."""
+        try:
+            item_id = self._ref_to_id.get(topic_ref)
+            if not item_id:
+                return
+            # Ensure it is visible first so bbox is available
+            try:
+                self._tree.see(item_id)
+            except Exception:
+                pass
+            self._tree.focus(item_id)
+            # Center using bbox-based scroll by units
+            try:
+                self._tree.update_idletasks()
+                bbox = self._tree.bbox(item_id)
+                if bbox:
+                    x, y, w, h = bbox
+                    if h <= 0:
+                        return
+                    widget_h = max(1, int(self._tree.winfo_height()))
+                    target_center = widget_h // 2
+                    row_center = y + (h // 2)
+                    delta_px = row_center - target_center
+                    # Convert px to rows; round to nearest int
+                    rows = int(round(delta_px / float(h)))
+                    if rows != 0:
+                        try:
+                            self._tree.yview_scroll(rows, "units")
+                        except Exception:
+                            pass
+            except Exception:
+                pass
+        except Exception:
+            pass
+
     def set_highlight_refs(self, refs: List[str]) -> None:
         """Highlight the given topic_refs in yellow using a dedicated tag.
 
@@ -495,6 +562,11 @@ class StructureTreeWidget(ttk.Frame):
                 self._update_selection_tags()
             except Exception:
                 pass
+            # Update marker bar
+            try:
+                self._update_marker_bar_positions()
+            except Exception:
+                pass
         except Exception:
             pass
 
@@ -510,6 +582,11 @@ class StructureTreeWidget(ttk.Frame):
                     continue
             try:
                 self._update_selection_tags()
+            except Exception:
+                pass
+            # Update marker bar
+            try:
+                self._update_marker_bar_positions()
             except Exception:
                 pass
         except Exception:
@@ -540,6 +617,11 @@ class StructureTreeWidget(ttk.Frame):
                 self._update_selection_tags()
             except Exception:
                 pass
+            # Update marker bar
+            try:
+                self._update_marker_bar_positions()
+            except Exception:
+                pass
         except Exception:
             pass
 
@@ -555,6 +637,11 @@ class StructureTreeWidget(ttk.Frame):
                     continue
             try:
                 self._update_selection_tags()
+            except Exception:
+                pass
+            # Update marker bar
+            try:
+                self._update_marker_bar_positions()
             except Exception:
                 pass
         except Exception:
@@ -732,6 +819,10 @@ class StructureTreeWidget(ttk.Frame):
             self._tree.update_idletasks()
         except Exception:
             pass
+        try:
+            self._update_marker_bar_positions()
+        except Exception:
+            pass
     
     def expand_all(self) -> None:
         """Expand all items in the tree."""
@@ -740,12 +831,20 @@ class StructureTreeWidget(ttk.Frame):
                 self._expand_recursive(item_id)
         except Exception:
             pass
+        try:
+            self._update_marker_bar_positions()
+        except Exception:
+            pass
     
     def collapse_all(self) -> None:
         """Collapse all items in the tree."""
         try:
             for item_id in self._tree.get_children(""):
                 self._collapse_recursive(item_id)
+        except Exception:
+            pass
+        try:
+            self._update_marker_bar_positions()
         except Exception:
             pass
     
@@ -1214,6 +1313,10 @@ class StructureTreeWidget(ttk.Frame):
                 except Exception:
                     pass
                 # Stop further default handling to avoid double-toggle
+                try:
+                    self._schedule_marker_update()
+                except Exception:
+                    pass
                 return
         except Exception:
             pass
@@ -1281,3 +1384,108 @@ class StructureTreeWidget(ttk.Frame):
             return self._id_to_style.get(item_id)
         except Exception:
             return None
+
+    # --------------------------- Marker bar integration ---------------------------
+    def _on_tree_yscroll(self, first: str, last: str) -> None:
+        """Proxy yscrollcommand to scrollbar and marker bar viewport."""
+        try:
+            self._vsb.set(first, last)
+        except Exception:
+            pass
+        # Only update viewport; do not recompute tick positions here to avoid flashing
+        try:
+            if getattr(self, "_marker_bar", None) is not None:
+                self._marker_bar.set_viewport(float(first), float(last))  # type: ignore[union-attr]
+        except Exception:
+            pass
+
+    def _schedule_marker_update(self) -> None:
+        try:
+            self.after_idle(self._update_marker_bar_positions)
+        except Exception:
+            pass
+
+    def _throttle_marker_viewport_update(self) -> None:
+        """On wheel scroll, only update the viewport band; positions stay as-is."""
+        try:
+            first, last = self._tree.yview()
+            if getattr(self, "_marker_bar", None) is not None:
+                self._marker_bar.set_viewport(float(first), float(last))  # type: ignore[union-attr]
+        except Exception:
+            pass
+
+    def _iter_visible_item_ids(self) -> List[str]:
+        """Return visible item ids in order respecting open state."""
+        order: List[str] = []
+        try:
+            def walk(parent: str) -> None:
+                for iid in self._tree.get_children(parent):
+                    order.append(iid)
+                    try:
+                        is_open = bool(self._tree.item(iid, "open"))
+                    except Exception:
+                        is_open = False
+                    if is_open:
+                        walk(iid)
+            walk("")
+        except Exception:
+            return []
+        return order
+
+    def _update_marker_bar_positions(self) -> None:
+        """Compute normalized tick positions for search/filter tags and update the marker bar."""
+        try:
+            bar = getattr(self, "_marker_bar", None)
+            if bar is None:
+                return
+            visible = self._iter_visible_item_ids()
+            total = len(visible)
+            if total <= 0:
+                bar.set_markers([], [])  # type: ignore[union-attr]
+                return
+            search_pos: List[float] = []
+            filter_pos: List[float] = []
+            for idx, iid in enumerate(visible):
+                try:
+                    tags = tuple(self._tree.item(iid, "tags") or ())
+                except Exception:
+                    tags = ()
+                if "search-match" in tags:
+                    search_pos.append((idx + 0.5) / total)
+                if "filter-match" in tags:
+                    filter_pos.append((idx + 0.5) / total)
+            bar.set_markers(search_pos, filter_pos)  # type: ignore[union-attr]
+        except Exception:
+            pass
+
+    def _on_marker_jump(self, norm: float) -> None:
+        """Jump tree viewport to the approximate position indicated by norm [0..1]."""
+        try:
+            visible = self._iter_visible_item_ids()
+            total = len(visible)
+            if total <= 0:
+                return
+            # Target row index centers around the clicked position
+            idx = int(round(norm * (total - 1)))
+            idx = max(0, min(total - 1, idx))
+            target_id = visible[idx]
+            try:
+                self._tree.see(target_id)
+            except Exception:
+                pass
+            # Center the target row
+            try:
+                self._tree.update_idletasks()
+                bbox = self._tree.bbox(target_id)
+                if bbox:
+                    x, y, w, h = bbox
+                    if h > 0:
+                        widget_h = max(1, int(self._tree.winfo_height()))
+                        delta_px = (y + h // 2) - (widget_h // 2)
+                        rows = int(round(delta_px / float(h)))
+                        if rows != 0:
+                            self._tree.yview_scroll(rows, "units")
+            except Exception:
+                pass
+        except Exception:
+            pass
