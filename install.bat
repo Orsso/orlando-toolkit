@@ -31,10 +31,11 @@ set "PIP_NO_PYTHON_VERSION_WARNING=1"
 set "REPO_URL=https://github.com/Orsso/orlando-toolkit"
 set "REPO_OWNER=Orsso"
 set "REPO_NAME=orlando-toolkit"
-rem Allow caller to predefine BRANCH; if not set, resolve default branch dynamically
+rem Simplified policy: always use main (override via BRANCH=... if needed)
 set "BRANCH=%BRANCH%"
-call :ResolveDefaultBranch
-set "ZIP_URL=https://codeload.github.com/%REPO_OWNER%/%REPO_NAME%/zip/refs/heads/%BRANCH%"
+if not defined BRANCH set "BRANCH=main"
+set "REF_TYPE=heads"
+set "ZIP_URL=https://codeload.github.com/%REPO_OWNER%/%REPO_NAME%/zip/refs/%REF_TYPE%/%BRANCH%"
 set "VERSION_URL=https://raw.githubusercontent.com/%REPO_OWNER%/%REPO_NAME%/%BRANCH%/VERSION"
 
 :: WinPython portable (includes tkinter)
@@ -166,6 +167,10 @@ echo     Downloading latest source...
 set "ZIP_PATH=%TOOLS_DIR%\repo.zip"
 if exist "%ZIP_PATH%" del /f /q "%ZIP_PATH%" >nul 2>&1
 
+:: Purge source folder before update/install as requested
+if exist "%SRC_DIR%" rmdir /s /q "%SRC_DIR%" >nul 2>&1
+mkdir "%SRC_DIR%" >nul 2>&1
+
 call :DownloadZip
 if errorlevel 1 goto :Fail
 
@@ -289,6 +294,19 @@ if %errorlevel% neq 0 (
 
 :: Write installed version marker for future update checks
 if defined REMOTE_VERSION echo %REMOTE_VERSION%> "%APP_DIR%\version.txt"
+
+:: Append an update line to the application's own log
+set "APP_LOG_DIR=%APP_DIR%\logs"
+if not exist "%APP_LOG_DIR%" mkdir "%APP_LOG_DIR%" >nul 2>&1
+set "APP_LOG_FILE=%APP_LOG_DIR%\app.log"
+for /f %%I in ('powershell -NoProfile -Command "Get-Date -Format yyyy-MM-dd HH:mm:ss" 2^>nul') do set "NOW=%%I"
+if defined NOW (
+  if defined INSTALLED_VERSION (
+    echo %NOW% - updater - INFO - Updated OrlandoToolkit from %INSTALLED_VERSION% to %REMOTE_VERSION%>> "%APP_LOG_FILE%"
+  ) else (
+    echo %NOW% - updater - INFO - Installed OrlandoToolkit version %REMOTE_VERSION%>> "%APP_LOG_FILE%"
+  )
+)
 
 echo [5/5] Finalizing...
 
@@ -547,34 +565,6 @@ exit /b 0
 
 
 :: ---------------------------------------------------------------------------------
-:ResolveDefaultBranch
-rem If BRANCH provided by caller, validate it; otherwise detect and validate
-if defined BRANCH (
-  call :_CheckBranch "%BRANCH%"
-  if %errorlevel%==0 exit /b 0
-)
-
-rem Try GitHub API to read default_branch (with headers + TLS)
-for /f %%B in ('powershell -NoProfile -Command "$ProgressPreference='SilentlyContinue'; [Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12; $h=@{ 'User-Agent'='curl' }; try{ (Invoke-RestMethod -Headers $h -Uri 'https://api.github.com/repos/%REPO_OWNER%/%REPO_NAME%' -ErrorAction Stop).default_branch } catch { '' }" 2^>nul') do set "BRANCH=%%B"
-if defined BRANCH (
-  call :_CheckBranch "%BRANCH%"
-  if %errorlevel%==0 exit /b 0
-)
-
-rem Fallback candidates if detection fails or invalid
-for %%C in (main master 1.3 1.2 1.1) do (
-  call :_CheckBranch "%%C"
-  if %errorlevel%==0 (
-    set "BRANCH=%%C"
-    exit /b 0
-  )
-)
-
-rem Last resort
-set "BRANCH=master"
-exit /b 0
-
-:: ---------------------------------------------------------------------------------
 :FetchRemoteVersion
 rem Attempt to fetch remote VERSION file from the selected branch
 if not exist "%TOOLS_DIR%" mkdir "%TOOLS_DIR%"
@@ -585,6 +575,14 @@ if not exist "%TOOLS_DIR%\remote_version.txt" (
   powershell -NoProfile -Command "try { Invoke-WebRequest -UseBasicParsing -Uri '%VERSION_URL%' -OutFile '%TOOLS_DIR%\\remote_version.txt' } catch { exit 1 }" >> "%LOG_FILE%" 2>&1
 )
 if exist "%TOOLS_DIR%\remote_version.txt" for /f "usebackq delims=" %%V in ("%TOOLS_DIR%\remote_version.txt") do set "REMOTE_VERSION=%%V"
+exit /b 0
+
+:: ---------------------------------------------------------------------------------
+:ResolveLatestTag
+rem Resolve the latest semver-like tag (vX.Y.Z or X.Y.Z) from GitHub API
+set "BRANCH="
+for /f %%T in ('powershell -NoProfile -Command "$ProgressPreference='SilentlyContinue'; [Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12; $h=@{ 'User-Agent'='curl' }; $tags = Invoke-RestMethod -Headers $h -Uri 'https://api.github.com/repos/%REPO_OWNER%/%REPO_NAME%/tags'; $tags.name | Sort-Object { $_ -replace '^v','' } -Descending | Select-Object -First 1" 2^>nul') do set "BRANCH=%%T"
+if not defined BRANCH exit /b 0
 exit /b 0
 
 :: ---------------------------------------------------------------------------------
@@ -617,13 +615,23 @@ exit /b 1
 exit /b 0
 
 :: ---------------------------------------------------------------------------------
-:_CheckBranch
-set "_C=%~1"
-set "_TESTZIP=https://github.com/%REPO_OWNER%/%REPO_NAME%/archive/refs/heads/%_C%.zip"
-curl -fsI "%_TESTZIP%" >> "%LOG_FILE%" 2>&1
-if %errorlevel%==0 exit /b 0
-set "_TESTVER=https://raw.githubusercontent.com/%REPO_OWNER%/%REPO_NAME%/%_C%/VERSION"
-curl -fsI "%_TESTVER%" >> "%LOG_FILE%" 2>&1
-if %errorlevel%==0 exit /b 0
-exit /b 1
+
+:: ---------------------------------------------------------------------------------
+:ResolveRefType
+rem Determine if BRANCH refers to a branch (heads) or tag (tags). Default heads.
+set "REF_TYPE=heads"
+rem Heuristic: if BRANCH looks like vX or a semantic version, prefer tags
+echo %BRANCH% | findstr /r /c:"^v[0-9]" >nul && set "REF_TYPE=tags"
+echo %BRANCH% | findstr /r /c:"^[0-9][0-9]*\.[0-9]" >nul && set "REF_TYPE=tags"
+rem Validate chosen ref; if invalid, flip type
+set "_TESTREF=https://github.com/%REPO_OWNER%/%REPO_NAME%/archive/refs/%REF_TYPE%/%BRANCH%.zip"
+curl -fsI "%_TESTREF%" >> "%LOG_FILE%" 2>&1
+if %errorlevel% neq 0 (
+  if /I "%REF_TYPE%"=="heads" (
+    set "REF_TYPE=tags"
+  ) else (
+    set "REF_TYPE=heads"
+  )
+)
+exit /b 0
 
