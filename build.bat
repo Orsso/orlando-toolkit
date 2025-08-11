@@ -26,7 +26,7 @@ echo                             ++++*     *++++
 echo                                 *     *    
 
 echo                      O R L A N D O  T O O L K I T 
-echo                              Version 1.1                            
+echo                              Version (dynamic)                           
 
 echo   +-- BUILD OVERVIEW ------------------------------------------------------+
 echo   ^|                                                                        ^|

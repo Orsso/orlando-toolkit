@@ -39,6 +39,11 @@ build.bat
 
 Note: `build.bat` sets up a portable Python environment if needed, then packages with PyInstaller.
 
+The Windows installer/updater `deploy.bat` will:
+- Detect the repository default branch automatically unless you pass `BRANCH=...`
+- Fetch the `VERSION` file from that branch, compare to `%LOCALAPPDATA%\OrlandoToolkit\App\version.txt`, and tell you if it will Install, Update, or Skip
+- Validate the WinPython download to avoid corrupted archives
+
 ### Run from source
 
 Requirements: Python 3.10+ (Windows/macOS/Linux)

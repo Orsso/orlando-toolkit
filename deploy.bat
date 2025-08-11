@@ -31,8 +31,11 @@ set "PIP_NO_PYTHON_VERSION_WARNING=1"
 set "REPO_URL=https://github.com/Orsso/orlando-toolkit"
 set "REPO_OWNER=Orsso"
 set "REPO_NAME=orlando-toolkit"
-set "ZIP_URL_STATIC=https://github.com/Orsso/orlando-toolkit/archive/refs/heads/1.1.zip"
-set "BRANCH=1.1"
+rem Allow caller to predefine BRANCH; if not set, resolve default branch dynamically
+set "BRANCH=%BRANCH%"
+call :ResolveDefaultBranch
+set "ZIP_URL=https://codeload.github.com/%REPO_OWNER%/%REPO_NAME%/zip/refs/heads/%BRANCH%"
+set "VERSION_URL=https://raw.githubusercontent.com/%REPO_OWNER%/%REPO_NAME%/%BRANCH%/VERSION"
 
 :: WinPython portable (includes tkinter)
 set "WPCODE=5.0.20221030final"
@@ -80,14 +83,7 @@ echo     Logs     : %LOGS_DIR%
 echo(
 
 :: ---------------------------------------------------------------------------------
-:: Confirmation prompt before starting
-:: ---------------------------------------------------------------------------------
-echo   Press Y to start, or N to cancel.
-choice /c YN /n /m " Start now? [Y/N]: "
-if errorlevel 2 goto :UserCancelled
-
-:: ---------------------------------------------------------------------------------
-:: Ensure directories
+:: Preflight: ensure dirs, logging, and determine action (Install/Update/Up-to-date)
 :: ---------------------------------------------------------------------------------
 for %%D in ("%VENDOR_DIR%" "%SRC_DIR%" "%APP_DIR%" "%TOOLS_DIR%" "%LOGS_DIR%") do if not exist %%~D mkdir %%~D
 
@@ -98,9 +94,9 @@ if not defined STAMP (
   set "LDT="
   for /f "skip=1 tokens=1" %%I in ('wmic os get localdatetime ^| findstr /r "^[0-9]" 2^>nul') do (
     set "LDT=%%I"
-    goto :GotTSFallback
+    goto :GotTSFallback0
   )
-  :GotTSFallback
+  :GotTSFallback0
   if defined LDT (
     set "STAMP=%LDT:~0,8%-%LDT:~8,6%"
   ) else (
@@ -110,6 +106,55 @@ if not defined STAMP (
 )
 set "LOG_FILE=%LOGS_DIR%\deploy-%STAMP%.log"
 echo   Logging to: %LOG_FILE%
+
+:: Compute installed and remote versions
+set "INSTALLED_VERSION="
+if exist "%APP_DIR%\version.txt" for /f "usebackq delims=" %%V in ("%APP_DIR%\version.txt") do set "INSTALLED_VERSION=%%V"
+set "REMOTE_VERSION="
+rem Fetch remote VERSION (inline) from selected branch
+if not exist "%TOOLS_DIR%" mkdir "%TOOLS_DIR%" >nul 2>&1
+del /f /q "%TOOLS_DIR%\remote_version.txt" >nul 2>&1
+curl -fSL -o "%TOOLS_DIR%\remote_version.txt" "%VERSION_URL%" >> "%LOG_FILE%" 2>&1
+if not exist "%TOOLS_DIR%\remote_version.txt" (
+  powershell -NoProfile -Command "try { Invoke-WebRequest -UseBasicParsing -Uri '%VERSION_URL%' -OutFile '%TOOLS_DIR%\\remote_version.txt' } catch { exit 1 }" >> "%LOG_FILE%" 2>&1
+)
+if exist "%TOOLS_DIR%\remote_version.txt" for /f "usebackq delims=" %%V in ("%TOOLS_DIR%\remote_version.txt") do set "REMOTE_VERSION=%%V"
+
+echo.
+echo   +-- ACTION PLAN -------------------------------------------------------------+
+if defined INSTALLED_VERSION (
+  echo     Installed version : %INSTALLED_VERSION%
+) else (
+  echo     Installed version : none ^(fresh install^)
+)
+if defined REMOTE_VERSION (
+  echo     Available version : %REMOTE_VERSION%  ^(branch: %BRANCH%^) 
+) else (
+  echo     Available version : unknown  ^(could not read VERSION from branch %BRANCH%^) 
+)
+
+set "PROPOSED_ACTION=INSTALL"
+if defined INSTALLED_VERSION if defined REMOTE_VERSION if /I "%INSTALLED_VERSION%"=="%REMOTE_VERSION%" set "PROPOSED_ACTION=SKIP"
+if defined INSTALLED_VERSION if defined REMOTE_VERSION if /I not "%INSTALLED_VERSION%"=="%REMOTE_VERSION%" set "PROPOSED_ACTION=UPDATE"
+if defined INSTALLED_VERSION if not defined REMOTE_VERSION set "PROPOSED_ACTION=UPDATE"
+
+if /I "%PROPOSED_ACTION%"=="INSTALL" echo     Planned action    : INSTALL to v%REMOTE_VERSION%
+if /I "%PROPOSED_ACTION%"=="UPDATE"  echo     Planned action    : UPDATE  to v%REMOTE_VERSION% from v%INSTALLED_VERSION%
+if /I "%PROPOSED_ACTION%"=="SKIP"    echo     Planned action    : UP-TO-DATE (no action)
+echo   +--------------------------------------------------------------------------+
+echo.
+
+if /I "%PROPOSED_ACTION%"=="SKIP" (
+  choice /c YN /n /m " Already up-to-date. Reinstall anyway? [Y/N]: "
+  if errorlevel 2 goto :SuccessNoBuild
+  echo   Proceeding with forced reinstall...
+) else (
+  echo   Press Y to start, or N to cancel.
+  choice /c YN /n /m " Proceed with %PROPOSED_ACTION%? [Y/N]: "
+  if errorlevel 2 goto :UserCancelled
+)
+
+rem Directories and logging already initialized above
 
 :: ---------------------------------------------------------------------------------
 :: Fetch latest source via curl+zip
@@ -135,7 +180,7 @@ rem Log extracted top-level folders to help diagnose archive layout
 dir /b /ad "%SRC_DIR%" >> "%LOG_FILE%" 2>&1
 
 if not defined SRC_ROOT set "SRC_ROOT=%SRC_DIR%\orlando-toolkit\"
-if not exist "%SRC_ROOT%build_exe.py" (
+if not exist "%SRC_ROOT%build_exe.py" if not exist "%SRC_ROOT%run.py" if not exist "%SRC_ROOT%orlando_toolkit\app.py" (
   call :LocateSourceRoot
   if errorlevel 1 goto :Fail
 )
@@ -178,23 +223,50 @@ echo     Using inline PyInstaller build... >> "%LOG_FILE%"
 set "ICON_PATH=%SRC_ROOT%assets\app_icon.ico"
 set "ADD_DATA1=%SRC_ROOT%assets;assets"
 set "ADD_DATA2=%SRC_ROOT%orlando_toolkit\config;orlando_toolkit/config"
-"%PYTHON_CMD%" -m PyInstaller ^
-  --onefile ^
-  --windowed ^
-  --name OrlandoToolkit ^
-  --clean ^
-  --noconfirm ^
-  --icon "%ICON_PATH%" ^
-  --add-data "%ADD_DATA1%" ^
-  --add-data "%ADD_DATA2%" ^
-  --hidden-import tkinter ^
-  --hidden-import tkinter.ttk ^
-  --hidden-import tkinter.filedialog ^
-  --hidden-import tkinter.messagebox ^
-  --hidden-import tkinter.scrolledtext ^
-  --hidden-import tkinter.font ^
-  --hidden-import tkinter.constants ^
-  run.py >> "%LOG_FILE%" 2>&1
+
+:: Decide entry script (prefer run.py, fallback to orlando_toolkit\app.py)
+set "ENTRY_SCRIPT=run.py"
+if not exist "%SRC_ROOT%run.py" if exist "%SRC_ROOT%orlando_toolkit\app.py" set "ENTRY_SCRIPT=orlando_toolkit\app.py"
+
+:: If version_info.txt exists, pass it to PyInstaller so EXE properties match
+if exist "%SRC_ROOT%version_info.txt" (
+  "%PYTHON_CMD%" -m PyInstaller ^
+    --onefile ^
+    --windowed ^
+    --name OrlandoToolkit ^
+    --clean ^
+    --noconfirm ^
+    --icon "%ICON_PATH%" ^
+    --add-data="%ADD_DATA1%" ^
+    --add-data="%ADD_DATA2%" ^
+    --hidden-import tkinter ^
+    --hidden-import tkinter.ttk ^
+    --hidden-import tkinter.filedialog ^
+    --hidden-import tkinter.messagebox ^
+    --hidden-import tkinter.scrolledtext ^
+    --hidden-import tkinter.font ^
+    --hidden-import tkinter.constants ^
+    --version-file "%SRC_ROOT%version_info.txt" ^
+    "%ENTRY_SCRIPT%" >> "%LOG_FILE%" 2>&1
+) else (
+  "%PYTHON_CMD%" -m PyInstaller ^
+    --onefile ^
+    --windowed ^
+    --name OrlandoToolkit ^
+    --clean ^
+    --noconfirm ^
+    --icon "%ICON_PATH%" ^
+    --add-data="%ADD_DATA1%" ^
+    --add-data="%ADD_DATA2%" ^
+    --hidden-import tkinter ^
+    --hidden-import tkinter.ttk ^
+    --hidden-import tkinter.filedialog ^
+    --hidden-import tkinter.messagebox ^
+    --hidden-import tkinter.scrolledtext ^
+    --hidden-import tkinter.font ^
+    --hidden-import tkinter.constants ^
+    "%ENTRY_SCRIPT%" >> "%LOG_FILE%" 2>&1
+)
 set "BUILD_STATUS=%errorlevel%"
 popd >nul 2>&1
 if not "%BUILD_STATUS%"=="0" goto :Fail
@@ -214,6 +286,9 @@ if %errorlevel% neq 0 (
   echo     ERROR: Failed to copy executable to App directory
   goto :Fail
 )
+
+:: Write installed version marker for future update checks
+if defined REMOTE_VERSION echo %REMOTE_VERSION%> "%APP_DIR%\version.txt"
 
 echo [5/5] Finalizing...
 
@@ -290,17 +365,15 @@ for /d %%D in ("%TOOLS_DIR%\WPy*") do (
 set "PY_SFX=%TOOLS_DIR%\%WPFILENAME%"
 if not exist "%PY_SFX%" (
   echo     Downloading WinPython portable...
-  curl -fSL -o "%PY_SFX%" "%WPDL_URL%" >> "%LOG_FILE%" 2>&1
-  if not exist "%PY_SFX%" (
-    echo     ERROR: Could not download WinPython portable.
-    exit /b 1
-  )
+  call :DownloadWinPython
+  if %errorlevel% neq 0 exit /b 1
 )
 
 echo     Extracting WinPython...
 "%PY_SFX%" -y -o"%TOOLS_DIR%" >> "%LOG_FILE%" 2>&1
 if %errorlevel% neq 0 (
   echo     ERROR: Extraction of WinPython failed.
+  echo     Hint: The downloaded file may be corrupted. Try re-running the script. >> "%LOG_FILE%"
   exit /b 1
 )
 
@@ -373,10 +446,13 @@ exit /b 0
 :DownloadZip
 rem Use straight-line flow to avoid parentheses parsing issues
 del /f /q "%ZIP_PATH%" >nul 2>&1
-curl -fSL -o "%ZIP_PATH%" "%ZIP_URL_STATIC%" >> "%LOG_FILE%" 2>&1
+curl -fSL -o "%ZIP_PATH%" "%ZIP_URL%" >> "%LOG_FILE%" 2>&1
 if exist "%ZIP_PATH%" goto :DownloadZipOK
 echo     ERROR: Could not download repository zip.
-echo     URL: %ZIP_URL_STATIC%
+echo     URL: %ZIP_URL%
+echo     Retrying via PowerShell... >> "%LOG_FILE%"
+powershell -NoProfile -Command "try { Invoke-WebRequest -UseBasicParsing -Uri '%ZIP_URL%' -OutFile '%ZIP_PATH%' } catch { exit 1 }" >> "%LOG_FILE%" 2>&1
+if exist "%ZIP_PATH%" goto :DownloadZipOK
 exit /b 1
 :DownloadZipOK
 exit /b 0
@@ -384,13 +460,19 @@ exit /b 0
 :ExtractZip
 where tar >nul 2>&1
 if errorlevel 1 goto :UsePS
-if exist "%SRC_DIR%\orlando-toolkit" rmdir /s /q "%SRC_DIR%\orlando-toolkit" >nul 2>&1
+rem Clean previous extracted folders to avoid confusion
+for /d %%D in ("%SRC_DIR%\orlando-toolkit" "%SRC_DIR%\orlando-toolkit-*") do rmdir /s /q "%%~fD" >nul 2>&1
+for /d %%D in ("%SRC_DIR%\%REPO_OWNER%-%REPO_NAME%-*") do rmdir /s /q "%%~fD" >nul 2>&1
+for /d %%D in ("%SRC_DIR%\%REPO_NAME%-%BRANCH%" "%SRC_DIR%\%REPO_NAME%-main" "%SRC_DIR%\%REPO_NAME%-master") do rmdir /s /q "%%~fD" >nul 2>&1
 tar -xf "%ZIP_PATH%" -C "%SRC_DIR%" >> "%LOG_FILE%" 2>&1
 if errorlevel 1 goto :TarFail
 goto :ExtractOk
 :UsePS
 echo     Using PowerShell to extract - tar not found
-if exist "%SRC_DIR%\orlando-toolkit" rmdir /s /q "%SRC_DIR%\orlando-toolkit" >nul 2>&1
+rem Clean previous extracted folders to avoid confusion
+for /d %%D in ("%SRC_DIR%\orlando-toolkit" "%SRC_DIR%\orlando-toolkit-*") do rmdir /s /q "%%~fD" >nul 2>&1
+for /d %%D in ("%SRC_DIR%\%REPO_OWNER%-%REPO_NAME%-*") do rmdir /s /q "%%~fD" >nul 2>&1
+for /d %%D in ("%SRC_DIR%\%REPO_NAME%-%BRANCH%" "%SRC_DIR%\%REPO_NAME%-main" "%SRC_DIR%\%REPO_NAME%-master") do rmdir /s /q "%%~fD" >nul 2>&1
 powershell -NoProfile -Command "Expand-Archive -LiteralPath '%ZIP_PATH%' -DestinationPath '%SRC_DIR%' -Force" >> "%LOG_FILE%" 2>&1
 if errorlevel 1 goto :PSFail
 goto :ExtractOk
@@ -405,7 +487,7 @@ exit /b 0
 
 :MoveExtracted
 set "FOUND_DIR="
-for /d %%D in ("%SRC_DIR%\orlando-toolkit-1.1") do set "FOUND_DIR=%%~fD" & goto :HaveExtractedDir
+for /d %%D in ("%SRC_DIR%\orlando-toolkit-*") do set "FOUND_DIR=%%~fD" & goto :HaveExtractedDir
 for /d %%D in ("%SRC_DIR%\orlando-toolkit") do set "FOUND_DIR=%%~fD" & goto :HaveExtractedDir
 for /d %%D in ("%SRC_DIR%\%REPO_OWNER%-%REPO_NAME%-*") do set "FOUND_DIR=%%~fD" & goto :HaveExtractedDir
 for /d %%D in ("%SRC_DIR%\%REPO_NAME%-%BRANCH%") do set "FOUND_DIR=%%~fD" & goto :HaveExtractedDir
@@ -417,46 +499,20 @@ if not defined FOUND_DIR (
   echo     ERROR: Could not locate extracted folder
   exit /b 1
 )
-set "DEST_DIR=%SRC_DIR%\orlando-toolkit"
-if /I "%FOUND_DIR%"=="%DEST_DIR%" (
-  rem Already normalized; do not self-move
-  set "SRC_ROOT=%DEST_DIR%\"
-  exit /b 0
-)
-if exist "%DEST_DIR%" rmdir /s /q "%DEST_DIR%" >nul 2>&1
-rem Try simple move first
-move /y "%FOUND_DIR%" "%DEST_DIR%" >> "%LOG_FILE%" 2>&1
-if errorlevel 1 (
-  rem If simple move fails, attempt rename within parent, else robocopy fallback
-  for %%P in ("%FOUND_DIR%") do (
-    set "FOUND_PARENT=%%~dpP"
-    set "FOUND_NAME=%%~nxP"
-  )
-  if /I "%FOUND_PARENT%"=="%SRC_DIR%\" (
-    pushd "%SRC_DIR%" >nul 2>&1
-    ren "%FOUND_NAME%" "orlando-toolkit" >> "%LOG_FILE%" 2>&1
-    popd >nul 2>&1
-    if exist "%DEST_DIR%" (
-      set "SRC_ROOT=%DEST_DIR%\"
-      exit /b 0
-    )
-  )
-  rem Robocopy fallback (0-3 are success codes)
-  mkdir "%DEST_DIR%" >nul 2>&1
-  robocopy "%FOUND_DIR%" "%DEST_DIR%" /E /MOVE >> "%LOG_FILE%" 2>&1
-  if errorlevel 4 goto :MoveFailRobocopy
-  rmdir /s /q "%FOUND_DIR%" >nul 2>&1
-  set "SRC_ROOT=%DEST_DIR%\"
-  exit /b 0
-  :MoveFailRobocopy
-  echo     ERROR: Failed to move extracted folder to normalized path >> "%LOG_FILE%"
-  echo     FROM: %FOUND_DIR% >> "%LOG_FILE%"
-  echo     TO  : %DEST_DIR% >> "%LOG_FILE%"
-  dir /b /ad "%SRC_DIR%" >> "%LOG_FILE%" 2>&1
-  exit /b 1
-)
-set "SRC_ROOT=%DEST_DIR%\"
+
+rem Option A: flatten into %SRC_DIR% directly (requested behavior)
+rem Move contents of FOUND_DIR up one level, then remove the folder
+robocopy "%FOUND_DIR%" "%SRC_DIR%" /E /MOVE >> "%LOG_FILE%" 2>&1
+if errorlevel 4 goto :MoveFailRobocopy2
+if exist "%FOUND_DIR%" rmdir /s /q "%FOUND_DIR%" >nul 2>&1
+set "SRC_ROOT=%SRC_DIR%\"
 exit /b 0
+
+:MoveFailRobocopy2
+echo     ERROR: Failed to flatten extracted folder to %SRC_DIR% >> "%LOG_FILE%"
+echo     FROM: %FOUND_DIR% >> "%LOG_FILE%"
+dir /b /ad "%SRC_DIR%" >> "%LOG_FILE%" 2>&1
+exit /b 1
 
 :LocateSourceRoot
 set "SRC_ROOT=%SRC_DIR%\orlando-toolkit\"
@@ -489,4 +545,85 @@ set "SHORTCUT=%DESKTOP_DIR%\Orlando Toolkit.lnk"
 powershell -NoProfile -Command "try { $WshShell = New-Object -ComObject WScript.Shell; $Shortcut = $WshShell.CreateShortcut('%SHORTCUT%'); $Shortcut.TargetPath = '%EXE_PATH%'; $Shortcut.WorkingDirectory = (Split-Path -Parent '%EXE_PATH%'); $Shortcut.Description = 'Orlando Toolkit - DOCX to DITA Converter'; $Shortcut.Save(); Write-Host '     Desktop shortcut created successfully' } catch { Write-Host '     Warning: Could not create desktop shortcut' }"
 exit /b 0
 
+
+:: ---------------------------------------------------------------------------------
+:ResolveDefaultBranch
+rem If BRANCH provided by caller, validate it; otherwise detect and validate
+if defined BRANCH (
+  call :_CheckBranch "%BRANCH%"
+  if %errorlevel%==0 exit /b 0
+)
+
+rem Try GitHub API to read default_branch (with headers + TLS)
+for /f %%B in ('powershell -NoProfile -Command "$ProgressPreference='SilentlyContinue'; [Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12; $h=@{ 'User-Agent'='curl' }; try{ (Invoke-RestMethod -Headers $h -Uri 'https://api.github.com/repos/%REPO_OWNER%/%REPO_NAME%' -ErrorAction Stop).default_branch } catch { '' }" 2^>nul') do set "BRANCH=%%B"
+if defined BRANCH (
+  call :_CheckBranch "%BRANCH%"
+  if %errorlevel%==0 exit /b 0
+)
+
+rem Fallback candidates if detection fails or invalid
+for %%C in (main master 1.3 1.2 1.1) do (
+  call :_CheckBranch "%%C"
+  if %errorlevel%==0 (
+    set "BRANCH=%%C"
+    exit /b 0
+  )
+)
+
+rem Last resort
+set "BRANCH=master"
+exit /b 0
+
+:: ---------------------------------------------------------------------------------
+:FetchRemoteVersion
+rem Attempt to fetch remote VERSION file from the selected branch
+if not exist "%TOOLS_DIR%" mkdir "%TOOLS_DIR%"
+set "REMOTE_VERSION="
+del /f /q "%TOOLS_DIR%\remote_version.txt" >nul 2>&1
+curl -fSL -o "%TOOLS_DIR%\remote_version.txt" "%VERSION_URL%" >> "%LOG_FILE%" 2>&1
+if not exist "%TOOLS_DIR%\remote_version.txt" (
+  powershell -NoProfile -Command "try { Invoke-WebRequest -UseBasicParsing -Uri '%VERSION_URL%' -OutFile '%TOOLS_DIR%\\remote_version.txt' } catch { exit 1 }" >> "%LOG_FILE%" 2>&1
+)
+if exist "%TOOLS_DIR%\remote_version.txt" for /f "usebackq delims=" %%V in ("%TOOLS_DIR%\remote_version.txt") do set "REMOTE_VERSION=%%V"
+exit /b 0
+
+:: ---------------------------------------------------------------------------------
+:DownloadWinPython
+rem Robust download with size verification and PowerShell fallback (no parentheses)
+set "WP_TRIES=0"
+:DLWP_Retry
+set /a WP_TRIES=WP_TRIES+1
+curl -fSL -o "%PY_SFX%" "%WPDL_URL%" >> "%LOG_FILE%" 2>&1
+set "WP_SIZE=0"
+for %%A in ("%PY_SFX%") do set "WP_SIZE=%%~zA"
+if not exist "%PY_SFX%" set "WP_SIZE=0"
+if %WP_SIZE% GEQ 20000000 goto :DLWP_OkCurl
+
+rem Curl result too small; try PowerShell
+if exist "%PY_SFX%" del /f /q "%PY_SFX%" >nul 2>&1
+powershell -NoProfile -Command "(New-Object System.Net.WebClient).DownloadFile('%WPDL_URL%', '%PY_SFX%')" >> "%LOG_FILE%" 2>&1
+set "WP_SIZE=0"
+for %%A in ("%PY_SFX%") do set "WP_SIZE=%%~zA"
+if %WP_SIZE% GEQ 20000000 goto :DLWP_OkPS
+
+rem Retry once
+if %WP_TRIES% LSS 2 goto :DLWP_Retry
+echo     ERROR: Could not obtain a valid WinPython package (file too small). >> "%LOG_FILE%"
+echo     URL: %WPDL_URL% >> "%LOG_FILE%"
+exit /b 1
+
+:DLWP_OkCurl
+:DLWP_OkPS
+exit /b 0
+
+:: ---------------------------------------------------------------------------------
+:_CheckBranch
+set "_C=%~1"
+set "_TESTZIP=https://github.com/%REPO_OWNER%/%REPO_NAME%/archive/refs/heads/%_C%.zip"
+curl -fsI "%_TESTZIP%" >> "%LOG_FILE%" 2>&1
+if %errorlevel%==0 exit /b 0
+set "_TESTVER=https://raw.githubusercontent.com/%REPO_OWNER%/%REPO_NAME%/%_C%/VERSION"
+curl -fsI "%_TESTVER%" >> "%LOG_FILE%" 2>&1
+if %errorlevel%==0 exit /b 0
+exit /b 1
 
