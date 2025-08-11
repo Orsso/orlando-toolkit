@@ -7,8 +7,7 @@ orlando_toolkit/
 ├── docs/                   # Architecture and design documentation
 ├── orlando_toolkit/        # Main Python package
 ├── tests/                  # Unit and integration tests
-├── build.bat              # Windows build automation script
-├── build_exe.py           # PyInstaller build configuration
+├── build.py               # PyInstaller build script
 ├── run.py                 # Application entry point
 ├── requirements.txt       # Python dependencies
 └── README.md              # Project documentation

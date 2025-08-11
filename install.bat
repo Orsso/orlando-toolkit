@@ -9,7 +9,7 @@ setlocal EnableExtensions
 ::  - Installs dependencies, builds with PyInstaller (quiet), logs to file
 ::  - Copies a timestamped EXE into releases
 
-title Orlando Toolkit Deployment
+title Orlando Toolkit Installer
 
 :: ---------------------------------------------------------------------------------
 :: Configuration

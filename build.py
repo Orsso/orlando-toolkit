@@ -3,7 +3,7 @@
 
 """
 Build script for creating Orlando Toolkit Windows executable
-Run this script on Windows with PyInstaller installed
+Renamed to build.py. This file remains temporarily for backward compatibility.
 """
 
 import sys

@@ -30,17 +30,13 @@ python run.py
 
 ### Windows Executable Build
 ```bash
-# Automated build (sets up portable Python environment if missing)
-build.bat
-
-# Manual build
-python build_exe.py
+python build.py
 ```
 
 ### Build Tools
 - **PyInstaller** - Creates single-file Windows executable
 - **WinPython** - Portable Python runtime for Windows builds
-- **build.bat** - Automated build script with dependency checking
+- **build.py** - PyInstaller build script
 
 ## Key Dependencies
 ```

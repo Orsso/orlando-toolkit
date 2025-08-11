@@ -139,7 +139,7 @@ See [orlando_toolkit/config/README.md](../orlando_toolkit/config/README.md).
 
 ## 8. Build & distribution
 
-- Windows executable: `build_exe.py` (PyInstaller, windowed) and `build.bat` convenience script.
+- Windows executable: `build.py` (PyInstaller, windowed).
 - From source: `python run.py` after installing `requirements.txt`.
 
 ---
