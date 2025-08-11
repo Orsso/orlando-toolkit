@@ -53,10 +53,10 @@ class HeadingFilterPanel(ttk.Frame):
             # Base label style for filter rows (inherits from default theme)
             style.configure("HeadingFilter.Row.TLabel")
             # Hover visually distinct; use foreground emphasis and slight background tint when supported
-            style.configure("HeadingFilter.Hover.TLabel", foreground="#0B6BD3")
+            style.configure("HeadingFilter.Hover.TLabel", foreground="#0098e4")
             style.map(
                 "HeadingFilter.Hover.TLabel",
-                foreground=[("active", "#0A58CC")],
+                foreground=[("active", "#0078b3")],
             )
             # Selected style: stronger emphasis (match tree style marker orange)
             style.configure("HeadingFilter.Selected.TLabel", foreground="#F57C00")

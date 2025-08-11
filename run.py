@@ -43,6 +43,18 @@ def main():
     try:
         from sv_ttk import set_theme
         set_theme("light")  # Changed to light theme for professional look
+        
+        # Override Accent button style immediately after theme is set
+        from tkinter import ttk
+        style = ttk.Style()
+        style.configure("Accent.TButton", 
+                      background="#0098e4", 
+                      foreground="white",
+                      borderwidth=0,
+                      focuscolor="none")
+        style.map("Accent.TButton", 
+                 background=[("active", "#0078b3"), ("pressed", "#005c85"), ("disabled", "#cccccc")],
+                 foreground=[("active", "white"), ("pressed", "white"), ("disabled", "gray")])
     except ImportError:
         print("Warning: 'sv-ttk' theme is not installed.")
 

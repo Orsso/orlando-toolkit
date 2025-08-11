@@ -210,6 +210,8 @@ def main() -> bool:
         "OrlandoToolkit",  # Executable name
         "--clean",  # Clean PyInstaller cache
         "--noconfirm",  # Overwrite output without asking
+        "--icon",
+        str(project_root / "assets" / "app_icon.ico"),
         "--add-data",
         f"{project_root / 'assets'};assets",  # Include assets folder
         "--add-data",
@@ -295,45 +297,6 @@ def main() -> bool:
                     "The executable is ready for distribution.",
                 ],
             )
-
-            # Ask user about desktop shortcut
-            print(".")
-            print("   +---------------------------------------------------------------------+")
-            print("     Desktop Shortcut")
-            print("   +---------------------------------------------------------------------+")
-            print("   Would you like to create a desktop shortcut? (y/n): ", end="")
-
-            try:
-                response = input().strip().lower()
-                if response in ["y", "yes"]:
-                    print(".")
-                    print("   Creating desktop shortcut...")
-
-                    shortcut_path = create_desktop_shortcut(release_exe)
-                    if shortcut_path:
-                        print(f"   Desktop shortcut created: {shortcut_path.name}")
-                        print_success_box(
-                            "Shortcut Created",
-                            [
-                                "Desktop shortcut has been created successfully.",
-                                "",
-                                f"Shortcut name: {shortcut_path.name}",
-                                "You can now launch Orlando Toolkit from your desktop.",
-                            ],
-                        )
-                    else:
-                        print_error_box(
-                            "Shortcut Creation Failed",
-                            [
-                                "Could not create desktop shortcut.",
-                                "You can manually create one by right-clicking the .exe file",
-                                "and selecting 'Create shortcut'.",
-                            ],
-                        )
-                else:
-                    print("   Desktop shortcut skipped.")
-            except (KeyboardInterrupt, EOFError):
-                print("   Desktop shortcut skipped.")
 
             return True
 

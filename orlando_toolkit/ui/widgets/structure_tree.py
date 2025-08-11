@@ -80,7 +80,7 @@ class StructureTreeWidget(ttk.Frame):
             style.map(
                 style_name,
                 background=[('selected', default_bg), ('!focus selected', default_bg)],
-                foreground=[('selected', '#0B6BD3'), ('!focus selected', '#0B6BD3')],
+                foreground=[('selected', '#0098e4'), ('!focus selected', '#0098e4')],
             )
         except Exception:
             style_name = "Treeview"
@@ -158,7 +158,7 @@ class StructureTreeWidget(ttk.Frame):
 
             def _build_variant(draw_search: bool, draw_filter: bool) -> tk.PhotoImage:
                 img = tk.PhotoImage(width=marker_w, height=marker_h)
-                s_color = "#1976D2"  # blue
+                s_color = "#0098e4"  # blue
                 f_color = "#F57C00"  # orange
                 radius = 4  # slightly larger dot for better visibility
                 cy = marker_h // 2
@@ -214,19 +214,19 @@ class StructureTreeWidget(ttk.Frame):
                         self._font_selected.configure(size=base_size + 4)
                     except Exception:
                         self._font_selected.configure()
-                    self._tree.tag_configure("selected-row", font=self._font_selected, foreground="#0B6BD3")
+                    self._tree.tag_configure("selected-row", font=self._font_selected, foreground="#0098e4")
                     # Selected + highlighted: base + 4, underline (no bold) for clear signal on selection
                     self._font_selected_highlight = tkfont.Font(self, font=base_font)
                     try:
                         self._font_selected_highlight.configure(size=base_size + 4, underline=1)
                     except Exception:
                         self._font_selected_highlight.configure(underline=1)
-                    self._tree.tag_configure("selected-highlight", font=self._font_selected_highlight, foreground="#0B6BD3")
+                    self._tree.tag_configure("selected-highlight", font=self._font_selected_highlight, foreground="#0098e4")
                 else:
                     # Fallback tuple if default font lookup fails
                     self._tree.tag_configure("section", font=("", 11, "bold"))
-                    self._tree.tag_configure("selected-row", font=("", 13), foreground="#0B6BD3")
-                    self._tree.tag_configure("selected-highlight", font=("", 13, "underline"), foreground="#0B6BD3")
+                    self._tree.tag_configure("selected-row", font=("", 13), foreground="#0098e4")
+                    self._tree.tag_configure("selected-highlight", font=("", 13, "underline"), foreground="#0098e4")
             except Exception:
                 pass
         except Exception:

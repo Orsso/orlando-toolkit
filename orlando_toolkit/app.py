@@ -80,7 +80,7 @@ class OrlandoToolkit:
         except Exception as exc:
             logger.warning("Could not load logo: %s", exc)
 
-        ttk.Label(self.home_center, text="Orlando Toolkit", font=("Arial", 24, "bold")).pack(pady=20)
+        ttk.Label(self.home_center, text="Orlando Toolkit", font=("Trebuchet MS", 26, "bold"), foreground="#0098e4").pack(pady=20)
         ttk.Label(self.home_center, text="DOCX to DITA converter", font=("Arial", 12), foreground="gray").pack(pady=(0, 10))
 
         self.load_button = ttk.Button(self.home_center, text="Load Document (.docx)", style="Accent.TButton", command=self.start_conversion_workflow)
@@ -538,6 +538,7 @@ class OrlandoToolkit:
     def on_metadata_change(self) -> None:
         if self.image_tab:
             self.image_tab.update_image_names()
+
 
 # ----------------------------------------------------------------------
 # Utility: bridge Python logging to a Tkinter label for user feedback.

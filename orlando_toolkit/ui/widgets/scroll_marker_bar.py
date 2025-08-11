@@ -40,7 +40,7 @@ class ScrollMarkerBar(ttk.Frame):
         self._band_height: float = 0.0
 
         # Colors aligned with StructureTreeWidget markers
-        self._color_search = "#1976D2"  # blue
+        self._color_search = "#0098e4"  # blue
         self._color_filter = "#F57C00"  # orange
         self._color_view = "#E6E6E6"    # light gray band
 
