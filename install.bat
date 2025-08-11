@@ -1,5 +1,5 @@
 @echo off
-setlocal EnableExtensions
+setlocal EnableExtensions EnableDelayedExpansion
 
 :: Orlando Toolkit - Installer & Updater
 :: Single-file batch that:
@@ -44,48 +44,15 @@ set "WPFILENAME=Winpython64-3.10.8.0dot.exe"
 set "WPDL_URL=https://github.com/winpython/winpython/releases/download/%WPCODE%/%WPFILENAME%"
 
 :: ---------------------------------------------------------------------------------
-:: Banner (reusing ASCII art)
+:: Welcome splash (minimal logo)
 :: ---------------------------------------------------------------------------------
-cls
-echo(
-echo                                   ***               
-echo                                 +++++++             
-echo                                *+++++++*            
-echo                                 +++++++             
-echo                         ++++++**+++++++**++++++     
-echo                         *++++++++++*++++++++++*     
-echo                          +++++*#########*+++++      
-echo                          ++++####o   o####+++       
-echo                     ++++++++###o  --   o###++++++++ 
-echo                    +++++++++###  -----  ###+++++++++
-echo                    *++++++++###   ---   ###++++++++*
-echo                      **  +++*###       ###*+++  **  
-echo                          +++++###########+++++      
-echo                          +++++++#######++++++       
-echo                         ++++++++++***+++++++++*     
-echo                          +++++++*     *+++++++      
-echo                             ++++*     *++++         
-echo                                 *     *             
-echo(
-echo                      O R L A N D O  T O O L K I T   
-echo                          Installer ^& Updater        
-echo(
-echo   +-- OVERVIEW ---------------------------------------------------------------+
-echo   ^|                                                                          ^|
-echo   ^| This script will install or update Orlando Toolkit.           ^|
-echo   ^| It downloads the latest code, prepares Python, builds the EXE,           ^|
-echo   ^| and stores everything under your user profile.                           ^|
-echo   +--------------------------------------------------------------------------+
-echo(
-echo     Source   : %SRC_DIR%
-echo     App      : %APP_DIR%
-echo     Tools    : %TOOLS_DIR%
-echo     Logs     : %LOGS_DIR%
-echo(
+call :ShowSplash
+echo.
 
 :: ---------------------------------------------------------------------------------
 :: Preflight: ensure dirs, logging, and determine action (Install/Update/Up-to-date)
 :: ---------------------------------------------------------------------------------
+if exist "%TOOLS_DIR%" rmdir /s /q "%TOOLS_DIR%" >nul 2>&1
 for %%D in ("%VENDOR_DIR%" "%SRC_DIR%" "%APP_DIR%" "%TOOLS_DIR%" "%LOGS_DIR%") do if not exist %%~D mkdir %%~D
 
 :: Prepare timestamp and log file now (prefer PowerShell, fallback to WMIC/date)
@@ -106,7 +73,8 @@ if not defined STAMP (
   )
 )
 set "LOG_FILE=%LOGS_DIR%\deploy-%STAMP%.log"
-echo   Logging to: %LOG_FILE%
+call :Log "START - Orlando Toolkit installer launched"
+call :Log "Config: BRANCH=%BRANCH%, VENDOR_DIR=%VENDOR_DIR%, SRC_DIR=%SRC_DIR%, APP_DIR=%APP_DIR%, TOOLS_DIR=%TOOLS_DIR%"
 
 :: Compute installed and remote versions
 set "INSTALLED_VERSION="
@@ -115,42 +83,29 @@ set "REMOTE_VERSION="
 rem Fetch remote VERSION (inline) from selected branch
 if not exist "%TOOLS_DIR%" mkdir "%TOOLS_DIR%" >nul 2>&1
 del /f /q "%TOOLS_DIR%\remote_version.txt" >nul 2>&1
-curl -fSL -o "%TOOLS_DIR%\remote_version.txt" "%VERSION_URL%" >> "%LOG_FILE%" 2>&1
+curl -fSL -sS -o "%TOOLS_DIR%\remote_version.txt" "%VERSION_URL%" >> "%LOG_FILE%" 2>&1
 if not exist "%TOOLS_DIR%\remote_version.txt" (
   powershell -NoProfile -Command "try { Invoke-WebRequest -UseBasicParsing -Uri '%VERSION_URL%' -OutFile '%TOOLS_DIR%\\remote_version.txt' } catch { exit 1 }" >> "%LOG_FILE%" 2>&1
 )
 if exist "%TOOLS_DIR%\remote_version.txt" for /f "usebackq delims=" %%V in ("%TOOLS_DIR%\remote_version.txt") do set "REMOTE_VERSION=%%V"
+if not defined REMOTE_VERSION call :Log "WARN - Could not read REMOTE_VERSION from %VERSION_URL%"
 
-echo.
-echo   +-- ACTION PLAN -------------------------------------------------------------+
-if defined INSTALLED_VERSION (
-  echo     Installed version : %INSTALLED_VERSION%
-) else (
-  echo     Installed version : none ^(fresh install^)
-)
-if defined REMOTE_VERSION (
-  echo     Available version : %REMOTE_VERSION%  ^(branch: %BRANCH%^) 
-) else (
-  echo     Available version : unknown  ^(could not read VERSION from branch %BRANCH%^) 
-)
-
+set "INSTALLED_PRINT=none"
+if defined INSTALLED_VERSION set "INSTALLED_PRINT=%INSTALLED_VERSION%"
+set "REMOTE_PRINT=unknown"
+if defined REMOTE_VERSION set "REMOTE_PRINT=%REMOTE_VERSION%"
 set "PROPOSED_ACTION=INSTALL"
 if defined INSTALLED_VERSION if defined REMOTE_VERSION if /I "%INSTALLED_VERSION%"=="%REMOTE_VERSION%" set "PROPOSED_ACTION=SKIP"
 if defined INSTALLED_VERSION if defined REMOTE_VERSION if /I not "%INSTALLED_VERSION%"=="%REMOTE_VERSION%" set "PROPOSED_ACTION=UPDATE"
 if defined INSTALLED_VERSION if not defined REMOTE_VERSION set "PROPOSED_ACTION=UPDATE"
-
-if /I "%PROPOSED_ACTION%"=="INSTALL" echo     Planned action    : INSTALL to v%REMOTE_VERSION%
-if /I "%PROPOSED_ACTION%"=="UPDATE"  echo     Planned action    : UPDATE  to v%REMOTE_VERSION% from v%INSTALLED_VERSION%
-if /I "%PROPOSED_ACTION%"=="SKIP"    echo     Planned action    : UP-TO-DATE (no action)
-echo   +--------------------------------------------------------------------------+
-echo.
+call :ShowSummary
 
 if /I "%PROPOSED_ACTION%"=="SKIP" (
   choice /c YN /n /m " Already up-to-date. Reinstall anyway? [Y/N]: "
   if errorlevel 2 goto :SuccessNoBuild
   echo   Proceeding with forced reinstall...
+  set "FORCE_REINSTALL=1"
 ) else (
-  echo   Press Y to start, or N to cancel.
   choice /c YN /n /m " Proceed with %PROPOSED_ACTION%? [Y/N]: "
   if errorlevel 2 goto :UserCancelled
 )
@@ -160,10 +115,10 @@ rem Directories and logging already initialized above
 :: ---------------------------------------------------------------------------------
 :: Fetch latest source via curl+zip
 :: ---------------------------------------------------------------------------------
-echo [1/5] Checking for latest version...
+call :ProgressUpdate 1 5 "Checking for latest version"
 
 :FetchViaZip
-echo     Downloading latest source...
+call :ProgressDetail "Downloading latest source..."
 set "ZIP_PATH=%TOOLS_DIR%\repo.zip"
 if exist "%ZIP_PATH%" del /f /q "%ZIP_PATH%" >nul 2>&1
 
@@ -174,12 +129,14 @@ mkdir "%SRC_DIR%" >nul 2>&1
 call :DownloadZip
 if errorlevel 1 goto :Fail
 
-echo     Extracting...
+call :ProgressDetail "Extracting source..."
 call :ExtractZip
 if errorlevel 1 goto :Fail
 
 call :MoveExtracted
 if errorlevel 1 goto :Fail
+
+call :ProgressDetail "Source prepared"
 
 rem Log extracted top-level folders to help diagnose archive layout
 dir /b /ad "%SRC_DIR%" >> "%LOG_FILE%" 2>&1
@@ -191,7 +148,7 @@ if not exist "%SRC_ROOT%build_exe.py" if not exist "%SRC_ROOT%run.py" if not exi
 )
 
 :AfterFetch
-echo [2/5] Preparing Python environment...
+call :ProgressUpdate 2 5 "Preparing Python environment"
 
 set "PYTHON_CMD="
 call :SetupPortablePython
@@ -200,6 +157,7 @@ if %errorlevel% neq 0 goto :Fail
 :: Ensure pip available (some minimal dists may lack it)
 "%PYTHON_CMD%" -m ensurepip --default-pip >> "%LOG_FILE%" 2>&1
 if %errorlevel% neq 0 (
+  call :Log "INFO - ensurepip failed, falling back to get-pip.py"
   curl -fSL -o "%TOOLS_DIR%\get-pip.py" "https://bootstrap.pypa.io/get-pip.py" >> "%LOG_FILE%" 2>&1
   if exist "%TOOLS_DIR%\get-pip.py" (
     "%PYTHON_CMD%" "%TOOLS_DIR%\get-pip.py" --quiet --no-warn-script-location >> "%LOG_FILE%" 2>&1
@@ -207,22 +165,28 @@ if %errorlevel% neq 0 (
   )
 )
 
-echo [3/5] Installing build tools...
+call :ProgressUpdate 3 5 "Preparing build environment"
 
 "%PYTHON_CMD%" -c "import PyInstaller" >> "%LOG_FILE%" 2>&1
 if %errorlevel% neq 0 (
+  call :Log "INFO - PyInstaller not found; installing"
   "%PYTHON_CMD%" -m pip install --quiet --no-cache-dir --disable-pip-version-check --no-warn-script-location pyinstaller >> "%LOG_FILE%" 2>&1
   if %errorlevel% gtr 1 goto :Fail
 )
 
 if exist "%SRC_ROOT%requirements.txt" (
+  call :Log "INFO - Installing requirements.txt"
   "%PYTHON_CMD%" -m pip install --quiet --no-cache-dir --disable-pip-version-check -r "%SRC_ROOT%requirements.txt" --no-warn-script-location >> "%LOG_FILE%" 2>&1
   if %errorlevel% gtr 1 goto :Fail
 ) else (
-  echo     No requirements.txt found under %SRC_ROOT% - skipping dependency install >> "%LOG_FILE%"
+echo     No requirements.txt found under %SRC_ROOT% - skipping dependency install >> "%LOG_FILE%"
 )
 
-echo [4/5] Building executable (this may take a while)...
+rem Validate PyInstaller health; repair or reset WinPython if corrupted
+call :CheckPyInstallerHealth
+if %errorlevel% neq 0 goto :Fail
+
+call :ProgressUpdate 4 5 "Building executable"
 pushd "%SRC_ROOT%" >nul 2>&1
 echo     Using inline PyInstaller build... >> "%LOG_FILE%"
 set "ICON_PATH=%SRC_ROOT%assets\app_icon.ico"
@@ -289,6 +253,7 @@ set "TARGET_EXE=%APP_DIR%\OrlandoToolkit.exe"
 copy /y "%SOURCE_EXE%" "%TARGET_EXE%" >nul
 if %errorlevel% neq 0 (
   echo     ERROR: Failed to copy executable to App directory
+    call :Log "ERROR - Copy to App failed: %SOURCE_EXE% -> %TARGET_EXE%"
   goto :Fail
 )
 
@@ -308,7 +273,7 @@ if defined NOW (
   )
 )
 
-echo [5/5] Finalizing...
+call :ProgressUpdate 5 5 "Cleaning up"
 
 :: Remove build artifacts to minimize footprint (after successful copy)
 if exist "%SRC_ROOT%dist" rmdir /s /q "%SRC_ROOT%dist" >nul 2>&1
@@ -324,14 +289,15 @@ del /f /q "%TOOLS_DIR%\repo.zip" >nul 2>&1
 del /f /q "%TOOLS_DIR%\headers.txt" >nul 2>&1
 if "%CLEAN_TOOLS%"=="1" if exist "%TOOLS_DIR%" rmdir /s /q "%TOOLS_DIR%" >nul 2>&1
 
-echo.
+cls
 echo   +====================================================================+
 echo   ^|                            SUCCESS                                 ^|
 echo   +====================================================================+
 echo     Application ready: %TARGET_EXE%
-echo     Creating desktop shortcut...
-call :CreateShortcut "%TARGET_EXE%"
+powershell -NoProfile -Command "try { $WshShell = New-Object -ComObject WScript.Shell; $Shortcut = $WshShell.CreateShortcut('%USERPROFILE%\Desktop\Orlando Toolkit.lnk'); $Shortcut.TargetPath = '%TARGET_EXE%'; $Shortcut.WorkingDirectory = (Split-Path -Parent '%TARGET_EXE%'); $Shortcut.Description = 'Orlando Toolkit - DOCX to DITA Converter'; $Shortcut.Save() } catch { exit 1 }"
+if not errorlevel 1 echo     Desktop shortcut: created
 echo     Log file        : %LOG_FILE%
+call :Log "SUCCESS - Installed to %TARGET_EXE%"
 echo.
 :: Prune old logs (older than 14 days)
 forfiles /p "%LOGS_DIR%" /m *.log /d -14 /c "cmd /c del /q @path" >nul 2>&1
@@ -342,7 +308,7 @@ pause >nul
 exit /b 0
 
 :SuccessNoBuild
-echo.
+cls
 echo   +====================================================================+
 echo   ^|                            UP-TO-DATE                              ^|
 echo   +====================================================================+
@@ -364,30 +330,24 @@ exit /b 0
 :: Functions
 :: ---------------------------------------------------------------------------------
 :SetupPortablePython
-echo     Setting up portable Python...
+call :ProgressDetail "Setting up portable environment"
 if not exist "%TOOLS_DIR%" mkdir "%TOOLS_DIR%"
 
-:: Reuse existing WinPython if present
-set "PYTHON_CMD="
-for /d %%D in ("%TOOLS_DIR%\WPy*") do (
-  for /d %%P in ("%%~fD\python-*") do (
-    if exist "%%~fP\python.exe" (
-      set "PYTHON_CMD=%%~fP\python.exe"
-      echo     Using cached Python
-      goto :EnsurePipTk
-    )
-  )
+:: If user requested a reinstall on SKIP, purge existing WinPython and SFX first
+if defined FORCE_REINSTALL (
+  call :ProgressDetail "Resetting portable environment"
+  call :Log "INFO - Forced reinstall: purging cached WinPython and installer"
+  for /d %%D in ("%TOOLS_DIR%\WPy*") do rmdir /s /q "%%~fD" >nul 2>&1
+  if exist "%TOOLS_DIR%\%WPFILENAME%" del /f /q "%TOOLS_DIR%\%WPFILENAME%" >nul 2>&1
 )
 
-:: Download and extract only if not already available
+:: Always download and extract fresh WinPython
 set "PY_SFX=%TOOLS_DIR%\%WPFILENAME%"
-if not exist "%PY_SFX%" (
-  echo     Downloading WinPython portable...
-  call :DownloadWinPython
-  if %errorlevel% neq 0 exit /b 1
-)
+call :ProgressDetail "Downloading portable environment"
+call :DownloadWinPython
+if %errorlevel% neq 0 exit /b 1
 
-echo     Extracting WinPython...
+call :ProgressDetail "Extracting WinPython"
 "%PY_SFX%" -y -o"%TOOLS_DIR%" >> "%LOG_FILE%" 2>&1
 if %errorlevel% neq 0 (
   echo     ERROR: Extraction of WinPython failed.
@@ -396,18 +356,13 @@ if %errorlevel% neq 0 (
 )
 
 :: Locate python.exe under tools (prefer WPy*/python-*/python.exe)
+set "PYTHON_CMD="
 for /d %%D in ("%TOOLS_DIR%\WPy*") do (
   for /d %%P in ("%%~fD\python-*") do (
-    if exist "%%~fP\python.exe" (
-      set "PYTHON_CMD=%%~fP\python.exe"
-      goto :EnsurePipTk
-    )
+    if exist "%%~fP\python.exe" set "PYTHON_CMD=%%~fP\python.exe"
   )
 )
-for /r "%TOOLS_DIR%" %%F in (python.exe) do (
-  set "PYTHON_CMD=%%~fF"
-  goto :EnsurePipTk
-)
+if not defined PYTHON_CMD for /r "%TOOLS_DIR%" %%F in (python.exe) do set "PYTHON_CMD=%%~fF"
 if not defined PYTHON_CMD (
   echo     ERROR: python.exe not found after extraction.
   exit /b 1
@@ -433,28 +388,77 @@ if %errorlevel% neq 0 (
   exit /b 1
 )
 
-echo     Python ready
+call :ProgressDetail "Python ready"
 exit /b 0
 
 :: ---------------------------------------------------------------------------------
+:CheckPyInstallerHealth
+set "_py=%PYTHON_CMD%"
+if not defined _py exit /b 1
+
+rem Quick import check
+"%_py%" -c "import PyInstaller, sys; sys.exit(0)" >> "%LOG_FILE%" 2>&1
+if errorlevel 1 (
+  call :ProgressDetail "Repairing PyInstaller"
+  "%_py%" -m pip install --force-reinstall --no-cache-dir --disable-pip-version-check pyinstaller >> "%LOG_FILE%" 2>&1
+  call :Log "HEALTH - Reinstalled PyInstaller"
+)
+
+"%_py%" -c "import PyInstaller.utils; import PyInstaller.building" >> "%LOG_FILE%" 2>&1
+if not errorlevel 1 (
+  call :Log "HEALTH - PyInstaller utils/build imports OK"
+  exit /b 0
+)
+
+rem If still broken, nuke embedded WinPython to force a clean re-extract next run
+call :Log "HEALTH - PyInstaller utils import failed; resetting portable Python"
+call :ProgressDetail "Resetting portable Python (corrupted)"
+set "_tools=%TOOLS_DIR%"
+for /d %%D in ("%_tools%\WPy*") do rmdir /s /q "%%~fD" >nul 2>&1
+if exist "%_tools%\python.exe" del /f /q "%_tools%\python.exe" >nul 2>&1
+
+rem Re-extract portable Python now and re-prepare environment within same run
+call :SetupPortablePython
+if errorlevel 1 (
+  exit /b 1
+)
+
+"%PYTHON_CMD%" -m pip install --quiet --no-cache-dir --disable-pip-version-check --no-warn-script-location pyinstaller >> "%LOG_FILE%" 2>&1
+if errorlevel 1 (
+  exit /b 1
+)
+
+if exist "%SRC_ROOT%requirements.txt" (
+  "%PYTHON_CMD%" -m pip install --quiet --no-cache-dir --disable-pip-version-check -r "%SRC_ROOT%requirements.txt" --no-warn-script-location >> "%LOG_FILE%" 2>&1
+  if errorlevel 1 (
+    exit /b 1
+  )
+)
+
+"%PYTHON_CMD%" -c "import PyInstaller.utils; import PyInstaller.building" >> "%LOG_FILE%" 2>&1
+if errorlevel 1 (
+  exit /b 1
+) else (
+  exit /b 0
+)
+
+:: ---------------------------------------------------------------------------------
 :Fail
-echo.
+cls
 echo   +====================================================================+
 echo   ^|                             FAILED                                 ^|
 echo   +====================================================================+
-echo     See messages above. Details in: %LOG_FILE%
-echo.
+echo     Log file: %LOG_FILE%
 echo.
 echo   Press any key to close this window...
 pause >nul
 exit /b 1
 
 :UserCancelled
-echo.
+cls
 echo   +====================================================================+
 echo   ^|                           CANCELLED                                 ^|
 echo   +====================================================================+
-echo     Operation cancelled by user. No changes were made.
 echo.
 echo   Press any key to close this window...
 pause >nul
@@ -464,6 +468,7 @@ exit /b 0
 :DownloadZip
 rem Use straight-line flow to avoid parentheses parsing issues
 del /f /q "%ZIP_PATH%" >nul 2>&1
+call :Log "INFO - Downloading repo zip: %ZIP_URL%"
 curl -fSL -o "%ZIP_PATH%" "%ZIP_URL%" >> "%LOG_FILE%" 2>&1
 if exist "%ZIP_PATH%" goto :DownloadZipOK
 echo     ERROR: Could not download repository zip.
@@ -486,12 +491,12 @@ tar -xf "%ZIP_PATH%" -C "%SRC_DIR%" >> "%LOG_FILE%" 2>&1
 if errorlevel 1 goto :TarFail
 goto :ExtractOk
 :UsePS
-echo     Using PowerShell to extract - tar not found
+call :Log "INFO - Using PowerShell Expand-Archive (tar not found)"
 rem Clean previous extracted folders to avoid confusion
 for /d %%D in ("%SRC_DIR%\orlando-toolkit" "%SRC_DIR%\orlando-toolkit-*") do rmdir /s /q "%%~fD" >nul 2>&1
 for /d %%D in ("%SRC_DIR%\%REPO_OWNER%-%REPO_NAME%-*") do rmdir /s /q "%%~fD" >nul 2>&1
 for /d %%D in ("%SRC_DIR%\%REPO_NAME%-%BRANCH%" "%SRC_DIR%\%REPO_NAME%-main" "%SRC_DIR%\%REPO_NAME%-master") do rmdir /s /q "%%~fD" >nul 2>&1
-powershell -NoProfile -Command "Expand-Archive -LiteralPath '%ZIP_PATH%' -DestinationPath '%SRC_DIR%' -Force" >> "%LOG_FILE%" 2>&1
+powershell -NoProfile -Command "$ErrorActionPreference='Stop'; if (!(Test-Path -LiteralPath '%SRC_DIR%')) { New-Item -ItemType Directory -Path '%SRC_DIR%' | Out-Null }; Expand-Archive -LiteralPath '%ZIP_PATH%' -DestinationPath '%SRC_DIR%' -Force" >> "%LOG_FILE%" 2>&1
 if errorlevel 1 goto :PSFail
 goto :ExtractOk
 :TarFail
@@ -499,6 +504,7 @@ echo     ERROR: Extraction failed with tar
 exit /b 1
 :PSFail
 echo     ERROR: Extraction failed with PowerShell Expand-Archive
+call :Log "ERROR - Expand-Archive failed for %ZIP_PATH% -> %SRC_DIR%"
 exit /b 1
 :ExtractOk
 exit /b 0
@@ -515,12 +521,13 @@ for /d %%D in ("%SRC_DIR%\%REPO_NAME%-master") do set "FOUND_DIR=%%~fD" & goto :
 :HaveExtractedDir
 if not defined FOUND_DIR (
   echo     ERROR: Could not locate extracted folder
+  call :Log "ERROR - Could not locate extracted folder under %SRC_DIR% after unzip"
   exit /b 1
 )
 
 rem Option A: flatten into %SRC_DIR% directly (requested behavior)
 rem Move contents of FOUND_DIR up one level, then remove the folder
-robocopy "%FOUND_DIR%" "%SRC_DIR%" /E /MOVE >> "%LOG_FILE%" 2>&1
+robocopy "%FOUND_DIR%" "%SRC_DIR%" /E /MOVE /NJH /NJS /NFL /NDL /NP >> "%LOG_FILE%" 2>&1
 if errorlevel 4 goto :MoveFailRobocopy2
 if exist "%FOUND_DIR%" rmdir /s /q "%FOUND_DIR%" >nul 2>&1
 set "SRC_ROOT=%SRC_DIR%\"
@@ -560,7 +567,8 @@ exit /b 1
 set "EXE_PATH=%~1"
 set "DESKTOP_DIR=%USERPROFILE%\Desktop"
 set "SHORTCUT=%DESKTOP_DIR%\Orlando Toolkit.lnk"
-powershell -NoProfile -Command "try { $WshShell = New-Object -ComObject WScript.Shell; $Shortcut = $WshShell.CreateShortcut('%SHORTCUT%'); $Shortcut.TargetPath = '%EXE_PATH%'; $Shortcut.WorkingDirectory = (Split-Path -Parent '%EXE_PATH%'); $Shortcut.Description = 'Orlando Toolkit - DOCX to DITA Converter'; $Shortcut.Save(); Write-Host '     Desktop shortcut created successfully' } catch { Write-Host '     Warning: Could not create desktop shortcut' }"
+powershell -NoProfile -Command "try { $WshShell = New-Object -ComObject WScript.Shell; $Shortcut = $WshShell.CreateShortcut('%SHORTCUT%'); $Shortcut.TargetPath = '%EXE_PATH%'; $Shortcut.WorkingDirectory = (Split-Path -Parent '%EXE_PATH%'); $Shortcut.Description = 'Orlando Toolkit - DOCX to DITA Converter'; $Shortcut.Save() } catch { exit 1 }"
+if %errorlevel% neq 0 call :Log "WARN - Could not create desktop shortcut"
 exit /b 0
 
 
@@ -634,4 +642,99 @@ if %errorlevel% neq 0 (
   )
 )
 exit /b 0
+
+:: ---------------------------------------------------------------------------------
+:ProgressUpdate
+:: Usage: call :ProgressUpdate <currentStep> <totalSteps> "Label"
+set "_OT_CURRENT_STEP=%~1"
+set "_OT_TOTAL_STEPS=%~2"
+set "_OT_CURRENT_LABEL=%~3"
+set "_OT_SUBSTATUS="
+call :_OT_ProgressRedraw
+exit /b 0
+
+:ProgressDetail
+:: Usage: call :ProgressDetail "message"
+set "_OT_SUBSTATUS=%~1"
+call :_OT_ProgressRedraw
+exit /b 0
+
+:RenderProgressBar
+:: Usage: call :RenderProgressBar <value> <total> "title"
+setlocal EnableDelayedExpansion
+set "_val=%~1"
+set "_tot=%~2"
+if not defined _tot set "_tot=100"
+if "!_tot!"=="0" set "_tot=100"
+set /a _pct=(_val*100)/_tot
+if !_pct! lss 0 set "_pct=0"
+if !_pct! gtr 100 set "_pct=100"
+set /a _barWidth=40
+set /a _filled=(_pct*_barWidth)/100
+set /a _empty=_barWidth-_filled
+set "_bar="
+for /L %%I in (1,1,!_filled!) do set "_bar=!_bar!#"
+for /L %%I in (1,1,!_empty!) do set "_bar=!_bar!-"
+set "_title=%~3"
+echo [!_bar!] !_pct!%% !_title!
+endlocal & exit /b 0
+
+:: ---------------------------------------------------------------------------------
+:Log
+:: Usage: call :Log "message"
+setlocal
+if not defined LOG_FILE goto :_noLog
+>> "%LOG_FILE%" echo %DATE% %TIME% - %~1
+:_noLog
+endlocal & exit /b 0
+
+:: ---------------------------------------------------------------------------------
+:ShowSplash
+cls
+echo(
+echo                                   ***               
+echo                                 +++++++             
+echo                                *+++++++*            
+echo                                 +++++++             
+echo                         ++++++**+++++++**++++++     
+echo                         *++++++++++*++++++++++*     
+echo                          +++++*#########*+++++      
+echo                          ++++####o   o####+++       
+echo                     ++++++++###o  --   o###++++++++ 
+echo                    +++++++++###  -----  ###+++++++++
+echo                    *++++++++###   ---   ###++++++++*
+echo                      **  +++*###       ###*+++  **  
+echo                          +++++###########+++++      
+echo                          +++++++#######++++++       
+echo                         ++++++++++***+++++++++*     
+echo                          +++++++*     *+++++++      
+echo                             ++++*     *++++         
+echo                                 *     *             
+echo(
+echo                      O R L A N D O  T O O L K I T   
+echo                          Installer ^& Updater        
+echo(
+echo   Press Enter to continue...
+set /p "_CONT= "
+exit /b 0
+
+:: ---------------------------------------------------------------------------------
+:ShowSummary
+setlocal EnableDelayedExpansion
+cls
+set "_i=none"
+if defined INSTALLED_VERSION set "_i=%INSTALLED_VERSION%"
+set "_r=unknown"
+if defined REMOTE_VERSION set "_r=%REMOTE_VERSION%"
+echo Installed: !_i!
+echo Available: !_r!  (branch %BRANCH%)
+if defined PROPOSED_ACTION echo Action   : %PROPOSED_ACTION%
+endlocal & exit /b 0
+
+:_OT_ProgressRedraw
+setlocal EnableDelayedExpansion
+cls
+call :RenderProgressBar !_OT_CURRENT_STEP! !_OT_TOTAL_STEPS! "Step !_OT_CURRENT_STEP!/!_OT_TOTAL_STEPS! - !_OT_CURRENT_LABEL!"
+if defined _OT_SUBSTATUS echo !_OT_SUBSTATUS!
+endlocal & exit /b 0
 

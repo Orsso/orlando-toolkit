@@ -31,16 +31,26 @@ Orlando Toolkit is an independent, open-source project and is not affiliated wit
 
 ### Windows executable
 
-- Build locally:
+- Build locally (manual):
 
 ```bash
 python build.py
 ```
 
-The Windows installer/updater `install.bat` (to be shipped as `OrlandoTK-Installer.bat`) will:
-- Use `main` by default (override with `BRANCH=...` if needed)
-- Fetch the `VERSION` file, compare to `%LOCALAPPDATA%\OrlandoToolkit\App\version.txt`, and tell you if it will Install, Update, or Skip
-- Validate the WinPython download to avoid corrupted archives
+- Build locally (automatic, recommended):
+
+```bat
+install.bat
+```
+
+What `install.bat` does for you:
+- Detects Install / Update / Skip based on the repo `VERSION`
+- Downloads portable Python (WinPython), installs PyInstaller and deps
+- Builds the app and installs it under `%LOCALAPPDATA%\OrlandoToolkit\App\OrlandoToolkit.exe`
+- Creates a desktop shortcut
+- Logs to `%LOCALAPPDATA%\OrlandoToolkit\Logs\deploy-<timestamp>.log`
+- Cleanup build files 
+
 
 ### Run from source
 
