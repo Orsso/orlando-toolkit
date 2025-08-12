@@ -119,9 +119,15 @@ class StructureTab(ttk.Frame):
         self.columnconfigure(0, weight=1)
         self.rowconfigure(2, weight=1)
 
-        # Toolbar (now below the modified header row)
-        self._toolbar = ToolbarWidget(self, on_move=self._on_toolbar_move_clicked)
-        self._toolbar.grid(row=1, column=0, sticky="ew", padx=8, pady=(0, 6))
+        # Toolbar row hosts move buttons and, to its right, the style legend
+        toolbar_row = ttk.Frame(self)
+        toolbar_row.grid(row=1, column=0, sticky="ew", padx=8, pady=(0, 6))
+        # Do not stretch the toolbar; leave room for optional neighbors if needed
+        toolbar_row.columnconfigure(0, weight=0)
+        toolbar_row.columnconfigure(1, weight=1)
+
+        self._toolbar = ToolbarWidget(toolbar_row, on_move=self._on_toolbar_move_clicked)
+        self._toolbar.grid(row=0, column=0, sticky="w")
 
         # Search row layout (left tools | search | spacer | depth controls | legend | toggles)
         search_row = ttk.Frame(self)
@@ -200,13 +206,13 @@ class StructureTab(ttk.Frame):
             # Non-fatal if depth control cannot be created
             pass
 
-        # Style legend: dynamic legend showing active markers (after depth, before toggles)
-        self._style_legend = StyleLegend(search_row)
-        self._style_legend.grid(row=0, column=4, padx=(8, 0), sticky="w")
+        # Style legend: placed to the right of the toolbar buttons
+        self._style_legend = StyleLegend(toolbar_row)
+        self._style_legend.grid(row=0, column=1, padx=(12, 0), sticky="w")
 
         # Toggle buttons group (Filters | Preview) with pictograms, placed far right
         toggles = ttk.Frame(search_row)
-        toggles.grid(row=0, column=5, padx=(8, 0), sticky="e")
+        toggles.grid(row=0, column=4, padx=(8, 0), sticky="e")
 
         # Track active states for toggle feedback and behavior
         self._preview_active: bool = True

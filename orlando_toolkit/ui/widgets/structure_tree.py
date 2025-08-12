@@ -126,8 +126,8 @@ class StructureTreeWidget(ttk.Frame):
         self._tree.bind("<Button-3>", self._on_right_click_event, add="+")
         # Marker bar updates when branches open/close
         try:
-            self._tree.bind("<<TreeviewOpen>>", lambda _e: self._schedule_marker_update(), add="+")
-            self._tree.bind("<<TreeviewClose>>", lambda _e: self._schedule_marker_update(), add="+")
+            self._tree.bind("<<TreeviewOpen>>", lambda e: self._on_section_toggle(e, True), add="+")
+            self._tree.bind("<<TreeviewClose>>", lambda e: self._on_section_toggle(e, False), add="+")
             # On vertical scroll via mouse wheel or touchpad, avoid recomputing markers repeatedly.
             self._tree.bind("<MouseWheel>", lambda _e: self._throttle_marker_viewport_update(), add="+")
             self._tree.bind("<Button-4>", lambda _e: self._throttle_marker_viewport_update(), add="+")  # Linux scroll up
@@ -171,13 +171,17 @@ class StructureTreeWidget(ttk.Frame):
                 img = tk.PhotoImage(width=marker_w, height=marker_h)
                 s_color = "#0098e4"  # blue
                 f_color = "#F57C00"  # orange
-                radius = 5  # larger dot for improved visibility (was 4)
+                # Slightly smaller radius and shorter arrow to prevent overlap
+                radius = 4
+                arrow_size = 10
                 cy = marker_h // 2
-                # Place dots with more spacing for the larger canvas
-                left_cx = 6
-                right_cx = marker_w - 6
+                # Place markers with more spacing to avoid overlap
+                left_cx = 4   # Search arrow position (left)
+                # Place style circle near right edge but fully inside image and away from text
+                right_cx = marker_w - 5
                 if draw_search:
-                    _draw_circle(img, cx=left_cx, cy=cy, r=radius, color=s_color)
+                    # Use the main arrow drawing method (DRY principle)
+                    self._draw_arrow_on_image(img, left_cx, cy, arrow_size, s_color)
                 if draw_filter:
                     _draw_circle(img, cx=right_cx, cy=cy, r=radius, color=f_color)
                 return img
@@ -770,33 +774,51 @@ class StructureTreeWidget(ttk.Frame):
     def _apply_marker_image(self, item_id: str) -> None:
         """Apply marker image(s) based on tags and style visibility.
 
-        Supports side-by-side markers:
+        Supports:
         - Search marker (blue) on the left if search-match tag
-        - Style marker (colored) on the right if item's style is visible
+        - Style marker(s) on the right if item's style is visible
+        - Stacked style markers for collapsed sections showing child styles
         """
         try:
             tags = tuple(self._tree.item(item_id, "tags") or ())
             has_search = ("search-match" in tags)
+            is_section = ("section" in tags)
             
-            # Determine this item's style for the style marker
+            # Regular items (non-sections) can have style markers
             style_name = self._id_to_style.get(item_id, "")
-            has_style_marker = (style_name and 
+            has_style_marker = (not is_section and style_name and 
                                self._style_visibility.get(style_name, False))
             
-            # Create or retrieve the appropriate marker
-            if has_search and has_style_marker:
-                # Two markers side by side
-                style_color = self._style_colors.get(style_name, "#F57C00")  # fallback orange
+            # For collapsed sections, collect child styles for stacking
+            child_style_colors = []
+            if is_section:
+                is_open = bool(self._tree.item(item_id, "open"))
+                if not is_open:
+                    # Section is collapsed - collect child styles for stacking
+                    child_styles = self._collect_child_styles(item_id)
+                    child_style_colors = [
+                        self._style_colors.get(style, "#F57C00") 
+                        for style in child_styles
+                    ]
+            
+            # Determine which marker to use
+            if child_style_colors:
+                # Collapsed section with child styles - use stacked marker
+                marker_img = self._create_stacked_marker(child_style_colors, has_search)
+                self._tree.item(item_id, image=marker_img)
+            elif has_search and has_style_marker:
+                # Regular item with both search and style markers
+                style_color = self._style_colors.get(style_name, "#F57C00")
                 marker_img = self._get_combined_marker(True, style_color)
                 self._tree.item(item_id, image=marker_img)
             elif has_search:
-                # Seulement recherche
+                # Only search marker
                 if getattr(self, "_marker_search", None) is not None:
                     self._tree.item(item_id, image=self._marker_search)
                 else:
                     self._tree.item(item_id, image=self._marker_none)
             elif has_style_marker:
-                # Seulement style
+                # Only style marker
                 style_color = self._style_colors.get(style_name, "#F57C00")
                 marker_img = self._get_combined_marker(False, style_color)
                 self._tree.item(item_id, image=marker_img)
@@ -817,14 +839,16 @@ class StructureTreeWidget(ttk.Frame):
             img = tk.PhotoImage(width=marker_w, height=marker_h)
             
             # Circle parameters - larger for better visibility
-            radius = 5
+            # Slightly smaller radius and keep style circle fully inside image to avoid clipping
+            radius = 4
             cy = marker_h // 2
-            left_cx = 6    # Left: search marker position
-            right_cx = marker_w - 6  # Right: style marker position
+            left_cx = 4    # Left: search arrow position (moved left for spacing)
+            # Right: style marker position with padding from edge
+            right_cx = marker_w - 5
             
-            # Draw the search marker (blue) when present
+            # Draw the search arrow (blue) when present
             if has_search:
-                self._draw_circle_on_image(img, left_cx, cy, radius, "#0098e4")
+                self._draw_arrow_on_image(img, left_cx, cy, 10, "#0098e4")
             
             # Draw the style marker when a color is provided
             if style_color and style_color != "":
@@ -844,6 +868,254 @@ class StructureTreeWidget(ttk.Frame):
                     dx = x - cx
                     if dx * dx + dy * dy <= r2:
                         img.put(color, (x, y))
+        except Exception:
+            pass
+
+    def _draw_arrow_on_image(self, img: tk.PhotoImage, cx: int, cy: int, size: int, color: str) -> None:
+        """Draw a thick, highly visible right-pointing arrow on a PhotoImage for search markers."""
+        try:
+            # Create a thick, bold arrow for maximum visibility
+            arrow_width = size
+            arrow_height = size
+            
+            # Draw arrow body (thick horizontal rectangle)
+            body_width = arrow_width - 4  # Leave space for head
+            body_thickness = 3  # Make body thick (3 pixels high)
+            
+            # Draw thick horizontal body
+            for y_offset in range(-body_thickness // 2, body_thickness // 2 + 1):
+                for x in range(cx - body_width // 2, cx + body_width // 2):
+                    y_pos = cy + y_offset
+                    if 0 <= x < img.width() and 0 <= y_pos < img.height():
+                        img.put(color, (x, y_pos))
+            
+            # Draw large, thick arrow head (triangle pointing right)
+            head_size = arrow_height // 2 + 1  # Larger head
+            head_start_x = cx + body_width // 2 - 2  # Start head slightly inside body
+            
+            # Draw filled triangle head
+            for i in range(head_size):
+                # Calculate triangle edges
+                x_pos = head_start_x + i
+                y_range = head_size - i
+                
+                # Draw vertical line of triangle at this x position
+                for y_offset in range(-y_range, y_range + 1):
+                    y_pos = cy + y_offset
+                    if 0 <= x_pos < img.width() and 0 <= y_pos < img.height():
+                        img.put(color, (x_pos, y_pos))
+                        
+            # Add white border for better contrast
+            self._draw_arrow_border(img, cx, cy, size, "#FFFFFF")
+                        
+        except Exception:
+            pass
+    
+    def _draw_arrow_border(self, img: tk.PhotoImage, cx: int, cy: int, size: int, border_color: str) -> None:
+        """Draw a white border around the arrow for better visibility."""
+        try:
+            arrow_width = size
+            body_width = arrow_width - 4
+            body_thickness = 3
+            head_size = arrow_width // 2 + 1
+            head_start_x = cx + body_width // 2 - 2
+            
+            # Draw border around body (top and bottom edges)
+            border_y_top = cy - body_thickness // 2 - 1
+            border_y_bottom = cy + body_thickness // 2 + 1
+            
+            for x in range(cx - body_width // 2 - 1, cx + body_width // 2 + 1):
+                if 0 <= x < img.width():
+                    if 0 <= border_y_top < img.height():
+                        img.put(border_color, (x, border_y_top))
+                    if 0 <= border_y_bottom < img.height():
+                        img.put(border_color, (x, border_y_bottom))
+            
+            # Draw border around arrow head
+            for i in range(head_size + 1):
+                x_pos = head_start_x + i
+                y_range = head_size - i + 1
+                
+                # Top and bottom border pixels
+                y_top_border = cy - y_range
+                y_bottom_border = cy + y_range
+                
+                if 0 <= x_pos < img.width():
+                    if 0 <= y_top_border < img.height():
+                        img.put(border_color, (x_pos, y_top_border))
+                    if 0 <= y_bottom_border < img.height():
+                        img.put(border_color, (x_pos, y_bottom_border))
+                        
+        except Exception:
+            pass
+
+    def _collect_child_styles(self, item_id: str) -> List[str]:
+        """Collect all unique style names from children of the given item.
+        
+        Parameters
+        ----------
+        item_id : str
+            The tree item ID to collect child styles from
+            
+        Returns
+        -------
+        List[str]
+            List of unique style names found in children
+        """
+        child_styles = set()
+        try:
+            def walk_children(parent_id: str) -> None:
+                for child_id in self._tree.get_children(parent_id):
+                    # Get style for this child
+                    child_style = self._id_to_style.get(child_id)
+                    if child_style and self._style_visibility.get(child_style, False):
+                        child_styles.add(child_style)
+                    # Recursively walk grandchildren
+                    walk_children(child_id)
+            
+            walk_children(item_id)
+        except Exception:
+            pass
+        
+        return list(child_styles)
+
+    def _create_stacked_marker(self, style_colors: List[str], has_search: bool = False) -> tk.PhotoImage:
+        """Create a stacked marker showing multiple style colors.
+        
+        Parameters
+        ----------
+        style_colors : List[str]
+            List of hex color codes to stack
+        has_search : bool
+            Whether to include search marker (blue arrow on left)
+            
+        Returns
+        -------
+        tk.PhotoImage
+            Combined marker image with stacked style indicators
+        """
+        # Create cache key for this combination
+        colors_key = "_".join(sorted(style_colors))
+        cache_key = f"stacked_search_{has_search}_colors_{colors_key}"
+        
+        if cache_key not in self._style_markers:
+            marker_w, marker_h = self._marker_w, self._marker_h
+            img = tk.PhotoImage(width=marker_w, height=marker_h)
+            
+            # Draw search arrow on the left if needed
+            if has_search:
+                search_cx, search_cy = 4, marker_h // 2
+                self._draw_arrow_on_image(img, search_cx, search_cy, 10, "#0098e4")
+            
+            # Draw stacked style markers optimized for up to 5 styles
+            if style_colors:
+                num_colors = min(len(style_colors), 5)  # Support up to 5 styles
+                
+                if num_colors == 1:
+                    # Single marker - larger and centered on right
+                    cx, cy = marker_w - 5, marker_h // 2  # Right with padding
+                    radius = 4
+                    self._draw_circle_on_image(img, cx, cy, radius + 1, "#FFFFFF")
+                    self._draw_circle_on_image(img, cx, cy, radius, style_colors[0])
+                    
+                elif num_colors == 2:
+                    # Two markers - stacked vertically with good spacing
+                    cx = marker_w - 5  # Right with padding
+                    cy1, cy2 = marker_h // 2 - 3, marker_h // 2 + 3
+                    radius = 4
+                    
+                    for i, (cy, color) in enumerate([(cy1, style_colors[0]), (cy2, style_colors[1])]):
+                        self._draw_circle_on_image(img, cx, cy, radius + 1, "#FFFFFF")
+                        self._draw_circle_on_image(img, cx, cy, radius, color)
+                        
+                elif num_colors == 3:
+                    # Triangle arrangement for maximum visibility
+                    base_cx, base_cy = marker_w - 5, marker_h // 2  # Right with padding
+                    radius = 3
+                    positions = [(base_cx, base_cy - 4), (base_cx - 3, base_cy + 2), (base_cx + 3, base_cy + 2)]
+                    
+                    for i, ((cx, cy), color) in enumerate(zip(positions, style_colors[:3])):
+                        self._draw_circle_on_image(img, cx, cy, radius + 1, "#FFFFFF")
+                        self._draw_circle_on_image(img, cx, cy, radius, color)
+                        
+                elif num_colors == 4:
+                    # Diamond/cross arrangement - 4 points around center
+                    base_cx, base_cy = marker_w - 5, marker_h // 2  # Right with padding
+                    radius = 3
+                    offset = 3
+                    positions = [
+                        (base_cx, base_cy - offset),      # Top
+                        (base_cx - offset, base_cy),      # Left
+                        (base_cx + offset, base_cy),      # Right  
+                        (base_cx, base_cy + offset)       # Bottom
+                    ]
+                    
+                    for i, ((cx, cy), color) in enumerate(zip(positions, style_colors[:4])):
+                        self._draw_circle_on_image(img, cx, cy, radius + 1, "#FFFFFF")
+                        self._draw_circle_on_image(img, cx, cy, radius, color)
+                        
+                else:  # 5 markers - pentagon arrangement
+                    # Pentagon arrangement with center marker
+                    base_cx, base_cy = marker_w - 5, marker_h // 2  # Right with padding
+                    radius = 2  # Smaller for 5 markers
+                    
+                    # Center marker
+                    self._draw_circle_on_image(img, base_cx, base_cy, radius + 1, "#FFFFFF")
+                    self._draw_circle_on_image(img, base_cx, base_cy, radius, style_colors[0])
+                    
+                    # 4 surrounding markers in diamond pattern
+                    offset = 4
+                    positions = [
+                        (base_cx, base_cy - offset),      # Top
+                        (base_cx - offset, base_cy),      # Left
+                        (base_cx + offset, base_cy),      # Right
+                        (base_cx, base_cy + offset)       # Bottom
+                    ]
+                    
+                    for i, ((cx, cy), color) in enumerate(zip(positions, style_colors[1:5])):
+                        self._draw_circle_on_image(img, cx, cy, radius + 1, "#FFFFFF")
+                        self._draw_circle_on_image(img, cx, cy, radius, color)
+            
+            self._style_markers[cache_key] = img
+        
+        return self._style_markers[cache_key]
+
+    def _refresh_section_markers(self, item_ids: Optional[List[str]] = None) -> None:
+        """Centralized method to refresh markers for sections when their state changes.
+        
+        Parameters
+        ----------
+        item_ids : Optional[List[str]]
+            Specific items to refresh. If None, refreshes all section items.
+        """
+        try:
+            if item_ids is None:
+                # Refresh all section items
+                items_to_refresh = []
+                for item_id in self._iter_all_item_ids():
+                    tags = tuple(self._tree.item(item_id, "tags") or ())
+                    if "section" in tags:
+                        items_to_refresh.append(item_id)
+            else:
+                items_to_refresh = item_ids
+            
+            # Update markers for each section
+            for item_id in items_to_refresh:
+                self._apply_marker_image(item_id)
+            
+            # Update marker bar positions once after all updates
+            self._schedule_marker_update()
+        except Exception:
+            pass
+
+    def _on_section_toggle(self, event: tk.Event, is_opening: bool) -> None:
+        """Handle section open/close events to update stacked markers."""
+        try:
+            # Get the item that was toggled
+            item_id = self._tree.focus()
+            if item_id:
+                # Use centralized refresh for this specific item
+                self._refresh_section_markers([item_id])
         except Exception:
             pass
 
@@ -941,8 +1213,9 @@ class StructureTreeWidget(ttk.Frame):
             self._tree.update_idletasks()
         except Exception:
             pass
+        # Refresh all section markers after restoration
         try:
-            self._update_marker_bar_positions()
+            self._refresh_section_markers()
         except Exception:
             pass
     
@@ -953,8 +1226,9 @@ class StructureTreeWidget(ttk.Frame):
                 self._expand_recursive(item_id)
         except Exception:
             pass
+        # Refresh all section markers after expansion
         try:
-            self._update_marker_bar_positions()
+            self._refresh_section_markers()
         except Exception:
             pass
     
@@ -965,8 +1239,9 @@ class StructureTreeWidget(ttk.Frame):
                 self._collapse_recursive(item_id)
         except Exception:
             pass
+        # Refresh all section markers after collapse
         try:
-            self._update_marker_bar_positions()
+            self._refresh_section_markers()
         except Exception:
             pass
     
@@ -1439,9 +1714,9 @@ class StructureTreeWidget(ttk.Frame):
                         self._tree.selection_set(tuple(current_sel))
                 except Exception:
                     pass
-                # Stop further default handling to avoid double-toggle
+                # Refresh markers for this section after toggle
                 try:
-                    self._schedule_marker_update()
+                    self._refresh_section_markers([item_id])
                 except Exception:
                     pass
                 return
