@@ -149,8 +149,10 @@ class StructureTreeWidget(ttk.Frame):
 
         # Tag configuration and marker icons for highlights
         try:
-            # Fixed-width transparent marker slot to avoid shifting text; draw circular dots inside
-            marker_w, marker_h = 16, 16
+            # Fixed-width marker slot to prevent layout shifting; larger size for better visibility
+            marker_w, marker_h = 20, 20
+            self._marker_w, self._marker_h = marker_w, marker_h
+            # Always reserve space with transparent background when no marker is needed
             self._marker_none = tk.PhotoImage(width=marker_w, height=marker_h)
 
             def _draw_circle(img: tk.PhotoImage, cx: int, cy: int, r: int, color: str) -> None:
@@ -169,11 +171,11 @@ class StructureTreeWidget(ttk.Frame):
                 img = tk.PhotoImage(width=marker_w, height=marker_h)
                 s_color = "#0098e4"  # blue
                 f_color = "#F57C00"  # orange
-                radius = 4  # slightly larger dot for better visibility
+                radius = 5  # larger dot for improved visibility (was 4)
                 cy = marker_h // 2
-                # Place dots far enough apart so they never overlap
-                left_cx = 5
-                right_cx = marker_w - 5
+                # Place dots with more spacing for the larger canvas
+                left_cx = 6
+                right_cx = marker_w - 6
                 if draw_search:
                     _draw_circle(img, cx=left_cx, cy=cy, r=radius, color=s_color)
                 if draw_filter:
@@ -792,15 +794,15 @@ class StructureTreeWidget(ttk.Frame):
                 if getattr(self, "_marker_search", None) is not None:
                     self._tree.item(item_id, image=self._marker_search)
                 else:
-                    self._tree.item(item_id, image="")
+                    self._tree.item(item_id, image=self._marker_none)
             elif has_style_marker:
                 # Seulement style
                 style_color = self._style_colors.get(style_name, "#F57C00")
                 marker_img = self._get_combined_marker(False, style_color)
                 self._tree.item(item_id, image=marker_img)
             else:
-                # Aucun marqueur
-                self._tree.item(item_id, image="")
+                # No marker - use transparent placeholder to maintain layout consistency
+                self._tree.item(item_id, image=self._marker_none)
         except Exception:
             pass
             
@@ -810,15 +812,15 @@ class StructureTreeWidget(ttk.Frame):
         cache_key = f"search_{has_search}_style_{style_color}"
         
         if cache_key not in self._style_markers:
-            # Create a new marker image
-            marker_w, marker_h = 16, 16
+            # Create a new marker image using consistent dimensions
+            marker_w, marker_h = self._marker_w, self._marker_h
             img = tk.PhotoImage(width=marker_w, height=marker_h)
             
-            # Circle parameters
-            radius = 4
+            # Circle parameters - larger for better visibility
+            radius = 5
             cy = marker_h // 2
-            left_cx = 5    # Left: search marker position
-            right_cx = 11  # Right: style marker position
+            left_cx = 6    # Left: search marker position
+            right_cx = marker_w - 6  # Right: style marker position
             
             # Draw the search marker (blue) when present
             if has_search:
@@ -1017,8 +1019,8 @@ class StructureTreeWidget(ttk.Frame):
                 safe_text = " ".join(safe_text.split())
         except Exception:
             pass
-        # Insert without a reserved marker slot; we only set an image when a marker is needed
-        item_id = self._tree.insert(parent, "end", text=safe_text, image="", tags=(tags or ()))
+        # Always reserve marker space to prevent layout shifting
+        item_id = self._tree.insert(parent, "end", text=safe_text, image=self._marker_none, tags=(tags or ()))
         if topic_ref is not None:
             self._id_to_ref[item_id] = topic_ref
             # Only store the first id for a ref to satisfy "first Treeview item ID"
