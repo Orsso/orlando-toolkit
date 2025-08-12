@@ -17,6 +17,7 @@ from lxml import etree as ET  # type: ignore
 
 from orlando_toolkit.core.models import DitaContext
 from orlando_toolkit.core.parser import extract_images_to_context, build_style_heading_map
+from orlando_toolkit.core.parser.style_analyzer import build_enhanced_style_map
 
 # Helper functions migrated from legacy converter
 from .helpers import (
@@ -55,30 +56,64 @@ def convert_docx_to_dita(file_path: str, metadata: Dict[str, Any]) -> DitaContex
 
         add_orlando_topicmeta(map_root, context.metadata)
 
-        style_heading_map = build_style_heading_map(doc)
+        # Enhanced style detection (new - enabled by default)
+        use_enhanced_detection = metadata.get("use_enhanced_style_detection", True)
+        
+        if use_enhanced_detection:
+            logger.info("Analyzing document structure...")
+            style_heading_map = build_enhanced_style_map(
+                doc,
+                use_structural_analysis=metadata.get("use_structural_analysis", True),
+                min_following_paragraphs=metadata.get("min_following_paragraphs", 3)
+            )
+        else:
+            logger.info("Analyzing document structure...")
+            style_heading_map = build_style_heading_map(doc)
+        
+        # Apply legacy and user overrides with clear priority order
+        logger.debug(f"Base style map: {len(style_heading_map)} styles")
+        
+        # Priority 2: Legacy STYLE_MAP (lower priority than base detection)
+        original_count = len(style_heading_map)
         style_heading_map.update(STYLE_MAP)
+        if len(style_heading_map) > original_count:
+            logger.debug(f"Added {len(style_heading_map) - original_count} legacy STYLE_MAP overrides")
 
-        # Optional user override mapping provided via metadata
+        # Priority 1: User override mapping (highest priority)
         if isinstance(metadata.get("style_heading_map"), dict):
-            style_heading_map.update(metadata["style_heading_map"])  # type: ignore[arg-type]
+            user_overrides = metadata["style_heading_map"]  # type: ignore[arg-type]
+            original_count = len(style_heading_map)
+            style_heading_map.update(user_overrides)
+            logger.debug(f"Applied {len(user_overrides)} user style overrides")
 
         # Generic heading-name detection (e.g., "HEADING 5 GM"). Enabled by
         # default but can be disabled with metadata["generic_heading_match"] = False.
         if metadata.get("generic_heading_match", True):
-            # Match literal digits in style names like "Heading 3" or "Titre_2"
-            heading_rx = re.compile(r"\b(?:heading|titre)[ _]?(\d)\b", re.IGNORECASE)
+            from orlando_toolkit.core.parser.style_analyzer import _detect_generic_heading_level
+            
+            generic_count = 0
             for sty in doc.styles:  # type: ignore[attr-defined]
                 try:
                     name = sty.name  # type: ignore[attr-defined]
+                    if not name or name in style_heading_map:
+                        continue
+                        
+                    level = _detect_generic_heading_level(name)
+                    if level:
+                        style_heading_map[name] = level
+                        generic_count += 1
+                        
                 except Exception:
                     continue
-                m = heading_rx.search(name or "")
-                if m and name not in style_heading_map:
-                    try:
-                        lvl = int(m.group(1))
-                        style_heading_map[name] = lvl
-                    except ValueError:
-                        pass
+                    
+            if generic_count > 0:
+                logger.debug(f"Added {generic_count} generic heading pattern matches")
+
+        # Final style detection summary
+        logger.debug(f"Final style heading map: {len(style_heading_map)} styles detected")
+        if logger.isEnabledFor(logging.DEBUG):
+            for style_name, level in sorted(style_heading_map.items(), key=lambda x: (x[1], x[0])):
+                logger.debug(f"  Level {level}: '{style_name}'")
 
         logger.info("Building topics...")
         

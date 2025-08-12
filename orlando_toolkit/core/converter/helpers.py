@@ -22,6 +22,7 @@ from orlando_toolkit.core.utils import (
     convert_color_to_outputclass,
 )
 from orlando_toolkit.config.manager import ConfigManager
+from orlando_toolkit.core.parser.style_analyzer import _detect_builtin_heading_level
 
 __all__ = [
     "STYLE_MAP",
@@ -422,8 +423,10 @@ def get_heading_level(paragraph: Paragraph, style_map: Optional[dict] = None) ->
             style_name = paragraph.style.name
             if style_map and style_name in style_map:
                 return int(style_map[style_name])
-            if style_name.startswith("Heading ") and style_name.split(" ")[-1].isdigit():
-                return int(style_name.split(" ")[-1])
+            # Use centralized built-in heading detection
+            builtin_level = _detect_builtin_heading_level(style_name)
+            if builtin_level:
+                return builtin_level
 
         ns = {"w": "http://schemas.openxmlformats.org/wordprocessingml/2006/main"}
         outline_vals = paragraph._p.xpath("./w:pPr/w:outlineLvl/@w:val", namespaces=ns)
