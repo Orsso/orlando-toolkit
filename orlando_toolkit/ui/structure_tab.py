@@ -212,10 +212,10 @@ class StructureTab(ttk.Frame):
         self._preview_active: bool = True
         self._filter_active: bool = False
 
-        # Filters toggle: gear/filter pictogram
+        # Filters toggle: page pictogram
         self._filter_toggle_btn = ttk.Button(
             toggles,
-            text="≡",  # hamburger (triple bar) icon for heading filters
+            text="📃",  # page icon for heading filters
             command=self._on_filter_toggle_clicked,
             width=3,
         )

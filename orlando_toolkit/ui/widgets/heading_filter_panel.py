@@ -314,8 +314,8 @@ class HeadingFilterPanel(ttk.Frame):
         try:
             # Resolve the style color
             color = self._get_style_color(style)
-            # Use the same pictogram as the Preview panel: Unicode eye character
-            lbl = tk.Label(parent, text="👁", cursor="hand2")
+            # Use the requested pictogram for style toggles (double-eye)
+            lbl = tk.Label(parent, text="👀", cursor="hand2")
             # Enlarge the pictogram to improve readability
             try:
                 # Prefer an emoji-capable font when available
@@ -336,7 +336,7 @@ class HeadingFilterPanel(ttk.Frame):
             return lbl
         except Exception as e:
             # Fallback: simple text label if image creation fails
-            lbl = tk.Label(parent, text="👁", cursor="hand2")
+            lbl = tk.Label(parent, text="👀", cursor="hand2")
             try:
                 icon_font = tkfont.Font(family="Segoe UI Emoji", size=14)
                 lbl.configure(font=icon_font)

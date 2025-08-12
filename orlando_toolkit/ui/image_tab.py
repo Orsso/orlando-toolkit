@@ -109,8 +109,25 @@ class ImageTab(ttk.Frame):
         buttons_frame = ttk.Frame(left_panel)
         buttons_frame.grid(row=1, column=0, columnspan=2, sticky="w", pady=(8, 0))
         
-        # Open folder button with folder icon 
-        folder_btn = ttk.Button(buttons_frame, text="▣", width=3, command=self.open_images_folder)
+        # Open folder button with requested pictogram (force black color)
+        try:
+            icon_style = ttk.Style(self)
+            # Ensure foreground is black in normal state across themes
+            icon_style.configure("ImageTab.Icon.TButton", foreground="#000000")
+            icon_style.map(
+                "ImageTab.Icon.TButton",
+                foreground=[("!disabled", "#000000")]
+            )
+            folder_btn = ttk.Button(
+                buttons_frame,
+                text="🗁",
+                width=3,
+                command=self.open_images_folder,
+                style="ImageTab.Icon.TButton",
+            )
+        except Exception:
+            # Fallback without custom style
+            folder_btn = ttk.Button(buttons_frame, text="🗁", width=3, command=self.open_images_folder)
         folder_btn.grid(row=0, column=0, padx=(0, 8))
         try:
             from orlando_toolkit.ui.custom_widgets import Tooltip
