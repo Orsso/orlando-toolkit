@@ -168,8 +168,8 @@ class StructureTab(ttk.Frame):
 
         # Depth control (Label + Spinbox) placed just right of the spacer (to the right, before toggles)
         try:
-            # Default depth is 3, controller will be synced later
-            self._depth_var = tk.IntVar(value=3)
+            # Initialize with 1; will be synced to metadata or computed max later
+            self._depth_var = tk.IntVar(value=1)
 
             # Small container to align neatly in the same row
             depth_container = ttk.Frame(search_row)
@@ -370,18 +370,35 @@ class StructureTab(ttk.Frame):
             return None
     
     def _sync_depth_control(self) -> None:
-        """Apply the default depth (3) to the controller and sync the display."""
+        """Apply the initial depth to the controller and sync the display.
+
+        Preference order:
+        - Use `context.metadata["topic_depth"]` when present
+        - Else compute from style analysis (max depth)
+        - Fallback to 1
+        """
         if not hasattr(self, "_depth_var") or self._controller is None:
             return
         try:
-            # Read current depth from context metadata when available; fallback to 3
-            depth = 3
+            # Read current depth from metadata; if missing compute from structure
+            depth = None
             try:
                 ctx = getattr(self._controller, "context", None)
                 if ctx is not None and hasattr(ctx, "metadata"):
-                    depth = int(getattr(ctx, "metadata", {}).get("topic_depth", 3))
+                    md = getattr(ctx, "metadata", {})
+                    if md.get("topic_depth") is not None:
+                        depth = int(md.get("topic_depth"))
+                    else:
+                        try:
+                            from orlando_toolkit.core.services.heading_analysis_service import compute_max_depth
+                            depth = int(compute_max_depth(ctx))
+                        except Exception:
+                            depth = None
             except Exception:
-                depth = 3
+                depth = None
+
+            if not isinstance(depth, int) or depth < 1:
+                depth = 1
 
             # Reflect in the UI control
             try:
@@ -389,7 +406,7 @@ class StructureTab(ttk.Frame):
             except Exception:
                 pass
 
-            # Apply to controller so the visible tree matches the persisted depth
+            # Apply to controller so the visible tree matches the computed/persisted depth
             if hasattr(self._controller, "handle_depth_change"):
                 self._controller.handle_depth_change(depth)
         except Exception:

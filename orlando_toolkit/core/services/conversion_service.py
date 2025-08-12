@@ -53,10 +53,15 @@ class ConversionService:
         self.logger.info("Preparing content for packaging...")
         # Determine effective depth from metadata, keeping previously applied merge depth if larger
         # so we do not inadvertently reduce the structure compared to the UI state.
+        # Determine base depth: prefer metadata; else compute from style analysis
         try:
-            md_depth = int(context.metadata.get("topic_depth", 3))
+            if context.metadata.get("topic_depth") is not None:
+                md_depth = int(context.metadata.get("topic_depth"))
+            else:
+                from orlando_toolkit.core.services.heading_analysis_service import compute_max_depth
+                md_depth = int(compute_max_depth(context))
         except Exception:
-            md_depth = 3
+            md_depth = 1
         try:
             merged_depth = int(context.metadata.get("merged_depth")) if context.metadata.get("merged_depth") is not None else None
         except Exception:

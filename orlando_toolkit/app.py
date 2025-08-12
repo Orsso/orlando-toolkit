@@ -128,8 +128,6 @@ class OrlandoToolkit:
         initial_metadata = {
             "manual_title": Path(filepath).stem,
             "revision_date": datetime.now().strftime("%Y-%m-%d"),
-            # Default topic depth: split up to Heading 3
-            "topic_depth": 3,
             # No default revision_number so the generated package is treated as an edition.
         }
 
@@ -138,6 +136,26 @@ class OrlandoToolkit:
     def run_conversion_thread(self, filepath: str, metadata: dict) -> None:
         try:
             ctx = self.service.convert(filepath, metadata)
+            # Treat a None result as a conversion failure
+            if ctx is None:
+                logger.error("Document conversion returned no result for file: %s", filepath)
+                self.root.after(
+                    0,
+                    self.on_conversion_failure,
+                    RuntimeError(f"Conversion returned no result for file: {filepath}"),
+                )
+                return
+
+            # Set default depth from style analysis (max depth) if not already provided
+            try:
+                if hasattr(ctx, "metadata"):
+                    if ctx.metadata.get("topic_depth") is None:
+                        from orlando_toolkit.core.services.heading_analysis_service import compute_max_depth
+                        computed = compute_max_depth(ctx)
+                        ctx.metadata["topic_depth"] = max(1, int(computed))
+            except Exception:
+                # Best-effort only; UI can still adjust depth later
+                pass
             self.root.after(0, self.on_conversion_success, ctx)
         except Exception as exc:
             logger.error("Document conversion failed", exc_info=True)

@@ -411,3 +411,119 @@ def count_unmergable_for_styles(
     return unmergable
 
 
+
+def compute_max_depth(context: Optional[DitaContext]) -> int:
+    """Return the maximum document depth based on style analysis and structure.
+
+    Strategy:
+    - Prefer the maximum numeric value of the ``data-level`` attribute found on
+      ``topicref``/``topichead`` nodes (style-derived heading level).
+    - Fallback to structural nesting depth when ``data-level`` is unavailable.
+
+    Always returns at least 1.
+    """
+    if context is None:
+        return 1
+    root = getattr(context, "ditamap_root", None)
+    if root is None:
+        return 1
+
+    # 1) Prefer style-derived heading levels via @data-level
+    try:
+        max_level = 0
+        stack = [root]
+        visited = 0
+        max_nodes = 200000
+        while stack and visited < max_nodes:
+            node = stack.pop()
+            visited += 1
+            try:
+                tag = str(getattr(node, "tag", "") or "")
+            except Exception:
+                tag = ""
+            if tag.endswith("topicref") or tag.endswith("topichead") or tag in {"topicref", "topichead"}:
+                try:
+                    if hasattr(node, "get"):
+                        lv = node.get("data-level")
+                        if lv is not None:
+                            lvl_int = int(lv)
+                            if lvl_int > max_level:
+                                max_level = lvl_int
+                except Exception:
+                    pass
+                try:
+                    if hasattr(node, "iterchildren"):
+                        for child in node.iterchildren():
+                            stack.append(child)
+                        continue
+                except Exception:
+                    pass
+                try:
+                    if hasattr(node, "getchildren"):
+                        for child in node.getchildren():  # type: ignore[attr-defined]
+                            stack.append(child)
+                        continue
+                except Exception:
+                    pass
+                try:
+                    if hasattr(node, "findall"):
+                        for child in list(node.findall("./topicref")) + list(node.findall("./topichead")):
+                            stack.append(child)
+                except Exception:
+                    pass
+        if max_level > 0:
+            return max(1, max_level)
+    except Exception:
+        # Fall through to structural traversal
+        pass
+
+    # 2) Fallback: compute structural nesting depth
+    def _depth(n: object, level: int) -> int:
+        try:
+            tag = str(getattr(n, "tag", "") or "")
+        except Exception:
+            tag = ""
+        max_d = level
+        # Prefer iterchildren; on error or absence, fall back to getchildren; finally, findall
+        children = []
+        # Attempt iterchildren first
+        if hasattr(n, "iterchildren"):
+            try:
+                for child_node in n.iterchildren():
+                    try:
+                        child_tag = str(getattr(child_node, "tag", "") or "")
+                    except Exception:
+                        child_tag = ""
+                    if child_tag.endswith("topicref") or child_tag.endswith("topichead") or child_tag in {"topicref", "topichead"}:
+                        children.append(child_node)
+            except Exception:
+                # Ignore and fall back below
+                pass
+        # Fall back to getchildren if no children collected yet
+        if not children and hasattr(n, "getchildren"):
+            try:
+                for child_node in n.getchildren():  # type: ignore[attr-defined]
+                    try:
+                        child_tag = str(getattr(child_node, "tag", "") or "")
+                    except Exception:
+                        child_tag = ""
+                    if child_tag.endswith("topicref") or child_tag.endswith("topichead") or child_tag in {"topicref", "topichead"}:
+                        children.append(child_node)
+            except Exception:
+                # Ignore and fall back below
+                pass
+        # Final fallback: explicit findall queries
+        if not children:
+            try:
+                if hasattr(n, "findall"):
+                    children = list(n.findall("./topicref")) + list(n.findall("./topichead"))
+            except Exception:
+                children = []
+        for child in children:
+            max_d = max(max_d, _depth(child, level + 1))
+        return max_d
+
+    try:
+        return max(1, _depth(root, 0))
+    except Exception:
+        return 1
