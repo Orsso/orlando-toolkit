@@ -137,6 +137,15 @@ class StructureTreeWidget(ttk.Frame):
 
         # Style exclusions map: style -> excluded flag (True means exclude)
         self._style_exclusions: Dict[str, bool] = {}
+        
+        # Style visibility tracking: style -> visible flag (True means show marker)
+        self._style_visibility: Dict[str, bool] = {}
+        
+        # Style -> color mapping cache
+        self._style_colors: Dict[str, str] = {}
+        
+        # Style markers cache: color -> PhotoImage
+        self._style_markers: Dict[str, tk.PhotoImage] = {}
 
         # Tag configuration and marker icons for highlights
         try:
@@ -626,6 +635,56 @@ class StructureTreeWidget(ttk.Frame):
         except Exception:
             pass
 
+    def set_style_visibility(self, style_visibility: Dict[str, bool]) -> None:
+        """Update style visibility and refresh markers.
+
+        Parameters
+        ----------
+        style_visibility : Dict[str, bool]
+            Mapping style_name -> visible (True to show the marker)
+        """
+        try:
+            self._style_visibility = dict(style_visibility or {})
+            # Refresh all markers
+            for item_id in self._iter_all_item_ids():
+                try:
+                    self._apply_marker_image(item_id)
+                except Exception:
+                    continue
+            # Update marker bar
+            try:
+                self._update_marker_bar_positions()
+            except Exception:
+                pass
+        except Exception:
+            pass
+            
+    def update_style_colors(self, style_colors: Dict[str, str]) -> None:
+        """Update style colors and recreate markers.
+
+        Parameters
+        ----------
+        style_colors : Dict[str, str]
+            Mapping style_name -> color_hex
+        """
+        try:
+            self._style_colors = dict(style_colors or {})
+            # Clear marker cache to force recreation
+            self._style_markers.clear()
+            # Refresh all markers
+            for item_id in self._iter_all_item_ids():
+                try:
+                    self._apply_marker_image(item_id)
+                except Exception:
+                    continue
+            # Update marker bar
+            try:
+                self._update_marker_bar_positions()
+            except Exception:
+                pass
+        except Exception:
+            pass
+
     def clear_filter_highlight_refs(self) -> None:
         """Remove heading-filter highlight tag from all items without touching search tags."""
         try:
@@ -702,27 +761,82 @@ class StructureTreeWidget(ttk.Frame):
             pass
 
     def _apply_marker_image(self, item_id: str) -> None:
-        """Apply a small two-dot marker image in a fixed slot based on tags.
+        """Apply marker image(s) based on tags and style visibility.
 
-        Priority/stacking:
-        - Both present -> two dots (blue left, green right).
-        - Filter only -> green dot.
-        - Search only -> blue dot.
-        - None -> transparent/blank slot image.
+        Supports side-by-side markers:
+        - Search marker (blue) on the left if search-match tag
+        - Style marker (colored) on the right if item's style is visible
         """
         try:
             tags = tuple(self._tree.item(item_id, "tags") or ())
             has_search = ("search-match" in tags)
-            has_filter = ("filter-match" in tags)
-            if has_search and has_filter and getattr(self, "_marker_both", None) is not None:
-                self._tree.item(item_id, image=self._marker_both)
-            elif has_filter and getattr(self, "_marker_filter", None) is not None:
-                self._tree.item(item_id, image=self._marker_filter)
-            elif has_search and getattr(self, "_marker_search", None) is not None:
-                self._tree.item(item_id, image=self._marker_search)
+            
+            # Determine this item's style for the style marker
+            style_name = self._id_to_style.get(item_id, "")
+            has_style_marker = (style_name and 
+                               self._style_visibility.get(style_name, False))
+            
+            # Create or retrieve the appropriate marker
+            if has_search and has_style_marker:
+                # Two markers side by side
+                style_color = self._style_colors.get(style_name, "#F57C00")  # fallback orange
+                marker_img = self._get_combined_marker(True, style_color)
+                self._tree.item(item_id, image=marker_img)
+            elif has_search:
+                # Seulement recherche
+                if getattr(self, "_marker_search", None) is not None:
+                    self._tree.item(item_id, image=self._marker_search)
+                else:
+                    self._tree.item(item_id, image="")
+            elif has_style_marker:
+                # Seulement style
+                style_color = self._style_colors.get(style_name, "#F57C00")
+                marker_img = self._get_combined_marker(False, style_color)
+                self._tree.item(item_id, image=marker_img)
             else:
-                # No marker: clear the image so level-1 items have no extra left padding
+                # Aucun marqueur
                 self._tree.item(item_id, image="")
+        except Exception:
+            pass
+            
+    def _get_combined_marker(self, has_search: bool, style_color: str) -> tk.PhotoImage:
+        """Create or retrieve a combined search+style marker image."""
+        # Cache key based on search presence and style color
+        cache_key = f"search_{has_search}_style_{style_color}"
+        
+        if cache_key not in self._style_markers:
+            # Create a new marker image
+            marker_w, marker_h = 16, 16
+            img = tk.PhotoImage(width=marker_w, height=marker_h)
+            
+            # Circle parameters
+            radius = 4
+            cy = marker_h // 2
+            left_cx = 5    # Left: search marker position
+            right_cx = 11  # Right: style marker position
+            
+            # Draw the search marker (blue) when present
+            if has_search:
+                self._draw_circle_on_image(img, left_cx, cy, radius, "#0098e4")
+            
+            # Draw the style marker when a color is provided
+            if style_color and style_color != "":
+                self._draw_circle_on_image(img, right_cx, cy, radius, style_color)
+                
+            self._style_markers[cache_key] = img
+            
+        return self._style_markers[cache_key]
+        
+    def _draw_circle_on_image(self, img: tk.PhotoImage, cx: int, cy: int, radius: int, color: str) -> None:
+        """Draw a filled circle on a PhotoImage."""
+        try:
+            r2 = radius * radius
+            for y in range(max(0, cy - radius), min(img.height(), cy + radius + 1)):
+                dy = y - cy
+                for x in range(max(0, cx - radius), min(img.width(), cx + radius + 1)):
+                    dx = x - cx
+                    if dx * dx + dy * dy <= r2:
+                        img.put(color, (x, y))
         except Exception:
             pass
 
@@ -1443,19 +1557,44 @@ class StructureTreeWidget(ttk.Frame):
             total = len(visible)
             if total <= 0:
                 bar.set_markers([], [])  # type: ignore[union-attr]
+                if hasattr(bar, 'set_style_markers'):
+                    bar.set_style_markers({})  # type: ignore[union-attr]
                 return
             search_pos: List[float] = []
             filter_pos: List[float] = []
+            style_positions: dict[str, List[float]] = {}  # style_name -> positions
+            
             for idx, iid in enumerate(visible):
                 try:
                     tags = tuple(self._tree.item(iid, "tags") or ())
                 except Exception:
                     tags = ()
+                
+                normalized_pos = (idx + 0.5) / total
+                
                 if "search-match" in tags:
-                    search_pos.append((idx + 0.5) / total)
+                    search_pos.append(normalized_pos)
                 if "filter-match" in tags:
-                    filter_pos.append((idx + 0.5) / total)
+                    filter_pos.append(normalized_pos)
+                
+                # Check for style markers based on visibility
+                style_name = self._id_to_style.get(iid, "")
+                if (style_name and 
+                    self._style_visibility.get(style_name, False)):
+                    if style_name not in style_positions:
+                        style_positions[style_name] = []
+                    style_positions[style_name].append(normalized_pos)
+            
+            # Update traditional markers
             bar.set_markers(search_pos, filter_pos)  # type: ignore[union-attr]
+            
+            # Update style markers with colors
+            if hasattr(bar, 'set_style_markers'):
+                style_markers = {}
+                for style_name, positions in style_positions.items():
+                    color = self._style_colors.get(style_name, "#F57C00")  # fallback orange
+                    style_markers[style_name] = (positions, color)
+                bar.set_style_markers(style_markers)  # type: ignore[union-attr]
         except Exception:
             pass
 

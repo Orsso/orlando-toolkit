@@ -42,6 +42,7 @@ from orlando_toolkit.ui.widgets.structure_tree import StructureTreeWidget
 from orlando_toolkit.ui.widgets.search_widget import SearchWidget
 from orlando_toolkit.ui.widgets.toolbar_widget import ToolbarWidget
 from orlando_toolkit.ui.widgets.heading_filter_panel import HeadingFilterPanel
+from orlando_toolkit.ui.widgets.style_legend import StyleLegend
 from orlando_toolkit.ui.dialogs.context_menu import ContextMenuHandler
 
 
@@ -122,10 +123,10 @@ class StructureTab(ttk.Frame):
         self._toolbar = ToolbarWidget(self, on_move=self._on_toolbar_move_clicked)
         self._toolbar.grid(row=1, column=0, sticky="ew", padx=8, pady=(0, 6))
 
-        # Search row layout (left tools | search | toggles | spacer | depth controls)
+        # Search row layout (left tools | search | spacer | depth controls | legend | toggles)
         search_row = ttk.Frame(self)
         search_row.grid(row=0, column=0, sticky="ew", padx=8, pady=(8, 4))
-        # Column 3 is a flexible spacer to push depth controls to the far right
+        # Column 3 is a flexible spacer to push right controls
         search_row.columnconfigure(3, weight=1)
 
         # Left tools: Expand/Collapse all, placed completely to the left of search bar
@@ -166,14 +167,14 @@ class StructureTab(ttk.Frame):
         # Spacer column between search and right-aligned controls
         # Column 3 is configured as the expanding spacer above
 
-        # Depth control (Label + Spinbox) placed just right of the spacer (to the right, before toggles)
+        # Depth control (Label + Spinbox) placed just right of the spacer
         try:
             # Initialize with 1; will be synced to metadata or computed max later
             self._depth_var = tk.IntVar(value=1)
 
             # Small container to align neatly in the same row
             depth_container = ttk.Frame(search_row)
-            depth_container.grid(row=0, column=2, padx=(12, 0), sticky="e")
+            depth_container.grid(row=0, column=2, padx=(12, 0), sticky="w")
 
             depth_label = ttk.Label(depth_container, text="Depth")
             depth_label.grid(row=0, column=0, sticky="w")
@@ -199,9 +200,13 @@ class StructureTab(ttk.Frame):
             # Non-fatal if depth control cannot be created
             pass
 
+        # Style legend: dynamic legend showing active markers (after depth, before toggles)
+        self._style_legend = StyleLegend(search_row)
+        self._style_legend.grid(row=0, column=4, padx=(8, 0), sticky="w")
+
         # Toggle buttons group (Filters | Preview) with pictograms, placed far right
         toggles = ttk.Frame(search_row)
-        toggles.grid(row=0, column=4, padx=(12, 0), sticky="e")
+        toggles.grid(row=0, column=5, padx=(8, 0), sticky="e")
 
         # Track active states for toggle feedback and behavior
         self._preview_active: bool = True
@@ -324,6 +329,12 @@ class StructureTab(ttk.Frame):
         # Set initial sash position to 50/50
         try:
             self.after(0, self._set_initial_sash_position)
+        except Exception:
+            pass
+            
+        # Initialize empty legend
+        try:
+            self._update_style_legend()
         except Exception:
             pass
 
@@ -510,6 +521,38 @@ class StructureTab(ttk.Frame):
         except Exception:
             pass
 
+    def _update_style_legend(self) -> None:
+        """Update the legend based on current search and style toggles."""
+        try:
+            # Determine whether search is active
+            search_term = ""
+            search_active = False
+            try:
+                if hasattr(self._search, 'get_search_term'):
+                    search_term = self._search.get_search_term()
+                    search_active = bool(search_term.strip())
+            except Exception:
+                pass
+            
+            # Get visible styles from the filter panel or the controller
+            active_styles = {}
+            try:
+                if self._filter_panel is not None and hasattr(self._filter_panel, 'get_visible_styles'):
+                    active_styles = self._filter_panel.get_visible_styles()
+                elif self._controller is not None and hasattr(self._controller, 'get_style_visibility'):
+                    active_styles = self._controller.get_style_visibility()
+            except Exception:
+                pass
+            
+            # Update the legend
+            if hasattr(self._style_legend, 'update_legend'):
+                self._style_legend.update_legend(
+                    search_active=search_active,
+                    active_styles=active_styles
+                )
+        except Exception:
+            pass
+
     # ---------------------------------------------------------------------------------
     # Tree expansion control callbacks
     # ---------------------------------------------------------------------------------
@@ -641,6 +684,8 @@ class StructureTab(ttk.Frame):
                     self._render_preview_for_ref(results[0], self._preview_panel)
                 except Exception:
                     pass
+            # Update the legend because search is now active
+            self._update_style_legend()
         except Exception:
             pass
 
@@ -943,6 +988,9 @@ class StructureTab(ttk.Frame):
             except Exception:
                 pass
             self._set_toggle_states(True, False)
+            
+            # Update the legend to reflect hidden styles
+            self._update_style_legend()
         except Exception:
             pass
 
@@ -992,26 +1040,28 @@ class StructureTab(ttk.Frame):
             except Exception:
                 pass
 
-    def _on_filter_select_style(self, style: str) -> None:
-        # Highlight occurrences in the tree based on the CURRENT map to match displayed levels
+    def _on_filter_toggle_style(self, style: str, visible: bool) -> None:
+        """Handle visibility toggle of a style within the filter panel."""
         try:
             ctrl = self._controller
             if ctrl is None:
                 return
-            occ = {}
-            try:
-                # Prefer current structure for highlighting alignment
-                occ = ctrl.get_heading_occurrences_current()  # type: ignore[attr-defined]
-            except Exception:
-                occ = ctrl.get_heading_occurrences()  # fallback: original structure
-            style_items = occ.get(style, []) if occ else []
-            refs = [it.get("href") for it in style_items if isinstance(it, dict) and it.get("href")]
-            self._tree.set_filter_highlight_refs(refs)  # type: ignore[attr-defined]
+                
+            # Update visibility in the controller
+            ctrl.handle_style_visibility_toggle(style, visible)
+            
+            # Update markers in the tree widget
+            style_visibility = ctrl.get_style_visibility()
+            style_colors = ctrl.get_style_colors()
+            
+            self._tree.set_style_visibility(style_visibility)
+            self._tree.update_style_colors(style_colors)
+            
+            # Update the legend
+            self._update_style_legend()
+            
         except Exception:
-            try:
-                self._tree.clear_filter_highlight_refs()  # type: ignore[attr-defined]
-            except Exception:
-                pass
+            pass
 
     # Removed: heading analysis helpers moved to controller/service
 
@@ -1202,6 +1252,15 @@ class StructureTab(ttk.Frame):
                         current = dict(getattr(ctrl, "heading_filter_exclusions", {}) or {})
                         if self._filter_panel is not None:
                             self._filter_panel.set_data(headings_cache, occurrences_map, style_levels, current)
+                            
+                        # Initialize style colors and visibility in the tree widget
+                        style_colors = ctrl.get_style_colors()
+                        style_visibility = ctrl.get_style_visibility()
+                        self._tree.update_style_colors(style_colors)
+                        self._tree.set_style_visibility(style_visibility)
+                        
+                        # Update the legend
+                        self._update_style_legend()
                 except Exception:
                     pass
         except Exception:
@@ -1312,7 +1371,7 @@ class StructureTab(ttk.Frame):
                                 container,
                                 on_close=self._on_filter_close,
                                 on_apply=self._on_filter_apply,
-                                on_select_style=self._on_filter_select_style,
+                                on_toggle_style=self._on_filter_toggle_style,
                             )
                             self._filter_panel.grid(row=0, column=0, sticky="nsew")
                         except Exception:

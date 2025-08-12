@@ -31,6 +31,7 @@ class ScrollMarkerBar(ttk.Frame):
         # State
         self._search_positions: List[float] = []
         self._filter_positions: List[float] = []
+        self._style_markers: dict[str, tuple[List[float], str]] = {}  # style_name -> (positions, color)
         self._viewport_first: Optional[float] = None
         self._viewport_last: Optional[float] = None
         self._on_jump: Optional[Callable[[float], None]] = on_jump
@@ -60,6 +61,20 @@ class ScrollMarkerBar(ttk.Frame):
         except Exception:
             self._search_positions = []
             self._filter_positions = []
+        self._redraw()
+
+    def set_style_markers(self, style_markers: dict[str, tuple[List[float], str]]) -> None:
+        """Set style markers with their colors.
+        
+        Parameters
+        ----------
+        style_markers : dict[str, tuple[List[float], str]]
+            Dictionary mapping style_name -> (positions, color_hex)
+        """
+        try:
+            self._style_markers = dict(style_markers or {})
+        except Exception:
+            self._style_markers = {}
         self._redraw()
 
     def set_viewport(self, first: float, last: float) -> None:
@@ -113,6 +128,11 @@ class ScrollMarkerBar(ttk.Frame):
                 draw_tick(p, self._color_search)
             for p in self._filter_positions:
                 draw_tick(p, self._color_filter)
+            
+            # Draw style markers with their specific colors
+            for style_name, (positions, color) in self._style_markers.items():
+                for p in positions:
+                    draw_tick(p, color)
         except Exception:
             # Never raise from UI redraw
             pass

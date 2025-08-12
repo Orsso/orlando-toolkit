@@ -55,6 +55,7 @@ class StructureController:
         self.search_index: int = -1  # current index into search_results for navigation
         self.selected_items: List[str] = []
         self.heading_filter_exclusions: Dict[str, bool] = {}  # style -> excluded
+        self.style_visibility: Dict[str, bool] = {}  # style -> visible (show marker)
 
     # ---------------------------------------------------------------------------------
     # Internal helpers
@@ -603,6 +604,64 @@ class StructureController:
         excluded = not enabled
         self.heading_filter_exclusions[style] = excluded
         return self.heading_filter_exclusions
+
+    def handle_style_visibility_toggle(self, style: str, visible: bool) -> Dict[str, bool]:
+        """Toggle visibility of a style marker.
+
+        Updates the internal mapping of style visibility for tree markers.
+
+        Parameters
+        ----------
+        style : str
+            Style name (e.g., 'Heading1', 'Heading2').
+        visible : bool
+            True to show the marker, False to hide it.
+
+        Returns
+        -------
+        Dict[str, bool]
+            Current mapping style -> visible.
+        """
+        if not isinstance(style, str) or not style:
+            return self.style_visibility
+            
+        self.style_visibility[style] = bool(visible)
+        return self.style_visibility
+        
+    def get_style_visibility(self) -> Dict[str, bool]:
+        """Return the current visibility for all styles."""
+        return dict(self.style_visibility)
+        
+    def get_style_colors(self) -> Dict[str, str]:
+        """Generate and return the colors assigned to styles.
+
+        Uses the same logic as `StyleLegend` to preserve consistency.
+        """
+        try:
+            # Local import to avoid circular dependencies
+            from orlando_toolkit.ui.widgets.style_legend import STYLE_COLORS
+        except ImportError:
+            # Fallback if import fails - synchronized final palette
+            STYLE_COLORS = [
+                "#E53E3E", "#38A169", "#FF6B35", "#805AD5", "#D4AF37", "#228B22",
+                "#FF8C00", "#B22222", "#9400D3", "#32CD32", "#8B0000", "#FF4500",
+                "#2E8B57", "#B8860B", "#8B4513", "#CD853F", "#8FBC8F", "#A0522D",
+                "#2F4F4F", "#8B008B", "#556B2F", "#800000", "#483D8B"
+            ]
+            
+        colors = {}
+        try:
+            # Use the collision-free color manager
+            from orlando_toolkit.ui.widgets.style_legend import _color_manager
+            for style in self.style_visibility.keys():
+                colors[style] = _color_manager.get_color_for_style(style)
+        except ImportError:
+            # Fallback to legacy method if import fails
+            for style in self.style_visibility.keys():
+                color_index = hash(style) % len(STYLE_COLORS)
+                colors[style] = STYLE_COLORS[color_index]
+        
+        return colors
 
     def select_items(self, item_refs: List[str]) -> None:
         """Set the current selection to the provided list of item references.
