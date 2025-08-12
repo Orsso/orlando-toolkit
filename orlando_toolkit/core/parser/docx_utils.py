@@ -9,6 +9,8 @@ and reuse without GUI dependencies.
 from typing import Dict, Generator
 import io
 import logging
+import requests
+from urllib.parse import urlparse
 
 from PIL import Image
 from docx.document import Document as _Document  # type: ignore
@@ -64,6 +66,37 @@ def iter_block_items(parent: _Document | _Cell) -> Generator[Paragraph | Table, 
 # Image extraction
 # ---------------------------------------------------------------------------
 
+def download_external_image(url: str) -> tuple[bytes, str] | None:
+    """Download external image and return (data, extension) or None if failed."""
+    try:
+        response = requests.get(url, timeout=10, headers={'User-Agent': 'Orlando-Toolkit'})
+        response.raise_for_status()
+        
+        # Try to get extension from URL or Content-Type
+        parsed_url = urlparse(url)
+        ext = parsed_url.path.split('.')[-1].lower() if '.' in parsed_url.path else ''
+        
+        if not ext:
+            content_type = response.headers.get('content-type', '').lower()
+            if 'jpeg' in content_type or 'jpg' in content_type:
+                ext = 'jpg'
+            elif 'png' in content_type:
+                ext = 'png'
+            elif 'gif' in content_type:
+                ext = 'gif'
+            elif 'webp' in content_type:
+                ext = 'webp'
+            else:
+                ext = 'jpg'  # Default fallback
+                
+        return response.content, ext
+        
+    except Exception as e:
+        domain = url.split('/')[2] if len(url.split('/')) > 2 else 'unknown'
+        logger.debug(f"Failed to download external image from {domain}: {e}")
+        return None
+
+
 def extract_images_to_context(doc: _Document, context: DitaContext) -> Dict[str, str]:
     """Populate *context.images* with image bytes and return rid→filename map."""
     
@@ -71,9 +104,21 @@ def extract_images_to_context(doc: _Document, context: DitaContext) -> Dict[str,
     rel_data: Dict[str, tuple[bytes, str]] = {}
     for rel_id, rel in doc.part.rels.items():
         if "image" in rel.target_ref:
-            image_data = rel.target_part.blob
-            ext = rel.target_ref.split('.')[-1].lower()
-            rel_data[rel_id] = (image_data, ext)
+            if rel.is_external:
+                # Handle external image (download it)
+                domain = rel.target_ref.split('/')[2] if len(rel.target_ref.split('/')) > 2 else 'unknown'
+                logger.info(f"Downloading external image from {domain}...")
+                result = download_external_image(rel.target_ref)
+                if result:
+                    image_data, ext = result
+                    rel_data[rel_id] = (image_data, ext)
+                else:
+                    logger.debug(f"Skipping external image that couldn't be downloaded: {rel.target_ref}")
+            else:
+                # Handle embedded image (existing logic)
+                image_data = rel.target_part.blob
+                ext = rel.target_ref.split('.')[-1].lower()
+                rel_data[rel_id] = (image_data, ext)
     
     # Now walk through document in order to collect image relationship IDs as they appear
     image_map_rid: Dict[str, str] = {}
@@ -110,7 +155,7 @@ def extract_images_to_context(doc: _Document, context: DitaContext) -> Dict[str,
                             image_counter += 1
                         except Exception as exc:
                             # Fallback: keep original bytes/format if Pillow cannot read (e.g., unsupported WMF)
-                            logger.warning("Image conversion to PNG failed – keeping original: %s", exc)
+                            logger.debug("Image conversion to PNG failed – keeping original: %s", exc)
                             image_filename = f"image_{image_counter}.{ext}"
                             context.images[image_filename] = image_data
                             image_map_rid[r_id] = image_filename
@@ -149,7 +194,7 @@ def extract_images_to_context(doc: _Document, context: DitaContext) -> Dict[str,
                                             image_counter += 1
                                         except Exception as exc:
                                             # Fallback: keep original bytes/format if Pillow cannot read (e.g., unsupported WMF)
-                                            logger.warning("Image conversion to PNG failed – keeping original: %s", exc)
+                                            logger.debug("Image conversion to PNG failed – keeping original: %s", exc)
                                             image_filename = f"image_{image_counter}.{ext}"
                                             context.images[image_filename] = image_data
                                             image_map_rid[r_id] = image_filename

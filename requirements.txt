@@ -5,3 +5,4 @@ Pillow
 sv-ttk 
 pyyaml
 tkinterweb>=3.13
+requests
