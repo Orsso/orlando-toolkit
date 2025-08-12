@@ -11,12 +11,17 @@ try:
     from orlando_toolkit.ui.widgets.style_legend import STYLE_COLORS
 except ImportError:
     # Fallback when the module is not available – keep a synchronized final palette
+    # Fallback palette limited to 5 vivid colors (no blue to avoid search marker)
     STYLE_COLORS = [
-        "#E53E3E", "#38A169", "#FF6B35", "#805AD5", "#D4AF37", "#228B22",
-        "#FF8C00", "#B22222", "#9400D3", "#32CD32", "#8B0000", "#FF4500",
-        "#2E8B57", "#B8860B", "#8B4513", "#CD853F", "#8FBC8F", "#A0522D",
-        "#2F4F4F", "#8B008B", "#556B2F", "#800000", "#483D8B"
+        "#FF1744",  # vivid red
+        "#00C853",  # vivid green
+        "#FF9100",  # bright orange
+        "#9C27B0",  # purple
+        "#FF00A8",  # fuchsia
     ]
+
+# Max number of styles that can be shown simultaneously
+MAX_ACTIVE_STYLES = 5
 
 
 __all__ = ["HeadingFilterPanel"]
@@ -62,6 +67,8 @@ class HeadingFilterPanel(ttk.Frame):
         # Holds clickable pictogram widgets (labels) per style
         self._toggle_buttons_by_style: Dict[str, tk.Widget] = {}
         self._style_visibility: Dict[str, bool] = {}
+        # Keep last known assigned colors from controller to keep icons in sync
+        self._assigned_colors: Dict[str, str] = {}
 
         # Styles for hover/selection feedback (best-effort, safe across themes)
         try:
@@ -84,31 +91,18 @@ class HeadingFilterPanel(ttk.Frame):
         except Exception:
             pass
 
-        # Layout
+        # Layout (compact – header removed)
         self.columnconfigure(0, weight=1)
-        self.rowconfigure(2, weight=1)
-
-        # Header row with actions
-        header = ttk.Frame(self)
-        header.grid(row=0, column=0, sticky="ew", padx=6, pady=(4, 2))
-        header.columnconfigure(0, weight=1)
-
-        ttk.Label(
-            header,
-            text="Heading Filter",
-            style="HeadingFilter.Title.TLabel",
-            anchor="center",
-            justify="center",
-        ).grid(row=0, column=0, sticky="ew")
+        self.rowconfigure(1, weight=1)
 
         # Status label (warnings/info)
         self._status_var = tk.StringVar(value="")
         self._status = ttk.Label(self, textvariable=self._status_var)
-        self._status.grid(row=1, column=0, sticky="ew", padx=6, pady=(0, 4))
+        self._status.grid(row=0, column=0, sticky="ew", padx=6, pady=(4, 4))
 
         # Notebook to group by levels
         self._notebook = ttk.Notebook(self)
-        self._notebook.grid(row=2, column=0, sticky="nsew", padx=6, pady=(0, 6))
+        self._notebook.grid(row=1, column=0, sticky="nsew", padx=6, pady=(0, 6))
 
         # Internal per-tab widgets: level -> (canvas, inner_frame)
         self._level_frames: Dict[str, ttk.Frame] = {}
@@ -262,8 +256,8 @@ class HeadingFilterPanel(ttk.Frame):
                     )
                     self._toggle_buttons_by_style[style] = toggle_btn
                 
-                # Center style name in its column
-                lbl_style = ttk.Label(inner, text=str(style), anchor="center", style="HeadingFilter.Row.TLabel", justify="center")
+                # Left-align style name for better readability
+                lbl_style = ttk.Label(inner, text=str(style), anchor="w", style="HeadingFilter.Row.TLabel", justify="left")
                 occ = int(self._headings_count.get(style, 0))
                 lbl_occ = ttk.Label(inner, text=str(occ), width=8, anchor="e", style="HeadingFilter.Row.TLabel")
 
@@ -283,17 +277,18 @@ class HeadingFilterPanel(ttk.Frame):
                 except Exception:
                     pass
 
-                chk.grid(row=i, column=0, sticky="w", padx=(8, 0), pady=4)
-                toggle_btn.grid(row=i, column=1, sticky="w", padx=(12, 0), pady=2)
-                lbl_style.grid(row=i, column=2, sticky="ew", padx=(12, 8), pady=2)
-                lbl_occ.grid(row=i, column=3, sticky="e", padx=(8, 8), pady=2)
+                chk.grid(row=i, column=0, sticky="w", padx=(8, 0), pady=2)
+                toggle_btn.grid(row=i, column=1, sticky="w", padx=(8, 0), pady=0)
+                lbl_style.grid(row=i, column=2, sticky="ew", padx=(12, 8), pady=0)
+                lbl_occ.grid(row=i, column=3, sticky="e", padx=(8, 8), pady=0)
 
             # Configure column weights once after all rows
             try:
-                inner.columnconfigure(0, weight=0)
-                inner.columnconfigure(1, weight=0)
-                inner.columnconfigure(2, weight=1)
-                inner.columnconfigure(3, weight=0)
+                # Ensure consistent widths for checkbox and toggle columns for perfect alignment
+                inner.columnconfigure(0, weight=0, minsize=24)   # checkbox
+                inner.columnconfigure(1, weight=0, minsize=32, uniform="toggle")  # eye icon
+                inner.columnconfigure(2, weight=1)               # style label stretches
+                inner.columnconfigure(3, weight=0, minsize=48)   # occurrences
             except Exception:
                 pass
 
@@ -312,8 +307,8 @@ class HeadingFilterPanel(ttk.Frame):
         collection.
         """
         try:
-            # Resolve the style color
-            color = self._get_style_color(style)
+            # Resolve the style color (prefer assigned mapping when available)
+            color = self._assigned_colors.get(style, self._get_style_color(style))
             # Use the requested pictogram for style toggles (double-eye)
             lbl = tk.Label(parent, text="👀", cursor="hand2")
             # Enlarge the pictogram to improve readability
@@ -428,6 +423,12 @@ class HeadingFilterPanel(ttk.Frame):
 
             # Case 2: label-based icon using font glyph (same pictogram as Preview panel)
             if isinstance(button, tk.Label):
+                # Keep active color synchronized with latest assigned color
+                try:
+                    new_color = self._assigned_colors.get(style, self._get_style_color(style))
+                    button.active_color = new_color  # type: ignore[attr-defined]
+                except Exception:
+                    pass
                 active_color = getattr(button, "active_color", "#000000")
                 inactive_color = getattr(button, "inactive_color", "#B3B3B3")
                 button.configure(fg=(active_color if is_active else inactive_color))
@@ -464,6 +465,14 @@ class HeadingFilterPanel(ttk.Frame):
             # Invert current state
             current_state = self._style_visibility.get(style, False)
             new_state = not current_state
+
+            # Enforce max number of active styles
+            if new_state:
+                active_count = sum(1 for v in self._style_visibility.values() if v)
+                if active_count >= MAX_ACTIVE_STYLES and not current_state:
+                    # Refuse activation beyond the limit
+                    self.update_status(f"Maximum {MAX_ACTIVE_STYLES} styles can be active at the same time")
+                    return
             
             # Update state and associated variable
             self._style_visibility[style] = new_state
@@ -485,6 +494,17 @@ class HeadingFilterPanel(ttk.Frame):
             var = self._toggle_vars_by_style.get(style)
             if var is not None:
                 new_state = bool(var.get())
+                # Enforce max number of active styles
+                if new_state:
+                    active_count = sum(1 for k, v in self._style_visibility.items() if v and k != style)
+                    if active_count >= MAX_ACTIVE_STYLES:
+                        # Revert change and notify
+                        try:
+                            var.set(False)
+                        except Exception:
+                            pass
+                        self.update_status(f"Maximum {MAX_ACTIVE_STYLES} styles can be active at the same time")
+                        return
                 self._style_visibility[style] = new_state
                 self._update_toggle_button_style(style)
                 
@@ -516,3 +536,45 @@ class HeadingFilterPanel(ttk.Frame):
 
 
 
+
+    # --- External sync helpers (used by StructureTab) ---
+    def update_style_colors(self, colors: Dict[str, str]) -> None:
+        """Synchronize assigned colors from controller and refresh toggle icons.
+
+        Parameters
+        ----------
+        colors : Dict[str, str]
+            Mapping style -> color to apply to active icons.
+        """
+        try:
+            self._assigned_colors = dict(colors or {})
+            # Refresh button visuals to pick up new colors
+            for style, btn in self._toggle_buttons_by_style.items():
+                self._update_toggle_button_style(style, btn)
+        except Exception:
+            pass
+
+    def select_style(self, style: str, *, toggle: bool = True) -> None:
+        """Focus the tab containing `style` and optionally toggle its marker.
+
+        - Selects the corresponding level tab using `_style_levels`.
+        - If `toggle=True`, toggles the style visibility (subject to limit).
+        """
+        try:
+            # Determine and select the tab
+            level = self._style_levels.get(style)
+            level_key = f"Level {level}" if isinstance(level, int) else "Other"
+            try:
+                # Find index of the tab with that text
+                for tab_id in self._notebook.tabs():
+                    if self._notebook.tab(tab_id, "text") == level_key:
+                        self._notebook.select(tab_id)
+                        break
+            except Exception:
+                pass
+
+            if toggle:
+                # Use the same handler as clicking the icon
+                self._on_toggle_clicked(style)
+        except Exception:
+            pass

@@ -1056,6 +1056,12 @@ class StructureTab(ttk.Frame):
             
             self._tree.set_style_visibility(style_visibility)
             self._tree.update_style_colors(style_colors)
+            # Keep filter panel icons in sync with unique color assignment
+            try:
+                if self._filter_panel is not None and hasattr(self._filter_panel, 'update_style_colors'):
+                    self._filter_panel.update_style_colors(style_colors)  # type: ignore[attr-defined]
+            except Exception:
+                pass
             
             # Update the legend
             self._update_style_legend()
@@ -1258,6 +1264,11 @@ class StructureTab(ttk.Frame):
                         style_visibility = ctrl.get_style_visibility()
                         self._tree.update_style_colors(style_colors)
                         self._tree.set_style_visibility(style_visibility)
+                        try:
+                            if self._filter_panel is not None and hasattr(self._filter_panel, 'update_style_colors'):
+                                self._filter_panel.update_style_colors(style_colors)  # type: ignore[attr-defined]
+                        except Exception:
+                            pass
                         
                         # Update the legend
                         self._update_style_legend()

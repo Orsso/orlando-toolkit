@@ -625,6 +625,12 @@ class StructureController:
         if not isinstance(style, str) or not style:
             return self.style_visibility
             
+        # Enforce a maximum of 5 simultaneously visible styles
+        if visible:
+            active_count = sum(1 for v in self.style_visibility.values() if v)
+            if active_count >= 5 and not self.style_visibility.get(style, False):
+                # Ignore request if it would exceed the limit
+                return self.style_visibility
         self.style_visibility[style] = bool(visible)
         return self.style_visibility
         
@@ -637,30 +643,32 @@ class StructureController:
 
         Uses the same logic as `StyleLegend` to preserve consistency.
         """
+        colors: Dict[str, str] = {}
         try:
-            # Local import to avoid circular dependencies
-            from orlando_toolkit.ui.widgets.style_legend import STYLE_COLORS
-        except ImportError:
-            # Fallback if import fails - synchronized final palette
-            STYLE_COLORS = [
-                "#E53E3E", "#38A169", "#FF6B35", "#805AD5", "#D4AF37", "#228B22",
-                "#FF8C00", "#B22222", "#9400D3", "#32CD32", "#8B0000", "#FF4500",
-                "#2E8B57", "#B8860B", "#8B4513", "#CD853F", "#8FBC8F", "#A0522D",
-                "#2F4F4F", "#8B008B", "#556B2F", "#800000", "#483D8B"
-            ]
-            
-        colors = {}
-        try:
-            # Use the collision-free color manager
+            # Use the collision-free color manager; assign unique colors only to visible styles
             from orlando_toolkit.ui.widgets.style_legend import _color_manager
-            for style in self.style_visibility.keys():
-                colors[style] = _color_manager.get_color_for_style(style)
-        except ImportError:
-            # Fallback to legacy method if import fails
-            for style in self.style_visibility.keys():
-                color_index = hash(style) % len(STYLE_COLORS)
-                colors[style] = STYLE_COLORS[color_index]
-        
+            visible_styles = [s for s, v in self.style_visibility.items() if v]
+            if visible_styles:
+                assigned = _color_manager.assign_unique(visible_styles)
+                # Include only the visible ones
+                colors.update(assigned)
+        except Exception:
+            # Safe fallback with deterministic mapping over a 5-color palette
+            try:
+                from orlando_toolkit.ui.widgets.style_legend import STYLE_COLORS
+            except Exception:
+                STYLE_COLORS = ["#FF1744", "#00C853", "#FF9100", "#9C27B0", "#FF00A8"]
+            visible_styles = [s for s, v in self.style_visibility.items() if v]
+            used = set()
+            for s in visible_styles:
+                idx = hash(s) % len(STYLE_COLORS)
+                # find next free color
+                for _ in range(len(STYLE_COLORS)):
+                    if idx not in used:
+                        used.add(idx)
+                        colors[s] = STYLE_COLORS[idx]
+                        break
+                    idx = (idx + 1) % len(STYLE_COLORS)
         return colors
 
     def select_items(self, item_refs: List[str]) -> None:

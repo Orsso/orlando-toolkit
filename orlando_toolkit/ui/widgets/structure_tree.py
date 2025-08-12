@@ -487,6 +487,11 @@ class StructureTreeWidget(ttk.Frame):
             self._update_selection_tags()
         except Exception:
             pass
+        # Update selection indicator in the marker bar
+        try:
+            self._update_selection_indicator()
+        except Exception:
+            pass
 
     def focus_item_by_ref(self, topic_ref: str, ensure_visible: bool = True) -> None:
         """Move focus to the first item matching the given topic_ref without changing selection.
@@ -1389,6 +1394,11 @@ class StructureTreeWidget(ttk.Frame):
                 self._update_selection_tags()
             except Exception:
                 pass
+            # Update selection indicator in marker bar
+            try:
+                self._update_selection_indicator()
+            except Exception:
+                pass
         except Exception:
             # UI robustness: swallow exceptions from callback
             pass
@@ -1636,5 +1646,32 @@ class StructureTreeWidget(ttk.Frame):
             # Tk expects 0..1 fractions; yview_moveto sets the top fraction
             frac = max(0.0, min(1.0, float(first)))
             self._tree.yview_moveto(frac)
+        except Exception:
+            pass
+
+    # --------------------------- Selection indicator ---------------------------
+    def _update_selection_indicator(self) -> None:
+        """Compute normalized position of first selected visible row and update marker bar."""
+        try:
+            bar = getattr(self, "_marker_bar", None)
+            if bar is None or not hasattr(bar, "set_selection_position"):
+                return
+            sel = self._tree.selection()
+            if not sel:
+                bar.set_selection_position(None)  # type: ignore[union-attr]
+                return
+            visible = self._iter_visible_item_ids()
+            total = len(visible)
+            if total <= 0:
+                bar.set_selection_position(None)  # type: ignore[union-attr]
+                return
+            first_sel = sel[0]
+            try:
+                idx = visible.index(first_sel)
+            except ValueError:
+                bar.set_selection_position(None)  # type: ignore[union-attr]
+                return
+            pos = (idx + 0.5) / total
+            bar.set_selection_position(pos)  # type: ignore[union-attr]
         except Exception:
             pass

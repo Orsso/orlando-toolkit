@@ -11,33 +11,14 @@ __all__ = ["StyleLegend"]
 # Search marker color
 SEARCH_COLOR = "#0098e4"
 
-# Style color palette – optimized to avoid collisions with the search color
-# IMPORTANT: Keep enough visual distance from SEARCH_COLOR
-# Expanded to 24 colors and curated to avoid hard-to-see shades
+# Style color palette – exactly 5 vivid colors, all distinct on white and not blue
+# so they remain distinguishable from the search marker color.
 STYLE_COLORS = [
-    "#E53E3E",  # Vivid red
-    "#38A169",  # Green
-    "#FF6B35",  # Orange red
-    "#805AD5",  # Purple
-    "#D4AF37",  # Gold
-    "#228B22",  # Forest green
-    "#FF8C00",  # Dark orange
-    "#B22222",  # Firebrick
-    "#9400D3",  # Dark violet
-    "#32CD32",  # Lime green
-    "#8B0000",  # Dark red
-    "#FF4500",  # Orange red
-    "#2E8B57",  # Sea green
-    "#B8860B",  # Dark goldenrod
-    "#8B4513",  # Saddle brown
-    "#CD853F",  # Peru
-    "#8FBC8F",  # Dark sea green
-    "#A0522D",  # Sienna
-    "#2F4F4F",  # Dark slate gray
-    "#8B008B",  # Dark magenta
-    "#556B2F",  # Dark olive green
-    "#800000",  # Maroon
-    "#483D8B"   # Dark slate blue (far from SEARCH_COLOR)
+    "#FF1744",  # vivid red
+    "#00C853",  # vivid green
+    "#FF9100",  # bright orange
+    "#9C27B0",  # purple
+    "#FF00A8",  # fuchsia
 ]
 
 # Collision-free color assignment for style names
@@ -49,6 +30,44 @@ class StyleColorManager:
         self._color_assignments = set()
         self._next_index = 0
     
+    def assign_unique(self, style_names: List[str]) -> Dict[str, str]:
+        """Assign unique colors for the provided list of styles.
+
+        Resets internal assignments to ensure no two provided styles share
+        the same color. Order is stable based on each style's hashed
+        preferred index, with collision resolution by circular probing.
+        """
+        self.clear_assignments()
+        mapping: Dict[str, str] = {}
+        n = len(STYLE_COLORS)
+        # Sort by preferred index then name for determinism
+        def pref_idx(name: str) -> int:
+            try:
+                return hash(name) % n
+            except Exception:
+                return 0
+        ordered = sorted(style_names or [], key=lambda s: (pref_idx(s), s))
+        used: set[int] = set()
+        for name in ordered:
+            start = pref_idx(name)
+            idx = start
+            for _ in range(n):
+                if idx not in used:
+                    used.add(idx)
+                    color = STYLE_COLORS[idx]
+                    self._style_to_color[name] = color
+                    mapping[name] = color
+                    break
+                idx = (idx + 1) % n
+            else:
+                # Should not happen with <= n styles, but keep safe
+                color = STYLE_COLORS[self._next_index % n]
+                self._next_index += 1
+                self._style_to_color[name] = color
+                mapping[name] = color
+        self._color_assignments = set(mapping.values())
+        return mapping
+
     def get_color_for_style(self, style_name: str) -> str:
         """Return a unique color for a given style name."""
         if style_name in self._style_to_color:

@@ -39,11 +39,14 @@ class ScrollMarkerBar(ttk.Frame):
         self._drag_active: bool = False
         self._drag_offset: float = 0.0
         self._band_height: float = 0.0
+        # Selection indicator (normalized position) – thin black line
+        self._selection_pos: Optional[float] = None
 
         # Colors aligned with StructureTreeWidget markers
         self._color_search = "#0098e4"  # blue
         self._color_filter = "#F57C00"  # orange
         self._color_view = "#E6E6E6"    # light gray band
+        self._color_selection = "#000000"  # black
 
         # Redraw on resize
         self._canvas.bind("<Configure>", lambda _e: self._redraw(), add="+")
@@ -75,6 +78,17 @@ class ScrollMarkerBar(ttk.Frame):
             self._style_markers = dict(style_markers or {})
         except Exception:
             self._style_markers = {}
+        self._redraw()
+
+    def set_selection_position(self, position: Optional[float]) -> None:
+        """Set the current selection normalized position [0..1]."""
+        try:
+            if position is None:
+                self._selection_pos = None
+            else:
+                self._selection_pos = max(0.0, min(1.0, float(position)))
+        except Exception:
+            self._selection_pos = None
         self._redraw()
 
     def set_viewport(self, first: float, last: float) -> None:
@@ -133,6 +147,15 @@ class ScrollMarkerBar(ttk.Frame):
             for style_name, (positions, color) in self._style_markers.items():
                 for p in positions:
                     draw_tick(p, color)
+
+            # Draw selection indicator last (thin black line)
+            if isinstance(self._selection_pos, float):
+                try:
+                    y = int(max(0.0, min(1.0, self._selection_pos)) * height)
+                    y = max(0, min(height - 1, y))
+                    c.create_line(0, y, width, y, fill=self._color_selection, width=1)
+                except Exception:
+                    pass
         except Exception:
             # Never raise from UI redraw
             pass
