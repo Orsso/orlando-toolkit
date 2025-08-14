@@ -128,7 +128,6 @@ L'arbre de structure affiche la hiérarchie de votre document converti. Chaque n
 
 - Les éléments en gras représentent généralement les titres de niveau supérieur
 - Les éléments indentés représentent les sous-sections
-- Les icônes à côté des éléments indiquent leur type (sujet, section, etc.)
 
 Vous pouvez interagir avec l'arbre de structure de plusieurs manières :
 - **Sélection** : Cliquez sur un élément pour le sélectionner

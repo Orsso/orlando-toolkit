@@ -102,9 +102,15 @@ class StructureEditingService:
 
         if direction == "up":
             ok = self._move_up(context, node)
+            if ok:
+                # Persist this structural change as the new baseline for future depth-limit merges
+                self._invalidate_original_structure(context)
             return OperationResult(ok, ("Moved topic up." if ok else "Cannot move up (at boundary)."), {"topic_id": topic_id})
         if direction == "down":
             ok = self._move_down(context, node)
+            if ok:
+                # Persist this structural change as the new baseline for future depth-limit merges
+                self._invalidate_original_structure(context)
             return OperationResult(ok, ("Moved topic down." if ok else "Cannot move down (at boundary)."), {"topic_id": topic_id})
         return OperationResult(False, f"Unsupported move direction '{direction}'.", {"allowed": ["up", "down"]})
 
