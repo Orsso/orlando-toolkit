@@ -129,36 +129,11 @@ class StructureTab(ttk.Frame):
         self._toolbar = ToolbarWidget(toolbar_row, on_move=self._on_toolbar_move_clicked)
         self._toolbar.grid(row=0, column=0, sticky="w")
 
-        # Search row layout (left tools | search | spacer | depth controls | legend | toggles)
+        # Search row layout (search | spacer | depth controls | legend | toggles)
         search_row = ttk.Frame(self)
         search_row.grid(row=0, column=0, sticky="ew", padx=8, pady=(8, 4))
         # Column 3 is a flexible spacer to push right controls
         search_row.columnconfigure(3, weight=1)
-
-        # Left tools: Expand/Collapse all, placed completely to the left of search bar
-        left_tools = ttk.Frame(search_row)
-        left_tools.grid(row=0, column=0, padx=(0, 8))
-
-        try:
-            self._expand_all_btn = ttk.Button(left_tools, text="+", width=3, command=self._on_expand_all)
-            self._expand_all_btn.grid(row=0, column=0, padx=(0, 4))
-            try:
-                from orlando_toolkit.ui.custom_widgets import Tooltip
-                Tooltip(self._expand_all_btn, "Expand all", delay_ms=1000)
-            except Exception:
-                pass
-        except Exception:
-            self._expand_all_btn = None  # type: ignore[assignment]
-        try:
-            self._collapse_all_btn = ttk.Button(left_tools, text="-", width=3, command=self._on_collapse_all)
-            self._collapse_all_btn.grid(row=0, column=1)
-            try:
-                from orlando_toolkit.ui.custom_widgets import Tooltip
-                Tooltip(self._collapse_all_btn, "Collapse all", delay_ms=1000)
-            except Exception:
-                pass
-        except Exception:
-            self._collapse_all_btn = None  # type: ignore[assignment]
 
         # Search widget: make it noticeably narrower via explicit entry width
         self._search = SearchWidget(
@@ -168,7 +143,7 @@ class StructureTab(ttk.Frame):
             entry_width=30,
         )
         # Do not stretch the search widget; keep compact
-        self._search.grid(row=0, column=1, sticky="w")
+        self._search.grid(row=0, column=0, sticky="w")
 
         # Spacer column between search and right-aligned controls
         # Column 3 is configured as the expanding spacer above
@@ -559,24 +534,7 @@ class StructureTab(ttk.Frame):
             pass
 
     # ---------------------------------------------------------------------------------
-    # Tree expansion control callbacks
-    # ---------------------------------------------------------------------------------
-
-    def _on_expand_all(self) -> None:
-        """Handle expand all button click."""
-        try:
-            self._tree.expand_all()
-        except Exception:
-            pass
-
-    def _on_collapse_all(self) -> None:
-        """Handle collapse all button click."""
-        try:
-            self._tree.collapse_all()
-        except Exception:
-            pass
-
-    # ---------------------------------------------------------------------------------
+        # ---------------------------------------------------------------------------------
     # Depth control callback
     # ---------------------------------------------------------------------------------
 

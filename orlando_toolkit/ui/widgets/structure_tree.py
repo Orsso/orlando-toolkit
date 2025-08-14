@@ -107,6 +107,26 @@ class StructureTreeWidget(ttk.Frame):
         self.columnconfigure(2, weight=0)  # scrollbar
         self.rowconfigure(0, weight=1)
 
+        # Overlayed expand/collapse controls inside the tree area (no extra row)
+        try:
+            overlay = ttk.Frame(self._tree)
+            btn_expand = ttk.Button(overlay, text="+", width=2, command=self.expand_all)
+            btn_collapse = ttk.Button(overlay, text="-", width=2, command=self.collapse_all)
+            btn_expand.grid(row=0, column=0, padx=(0, 2))
+            btn_collapse.grid(row=0, column=1)
+            try:
+                from orlando_toolkit.ui.custom_widgets import Tooltip  # local import to avoid cycles
+                Tooltip(btn_expand, "Expand all")
+                Tooltip(btn_collapse, "Collapse all")
+            except Exception:
+                pass
+            # Place in the top-right corner of the tree viewport (left of marker/scrollbar)
+            overlay.place(relx=1.0, x=-4, y=2, anchor="ne")
+            # Keep position stable on resize
+            self._tree.bind("<Configure>", lambda _e: overlay.place_configure(relx=1.0, x=-4, y=2, anchor="ne"))
+        except Exception:
+            pass
+
         # Internal mappings: tree item id -> topic_ref
         self._id_to_ref: Dict[str, str] = {}
         # Reverse lookup for convenience: topic_ref -> first tree item id
