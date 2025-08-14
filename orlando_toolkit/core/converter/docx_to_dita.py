@@ -7,6 +7,8 @@ and ditamaps with proper Orlando-specific metadata and structure.
 """
 
 from datetime import datetime
+import os
+import uuid
 import logging
 import re
 from typing import Any, Dict
@@ -16,7 +18,7 @@ from docx import Document  # type: ignore
 from lxml import etree as ET  # type: ignore
 
 from orlando_toolkit.core.models import DitaContext
-from orlando_toolkit.core.parser import extract_images_to_context, build_style_heading_map
+from orlando_toolkit.core.parser import extract_images_to_context, build_style_heading_map, iter_block_items
 from orlando_toolkit.core.parser.style_analyzer import build_enhanced_style_map
 
 # Helper functions migrated from legacy converter
@@ -118,12 +120,13 @@ def convert_docx_to_dita(file_path: str, metadata: Dict[str, Any]) -> DitaContex
         logger.info("Building topics...")
         
         # ======================================================================
-        # NEW TWO-PASS APPROACH: Build structure first, then generate DITA
+        # TWO-PASS APPROACH: Build structure first, then generate DITA
         # ======================================================================
         from orlando_toolkit.core.converter.structure_builder import (
             build_document_structure,
             determine_node_roles,
-            generate_dita_from_structure
+            generate_dita_from_structure,
+            _add_content_to_topic,
         )
         
         # Pass 1: Build complete document structure
@@ -148,6 +151,52 @@ def convert_docx_to_dita(file_path: str, metadata: Dict[str, Any]) -> DitaContex
             heading_counters,
             parent_elements
         )
+
+        # ------------------------------------------------------------------
+        # Fallback: no topics detected → create a single topic hosting all
+        # content, titled after the DOCX filename (without extension).
+        # ------------------------------------------------------------------
+        if not context.topics:
+            fallback_title = os.path.splitext(os.path.basename(file_path))[0] or "Document"
+            file_name = f"topic_{uuid.uuid4().hex[:10]}.dita"
+            topic_id = file_name.replace(".dita", "")
+
+            concept_root, conbody = (
+                # reuse existing builder to keep formatting/images consistent
+                __import__(
+                    "orlando_toolkit.core.converter.helpers", fromlist=["create_dita_concept"]
+                ).create_dita_concept(
+                    fallback_title,
+                    topic_id,
+                    context.metadata.get("revision_date", datetime.now().strftime("%Y-%m-%d")),
+                )
+            )
+
+            # Feed all block items; underlying helper filters empties and
+            # handles paragraphs, lists, images, and tables uniformly.
+            all_blocks = [blk for blk in iter_block_items(doc)]
+            _add_content_to_topic(conbody, all_blocks, all_images_map_rid)
+
+            # Reference in ditamap
+            topicref = ET.SubElement(
+                map_root,
+                "topicref",
+                {"href": f"topics/{file_name}", "locktitle": "yes"},
+            )
+            topicref.set("data-level", "1")
+
+            topicmeta_ref = ET.SubElement(topicref, "topicmeta")
+            navtitle_ref = ET.SubElement(topicmeta_ref, "navtitle")
+            navtitle_ref.text = fallback_title
+            critdates_ref = ET.SubElement(topicmeta_ref, "critdates")
+            _rev_date_fb = context.metadata.get("revision_date") or datetime.now().strftime("%Y-%m-%d")
+            ET.SubElement(critdates_ref, "created", date=_rev_date_fb)
+            ET.SubElement(critdates_ref, "revised", modified=_rev_date_fb)
+            ET.SubElement(topicmeta_ref, "othermeta", name="tocIndex", content="1")
+            ET.SubElement(topicmeta_ref, "othermeta", name="foldout", content="false")
+            ET.SubElement(topicmeta_ref, "othermeta", name="tdm", content="false")
+
+            context.topics[file_name] = concept_root
 
     except Exception as exc:
         logger.error("Conversion failed: %s", exc, exc_info=True)
