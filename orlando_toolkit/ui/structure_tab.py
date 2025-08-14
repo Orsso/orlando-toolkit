@@ -309,7 +309,6 @@ class StructureTab(ttk.Frame):
         # Context menu handler wired to StructureTab callbacks
         self._ctx_menu = ContextMenuHandler(
             self,
-            on_open=self._ctx_open,
             on_merge=self._ctx_merge,
             on_rename=self._ctx_rename,
             on_delete=self._ctx_delete,
@@ -883,6 +882,40 @@ class StructureTab(ttk.Frame):
                 ctx["on_style"] = self._ctx_style_action
             else:
                 ctx["is_topic"] = False
+
+            # Enablement and custom commands per requested behavior
+            # - Merge available when multiple successive topics are selected
+            try:
+                if hasattr(self._tree, "are_refs_successive_topics"):
+                    ctx["force_can_merge"] = bool(self._tree.are_refs_successive_topics(current_refs))  # type: ignore[attr-defined]
+            except Exception:
+                pass
+
+            # - Section context: supply custom merge/rename handlers and enable rename
+            try:
+                if is_section:
+                    # Locate the item id to compute a structural index path
+                    item_id = info.get("item_id") or ""
+                    if item_id:
+                        try:
+                            index_path = self._tree.get_index_path_for_item_id(item_id)  # type: ignore[attr-defined]
+                        except Exception:
+                            index_path = []
+                    else:
+                        index_path = []
+
+                    # Attach zero-arg commands invoking section operations
+                    ctx["on_merge_command"] = (lambda p=index_path: self._ctx_merge_section(p))
+                    ctx["on_rename_command"] = (lambda p=index_path: self._ctx_rename_section(p))
+                    ctx["on_delete_command"] = (lambda p=index_path: self._ctx_delete_section(p))
+                    ctx["force_can_rename"] = True
+                    # Merge on a section is always allowed (it converts the section)
+                    ctx["force_can_merge"] = True
+                    # Allow delete even though there is no ref in selection
+                    ctx["force_can_delete"] = True
+            except Exception:
+                pass
+
             self._ctx_menu.show_context_menu(event, current_refs, context=ctx)
         except Exception:
             pass
@@ -891,14 +924,7 @@ class StructureTab(ttk.Frame):
     # Context menu command handlers (wired per step 4/4)
     # ---------------------------------------------------------------------------------
 
-    def _ctx_open(self, refs: List[str]) -> None:
-        """Context menu 'Open' action -> route to side preview panel update."""
-        if not refs:
-            return
-        try:
-            self._on_tree_item_activated(refs[0])
-        except Exception:
-            pass
+    # Removed explicit Open handler; primary action remains style label when available
 
     def _ctx_style_action(self, style: str) -> None:
         """Context menu style primary action: open filter panel and select the style."""
@@ -932,7 +958,14 @@ class StructureTab(ttk.Frame):
             return
         try:
             from tkinter import simpledialog
-            new_title = simpledialog.askstring("Rename topic", "New title:", parent=self)
+            # Prefill with current title
+            current_title = ""
+            try:
+                if hasattr(self._controller, "get_title_for_ref"):
+                    current_title = self._controller.get_title_for_ref(refs[0])  # type: ignore[attr-defined]
+            except Exception:
+                current_title = ""
+            new_title = simpledialog.askstring("Rename topic", "New title:", initialvalue=current_title or "", parent=self)
             if not new_title:
                 return
             res = self._controller.handle_rename(refs[0], new_title)  # type: ignore[attr-defined]
@@ -964,9 +997,58 @@ class StructureTab(ttk.Frame):
         if len(refs) < 2:
             return
         try:
+            # Only allow when selection is successive topics
+            try:
+                if hasattr(self._tree, "are_refs_successive_topics") and not self._tree.are_refs_successive_topics(refs):  # type: ignore[attr-defined]
+                    return
+            except Exception:
+                pass
             res = self._controller.handle_merge(refs)  # type: ignore[attr-defined]
             if not getattr(res, "success", False):
                 # Keep UI non-blocking; errors are handled elsewhere.
+                return
+            self._refresh_tree()
+        except Exception:
+            pass
+
+    def _ctx_merge_section(self, index_path: List[int]) -> None:
+        try:
+            if not isinstance(index_path, list) or not index_path:
+                return
+            res = self._controller.handle_merge_section(index_path)  # type: ignore[attr-defined]
+            if not getattr(res, "success", False):
+                return
+            self._refresh_tree()
+        except Exception:
+            pass
+
+    def _ctx_rename_section(self, index_path: List[int]) -> None:
+        try:
+            if not isinstance(index_path, list) or not index_path:
+                return
+            # Prefill with current section title
+            current_title = ""
+            try:
+                current_title = self._controller.get_title_for_section(index_path)  # type: ignore[attr-defined]
+            except Exception:
+                current_title = ""
+            from tkinter import simpledialog
+            new_title = simpledialog.askstring("Rename section", "New title:", initialvalue=current_title or "", parent=self)
+            if not new_title:
+                return
+            res = self._controller.handle_rename_section(index_path, new_title)  # type: ignore[attr-defined]
+            if not getattr(res, "success", False):
+                return
+            self._refresh_tree()
+        except Exception:
+            pass
+
+    def _ctx_delete_section(self, index_path: List[int]) -> None:
+        try:
+            if not isinstance(index_path, list) or not index_path:
+                return
+            res = self._controller.handle_delete_section(index_path)  # type: ignore[attr-defined]
+            if not getattr(res, "success", False):
                 return
             self._refresh_tree()
         except Exception:

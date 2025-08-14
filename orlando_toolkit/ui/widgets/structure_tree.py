@@ -1787,6 +1787,84 @@ class StructureTreeWidget(ttk.Frame):
         except Exception:
             return None
 
+    # --- Successive selection and structural path helpers ---
+
+    def are_refs_successive_topics(self, refs: List[str]) -> bool:
+        """Return True if refs correspond to consecutive sibling topic items (no sections).
+
+        - All refs must resolve to existing items
+        - None of the items may be a section (topichead)
+        - All items must share the same direct parent
+        - Within that parent's children order, the items must be consecutive (no gaps)
+        """
+        try:
+            if not isinstance(refs, list) or len(refs) < 2:
+                return False
+            item_ids: List[str] = []
+            for ref in refs:
+                iid = self._ref_to_id.get(ref)
+                if not iid:
+                    return False
+                # Disallow sections
+                try:
+                    tags = tuple(self._tree.item(iid, "tags") or ())
+                    if "section" in tags:
+                        return False
+                except Exception:
+                    return False
+                item_ids.append(iid)
+
+            # All must share same parent
+            parents = []
+            for iid in item_ids:
+                parents.append(self._tree.parent(iid))
+            if not parents:
+                return False
+            parent0 = parents[0]
+            if any(p != parent0 for p in parents):
+                return False
+
+            # Compute indices within the parent and check consecutiveness
+            siblings = list(self._tree.get_children(parent0))
+            indices = []
+            for iid in item_ids:
+                try:
+                    indices.append(siblings.index(iid))
+                except ValueError:
+                    return False
+            indices.sort()
+            for a, b in zip(indices, indices[1:]):
+                if b != a + 1:
+                    return False
+            return True
+        except Exception:
+            return False
+
+    def get_index_path_for_item_id(self, item_id: str) -> List[int]:
+        """Return a stable index path for the given item among structural siblings.
+
+        The path is computed as the sequence of indices from the root to the item,
+        where each index refers to the position of the item among its parent's
+        structural children (Treeview children order). This is suitable for locating
+        the corresponding node in the ditamap when used consistently by the service.
+        """
+        path: List[int] = []
+        try:
+            current = item_id
+            while current:
+                parent = self._tree.parent(current)
+                siblings = list(self._tree.get_children(parent))
+                try:
+                    idx = siblings.index(current)
+                except ValueError:
+                    break
+                path.append(idx)
+                current = parent
+            path.reverse()
+        except Exception:
+            return []
+        return path
+
     # --------------------------- Marker bar integration ---------------------------
     def _on_tree_yscroll(self, first: str, last: str) -> None:
         """Proxy yscrollcommand to scrollbar and marker bar viewport."""

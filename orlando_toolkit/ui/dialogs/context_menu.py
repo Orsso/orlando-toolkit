@@ -1,9 +1,13 @@
 """Context menu handler for structural operations.
 
 This module provides a small, presentation-only helper class that builds and shows
-a Tkinter context menu for structure-related actions such as Open, Merge, Rename,
-and Delete. It encapsulates the menu creation, item enablement logic, and safe
-callback invocation without importing or depending on any services or controllers.
+a Tkinter context menu for structure-related actions such as Merge, Rename, and
+Delete. It encapsulates the menu creation, item enablement logic, and safe callback
+invocation without importing or depending on any services or controllers.
+
+Additionally, when the user right-clicks a single topic and a style label is
+available for that item, the menu shows a primary action with the style label to
+open the Heading Filter panel pre-focused on that style.
 
 Notes
 -----
@@ -32,14 +36,14 @@ class ContextMenuHandler:
     ----------
     master : tk.Widget
         The parent widget that will own the context menu.
-    on_open : Optional[Callable[[List[str]], None]], optional
-        Callback invoked when "Open" is selected. Receives the current selection.
     on_merge : Optional[Callable[[List[str]], None]], optional
         Callback invoked when "Merge" is selected. Receives the current selection.
     on_rename : Optional[Callable[[List[str]], None]], optional
         Callback invoked when "Rename" is selected. Receives the current selection.
     on_delete : Optional[Callable[[List[str]], None]], optional
         Callback invoked when "Delete" is selected. Receives the current selection.
+    on_open : Optional[Callable[[List[str]], None]], optional
+        Retained for backward compatibility only; currently not displayed as a menu item.
     """
 
     def __init__(
@@ -52,6 +56,7 @@ class ContextMenuHandler:
         on_delete: Optional[Callable[[List[str]], None]] = None,
     ) -> None:
         self._master = master
+        # Retained for backward compatibility; primary action no longer shows "Open"
         self._on_open = on_open
         self._on_merge = on_merge
         self._on_rename = on_rename
@@ -63,13 +68,13 @@ class ContextMenuHandler:
     def show_context_menu(self, event: "tk.Event", selected_items: List[str], context: Optional[Dict[str, Any]] = None) -> None:
         """Build and display the context menu at the event location.
 
-        The menu contains the following items (in order): a primary action
-        (either a style label for single-topic selection or "Open"), separator,
-        Merge, Rename, and Delete. Each item is enabled/disabled based on the
-        selection and the corresponding `can_*` validation methods. When an item
-        is invoked, the associated callback is called with `selected_items`.
-        Callback execution is wrapped in a try/except block to avoid exceptions
-        propagating into the Tk mainloop.
+        The menu contains, in order: an optional primary action showing the style
+        label (for single-topic selection), then Merge, Rename, and Delete. Each
+        item is enabled/disabled based on the selection and the corresponding
+        `can_*` validation methods. When an item is invoked, the associated
+        callback is called with `selected_items` (or no args for custom section
+        commands). Callback execution is wrapped in a try/except block to avoid
+        exceptions propagating into the Tk mainloop.
 
         The menu is automatically torn down on focus loss or when a command is
         dispatched.
@@ -103,7 +108,20 @@ class ContextMenuHandler:
         can_rename = len(selected_items) == 1 and self.can_rename_selection(selected_items)
         can_delete = len(selected_items) >= 1 and self.can_delete_selection(selected_items)
 
-        # Primary action: replace "Open" by style label for single-topic selection when available
+        # Optional overrides provided by caller context (e.g., section operations)
+        try:
+            if isinstance(context, dict):
+                if "force_can_merge" in context:
+                    can_merge = bool(context.get("force_can_merge"))
+                if "force_can_rename" in context:
+                    can_rename = bool(context.get("force_can_rename"))
+                if "force_can_delete" in context:
+                    can_delete = bool(context.get("force_can_delete"))
+        except Exception:
+            pass
+
+        # Primary action: show style label for single-topic selection when available
+        added_primary = False
         style_label = None
         is_topic = False
         try:
@@ -118,43 +136,76 @@ class ContextMenuHandler:
             is_topic = False
 
         if is_topic and style_label:
-            # Show the style label as the primary action
             menu.add_command(
-                label=str(style_label),
+                label=f"👀 {str(style_label)}",
                 state=tk.NORMAL,
                 command=lambda: self._execute_style_action(context),
             )
-        else:
-            # Fallback to default Open behavior
-            menu.add_command(
-                label="Open",
-                state=(tk.NORMAL if can_open else tk.DISABLED),
-                command=lambda: self._execute_command(self._on_open, selected_items),
-            )
+            added_primary = True
 
-        # Separator
-        menu.add_separator()
+        # Separator (only if there was a primary action above)
+        if added_primary:
+            menu.add_separator()
 
         # Merge
-        menu.add_command(
-            label="Merge",
-            state=(tk.NORMAL if can_merge else tk.DISABLED),
-            command=lambda: self._execute_command(self._on_merge, selected_items),
-        )
+        custom_merge_command = None
+        try:
+            if isinstance(context, dict):
+                custom_merge_command = context.get("on_merge_command")
+        except Exception:
+            custom_merge_command = None
+        if custom_merge_command is not None:
+            menu.add_command(
+                label="🔀 Merge",
+                state=(tk.NORMAL if can_merge else tk.DISABLED),
+                command=lambda: self._execute_simple_command(custom_merge_command),
+            )
+        else:
+            menu.add_command(
+                label="🔀 Merge",
+                state=(tk.NORMAL if can_merge else tk.DISABLED),
+                command=lambda: self._execute_command(self._on_merge, selected_items),
+            )
 
         # Rename
-        menu.add_command(
-            label="Rename",
-            state=(tk.NORMAL if can_rename else tk.DISABLED),
-            command=lambda: self._execute_command(self._on_rename, selected_items),
-        )
+        custom_rename_command = None
+        try:
+            if isinstance(context, dict):
+                custom_rename_command = context.get("on_rename_command")
+        except Exception:
+            custom_rename_command = None
+        if custom_rename_command is not None:
+            menu.add_command(
+                label="✍ Rename",
+                state=(tk.NORMAL if can_rename else tk.DISABLED),
+                command=lambda: self._execute_simple_command(custom_rename_command),
+            )
+        else:
+            menu.add_command(
+                label="✍ Rename",
+                state=(tk.NORMAL if can_rename else tk.DISABLED),
+                command=lambda: self._execute_command(self._on_rename, selected_items),
+            )
 
         # Delete
-        menu.add_command(
-            label="Delete",
-            state=(tk.NORMAL if can_delete else tk.DISABLED),
-            command=lambda: self._execute_command(self._on_delete, selected_items),
-        )
+        custom_delete_command = None
+        try:
+            if isinstance(context, dict):
+                custom_delete_command = context.get("on_delete_command")
+        except Exception:
+            custom_delete_command = None
+        if custom_delete_command is not None:
+            menu.add_command(
+                label="🗑️ Delete",
+                state=(tk.NORMAL if can_delete else tk.DISABLED),
+                command=lambda: self._execute_simple_command(custom_delete_command),
+            )
+        else:
+            menu.add_command(
+                label="🗑️ Delete",
+                state=(tk.NORMAL if can_delete else tk.DISABLED),
+                command=lambda: self._execute_command(self._on_delete, selected_items),
+            )
 
         # Ensure we tear down the menu on focus loss.
         try:
@@ -278,6 +329,19 @@ class ContextMenuHandler:
                 callback(list(selected_items))
             except Exception:
                 # Presentation-layer: swallow to keep UI responsive.
+                pass
+        self._teardown_menu_safe()
+
+    def _execute_simple_command(self, callback: Optional[Callable[[], None]]) -> None:
+        """Execute a simple zero-arg callback safely and then tear down the menu.
+
+        This is used for context-specific commands that should not receive the
+        selected_items list (e.g., operations on a section under the cursor).
+        """
+        if callback is not None:
+            try:
+                callback()
+            except Exception:
                 pass
         self._teardown_menu_safe()
 

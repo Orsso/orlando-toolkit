@@ -116,12 +116,83 @@ class StructureEditingService:
         return OperationResult(False, f"Unsupported move direction '{direction}'.", {"allowed": ["up", "down", "promote", "demote"]})
 
     def merge_topics(self, context, source_ids: List[str], target_id: str) -> OperationResult:
-        """Non-mutating merge API placeholder.
+        """Manually merge selected topics into the first selected target.
 
-        Canonical API: accepts topic_id/topic_ids only; topic refs/elements are not accepted by this method.
+        - Only topicref nodes with href are considered (sections are ignored).
+        - Each source topic's title is inserted as a formatted paragraph in the target
+          (same style used by unified merge), followed by its body content.
+        - Source topicrefs are removed from the map and their topic files are purged.
         """
-        # Keep non-mutating per requirements
-        return OperationResult(False, "Not implemented", details={"source_ids": list(source_ids), "target_id": target_id})
+        try:
+            if getattr(context, "ditamap_root", None) is None:
+                return OperationResult(False, "No ditamap available in context.", {"reason": "missing_ditamap"})
+
+            # Resolve target
+            target_node = self._find_topic_ref(context, target_id)
+            if target_node is None or not target_node.get("href"):
+                return OperationResult(False, "Target topic not found or not content-bearing.", {"target": target_id})
+            target_fname = target_node.get("href").split("/")[-1]
+            target_topic = context.topics.get(target_fname)
+            if target_topic is None:
+                return OperationResult(False, "Target topic content not found.", {"target": target_fname})
+
+            merged_count = 0
+            removed_files: List[str] = []
+
+            # Import helpers locally to avoid tight coupling
+            try:
+                from orlando_toolkit.core.merge import _add_title_paragraph as _mt_add_title, _copy_content as _mt_copy
+            except Exception:
+                def _mt_add_title(_dest, _t):
+                    return
+                def _mt_copy(_s, _d):
+                    return
+
+            # Merge each source in given order
+            for sid in list(source_ids):
+                src_node = self._find_topic_ref(context, sid)
+                if src_node is None:
+                    continue
+                href = src_node.get("href")
+                if not href:
+                    # Skip sections
+                    continue
+                src_fname = href.split("/")[-1]
+                src_topic = context.topics.get(src_fname)
+                if src_topic is None:
+                    continue
+
+                # Title then content
+                title_text = ""
+                try:
+                    t_el = src_topic.find("title")
+                    if t_el is not None and t_el.text:
+                        title_text = t_el.text
+                except Exception:
+                    title_text = ""
+                _mt_add_title(target_topic, title_text)
+                _mt_copy(src_topic, target_topic)
+
+                # Remove topicref from the map
+                parent = src_node.getparent()
+                if parent is not None:
+                    try:
+                        parent.remove(src_node)
+                        merged_count += 1
+                        removed_files.append(src_fname)
+                    except Exception:
+                        pass
+
+            # Purge unreferenced topics
+            for fn in removed_files:
+                context.topics.pop(fn, None)
+
+            # Ensure future depth-limit operations take this state as the new baseline
+            self._invalidate_original_structure(context)
+
+            return OperationResult(True, "Merged topics into target.", {"target": target_fname, "merged_count": merged_count})
+        except Exception as e:
+            return OperationResult(False, "Manual merge failed.", {"error": str(e)})
 
     def rename_topic(self, context, topic_id: str, new_title: str) -> OperationResult:
         """Rename a topic by topic_id (href or filename). Canonical API uses topic_id only; topic refs/elements are not accepted."""
@@ -135,6 +206,8 @@ class StructureEditingService:
         ok = self._rename(context, node, new_title)
         if ok:
             filename = self._normalize_filename(topic_id)
+            # Persist rename across future depth-limit changes
+            self._invalidate_original_structure(context)
             return OperationResult(True, f"Renamed topic '{filename}'.", {"topic_id": topic_id, "new_title": " ".join((new_title or "").split())})
         return OperationResult(False, "Rename failed.", {"topic_id": topic_id})
 
@@ -146,6 +219,8 @@ class StructureEditingService:
         requested = list(topic_ids)
         deleted_count = self._delete_by_ids(context, topic_ids)
 
+        # Persist deletion baseline for future depth-limit operations
+        self._invalidate_original_structure(context)
         details = {"requested": requested, "deleted": deleted_count, "skipped": max(0, len(requested) - deleted_count)}
         return OperationResult(deleted_count > 0, ("Deleted topics." if deleted_count > 0 else "No topics deleted."), details)
 
@@ -462,3 +537,242 @@ class StructureEditingService:
         }
         # Keep only referenced topics
         context.topics = {fn: el for fn, el in context.topics.items() if fn in hrefs}
+
+    # ----------------------- Section operations -----------------------
+
+    def convert_section_to_topic(self, context: DitaContext, index_path: List[int]) -> OperationResult:
+        """Convert a section (topichead) located by index_path into a topic that hosts its subtree.
+
+        All descendant topics' titles and content are merged into the created/reused
+        content module topic to match unified merge formatting.
+        """
+        if getattr(context, "ditamap_root", None) is None:
+            return OperationResult(False, "No ditamap available in context.")
+        try:
+            section = self._locate_node_by_index_path(context, index_path)
+            if section is None or getattr(section, "tag", None) != "topichead":
+                return OperationResult(False, "Section not found.", {"index_path": list(index_path)})
+
+            # Find or create a content module child
+            content_child = None
+            for child in list(section):
+                if getattr(child, "tag", None) == "topicref" and child.get("href"):
+                    content_child = child
+                    break
+            if content_child is None:
+                try:
+                    merge._ensure_content_module(context, section)  # type: ignore[attr-defined]
+                except Exception:
+                    pass
+                for child in list(section):
+                    if getattr(child, "tag", None) == "topicref" and child.get("href"):
+                        content_child = child
+                        break
+            if content_child is None:
+                return OperationResult(False, "Failed to create content module for section.")
+
+            # Resolve target topic element for merging
+            target_topic_el = None
+            try:
+                href = content_child.get("href") or ""
+                fname = href.split("/")[-1] if href else ""
+                target_topic_el = context.topics.get(fname)
+            except Exception:
+                target_topic_el = None
+
+            # Import merge helpers
+            try:
+                from orlando_toolkit.core.merge import _add_title_paragraph as _mt_add_title, _copy_content as _mt_copy
+            except Exception:
+                def _mt_add_title(_dest, _t):
+                    return
+                def _mt_copy(_s, _d):
+                    return
+
+            # Merge all descendants' content into target_topic_el, removing child refs
+            removed_files: List[str] = []
+
+            def _merge_descendants(node: ET.Element) -> None:
+                for sub in list(node):
+                    tag = getattr(sub, "tag", None)
+                    if tag not in ("topicref", "topichead"):
+                        continue
+                    # Do not process the content module itself
+                    try:
+                        if sub is content_child:
+                            continue
+                    except Exception:
+                        pass
+                    if tag == "topicref" and sub.get("href"):
+                        # Merge this topic's title and content, then recurse its children
+                        try:
+                            s_href = sub.get("href") or ""
+                            s_fname = s_href.split("/")[-1]
+                            s_topic = context.topics.get(s_fname)
+                        except Exception:
+                            s_topic = None
+                            s_fname = ""
+                        if target_topic_el is not None and s_topic is not None:
+                            # Title paragraph then body content
+                            try:
+                                t_el = s_topic.find("title")
+                                t_txt = t_el.text if t_el is not None and t_el.text else ""
+                            except Exception:
+                                t_txt = ""
+                            _mt_add_title(target_topic_el, t_txt)
+                            _mt_copy(s_topic, target_topic_el)
+                        # Recurse deeper under same target
+                        _merge_descendants(sub)
+                        # Remove this child from original section after processing
+                        try:
+                            if sub.getparent() is node:
+                                node.remove(sub)
+                            if s_fname:
+                                removed_files.append(s_fname)
+                        except Exception:
+                            pass
+                    else:
+                        # topichead: recurse; all its descendants will merge
+                        _merge_descendants(sub)
+                        try:
+                            if sub.getparent() is node:
+                                node.remove(sub)
+                        except Exception:
+                            pass
+
+            # Perform merging from the section (excluding the content_child itself)
+            _merge_descendants(section)
+
+            # Transfer navtitle and attributes; normalize level/style
+            section_navtitle = section.find("topicmeta/navtitle")
+            if section_navtitle is not None and section_navtitle.text:
+                tm = content_child.find("topicmeta")
+                if tm is None:
+                    tm = ET.SubElement(content_child, "topicmeta")
+                nt = tm.find("navtitle")
+                if nt is None:
+                    nt = ET.SubElement(tm, "navtitle")
+                nt.text = section_navtitle.text
+
+            for attr, value in section.attrib.items():
+                content_child.set(attr, value)
+            try:
+                lvl_attr = section.get("data-level")
+                if lvl_attr is not None:
+                    new_level = int(lvl_attr)
+                else:
+                    new_level = 1
+                    cur = section.getparent()
+                    while cur is not None:
+                        try:
+                            if getattr(cur, "tag", None) in ("topicref", "topichead"):
+                                new_level += 1
+                        except Exception:
+                            pass
+                        cur = cur.getparent()
+            except Exception:
+                new_level = 1
+            try:
+                content_child.set("data-level", str(new_level))
+                if not content_child.get("data-style"):
+                    content_child.set("data-style", f"Heading {new_level}")
+            except Exception:
+                pass
+
+            # Replace section with content child
+            parent = section.getparent()
+            if parent is not None:
+                idx = list(parent).index(section)
+                parent.remove(section)
+                parent.insert(idx, content_child)
+
+            # Purge removed topics
+            for fn in removed_files:
+                context.topics.pop(fn, None)
+
+            # Ensure future depth-limit operations use this as baseline
+            self._invalidate_original_structure(context)
+
+            return OperationResult(True, "Section converted to topic.", {"index_path": list(index_path)})
+        except Exception as e:
+            return OperationResult(False, "Failed to convert section.", {"error": str(e)})
+
+    def rename_section(self, context: DitaContext, index_path: List[int], new_title: str) -> OperationResult:
+        """Rename the navtitle of a section (topichead) located by index_path."""
+        if getattr(context, "ditamap_root", None) is None:
+            return OperationResult(False, "No ditamap available in context.")
+        cleaned = " ".join((new_title or "").split())
+        if not cleaned:
+            return OperationResult(False, "Empty title is not allowed")
+        try:
+            node = self._locate_node_by_index_path(context, index_path)
+            if node is None or getattr(node, "tag", None) != "topichead":
+                return OperationResult(False, "Section not found.", {"index_path": list(index_path)})
+            topicmeta = node.find("topicmeta")
+            if topicmeta is None:
+                topicmeta = ET.SubElement(node, "topicmeta")
+            navtitle = topicmeta.find("navtitle")
+            if navtitle is None:
+                navtitle = ET.SubElement(topicmeta, "navtitle")
+            navtitle.text = cleaned
+            # Persist rename across depth-limit changes
+            self._invalidate_original_structure(context)
+            return OperationResult(True, "Section renamed.", {"index_path": list(index_path), "new_title": cleaned})
+        except Exception as e:
+            return OperationResult(False, "Failed to rename section.", {"error": str(e)})
+
+    @staticmethod
+    def _locate_node_by_index_path(context: DitaContext, index_path: List[int]) -> Optional[ET.Element]:
+        try:
+            root = getattr(context, "ditamap_root", None)
+            if root is None:
+                return None
+            node = root
+            for idx in index_path:
+                structural_children = [el for el in list(node) if getattr(el, "tag", None) in ("topicref", "topichead")]
+                if idx < 0 or idx >= len(structural_children):
+                    return None
+                node = structural_children[idx]
+            return node
+        except Exception:
+            return None
+
+    def delete_section(self, context: DitaContext, index_path: List[int]) -> OperationResult:
+        """Delete a section (topichead) and its subtree; then purge unreferenced topics."""
+        if getattr(context, "ditamap_root", None) is None:
+            return OperationResult(False, "No ditamap available in context.")
+        try:
+            node = self._locate_node_by_index_path(context, index_path)
+            if node is None or getattr(node, "tag", None) != "topichead":
+                return OperationResult(False, "Section not found.", {"index_path": list(index_path)})
+            parent = node.getparent()
+            if parent is None:
+                return OperationResult(False, "Cannot delete root section.")
+
+            # Collect topic files referenced under this subtree for potential purge
+            try:
+                removed_refs = [
+                    (tref.get("href") or "").split("/")[-1]
+                    for tref in node.xpath(".//topicref[@href]")
+                ]
+            except Exception:
+                removed_refs = []
+
+            parent.remove(node)
+            # Purge topics that are no longer referenced anywhere
+            self._purge_unreferenced_topics(context)
+            # Persist deletion baseline
+            self._invalidate_original_structure(context)
+            return OperationResult(True, "Section deleted.", {"index_path": list(index_path), "purged_candidates": removed_refs})
+        except Exception as e:
+            return OperationResult(False, "Failed to delete section.", {"error": str(e)})
+
+    @staticmethod
+    def _invalidate_original_structure(context: DitaContext) -> None:
+        """Drop saved original structure and merge flags so future depth merges start from current state."""
+        try:
+            context.metadata.pop("original_structure", None)
+            context.metadata.pop("merged_depth", None)
+            context.metadata.pop("merged_exclude_styles", None)
+        except Exception:
+            pass

@@ -275,6 +275,96 @@ class StructureController:
         except Exception:
             return OperationResult(success=False, message="Merge operation failed")
 
+    # --- Section-specific operations ---
+
+    def handle_merge_section(self, index_path: List[int]) -> OperationResult:
+        """Convert a section at index_path into a topic and move its subtree under it.
+
+        Delegates to editing_service.convert_section_to_topic with undo snapshots.
+        """
+        if not isinstance(index_path, list) or not index_path:
+            return OperationResult(success=False, message="No section selected to merge")
+        try:
+            return self._recorded_edit(
+                lambda: self.editing_service.convert_section_to_topic(self.context, index_path)
+            )
+        except Exception:
+            return OperationResult(success=False, message="Section merge failed")
+
+    def handle_rename_section(self, index_path: List[int], new_title: str) -> OperationResult:
+        """Rename a section (topichead) title at index_path.
+
+        Delegates to editing_service.rename_section.
+        """
+        if not isinstance(index_path, list) or not index_path:
+            return OperationResult(success=False, message="No section selected to rename")
+        if not isinstance(new_title, str) or not new_title.strip():
+            return OperationResult(success=False, message="Empty title is not allowed")
+        try:
+            return self._recorded_edit(
+                lambda: self.editing_service.rename_section(self.context, index_path, new_title)
+            )
+        except Exception:
+            return OperationResult(success=False, message="Section rename failed")
+
+    def handle_delete_section(self, index_path: List[int]) -> OperationResult:
+        """Delete a section (topichead) located by index_path.
+
+        Removes the topichead and its subtree from the map. Does not delete topics
+        that are still referenced elsewhere; after removal, unreferenced topics are purged.
+        """
+        if not isinstance(index_path, list) or not index_path:
+            return OperationResult(success=False, message="No section selected to delete")
+        try:
+            return self._recorded_edit(
+                lambda: self.editing_service.delete_section(self.context, index_path)
+            )
+        except Exception:
+            return OperationResult(success=False, message="Section delete failed")
+
+    # --- Title getters for pre-filling rename dialogs ---
+
+    def get_title_for_ref(self, topic_ref: str) -> str:
+        """Return current title for a topicref href, best-effort.
+
+        Prefers the topic's <title>; falls back to navtitle.
+        """
+        try:
+            if not isinstance(topic_ref, str) or not topic_ref:
+                return ""
+            root = getattr(self.context, "ditamap_root", None)
+            if root is None:
+                return ""
+            # Extract filename and look up topic element
+            fname = topic_ref.split("/")[-1]
+            topic_el = getattr(self.context, "topics", {}).get(fname)
+            if topic_el is not None:
+                t = topic_el.find("title")
+                if t is not None and t.text:
+                    return " ".join(t.text.split())
+            # Fallback to navtitle on the topicref element
+            tref = root.find(f".//topicref[@href='{topic_ref}']")
+            if tref is not None:
+                nt = tref.find("topicmeta/navtitle")
+                if nt is not None and nt.text:
+                    return " ".join(nt.text.split())
+        except Exception:
+            pass
+        return ""
+
+    def get_title_for_section(self, index_path: List[int]) -> str:
+        """Return current navtitle for a section (topichead) at index_path, best-effort."""
+        try:
+            node = self._locate_node_by_index_path(index_path)
+            if node is None:
+                return ""
+            nav = node.find("topicmeta/navtitle")
+            if nav is not None and nav.text:
+                return " ".join(nav.text.split())
+        except Exception:
+            pass
+        return ""
+
     def handle_apply_filters(self, style_excl_map: Optional[Dict[int, Set[str]]] = None) -> OperationResult:
         """Apply heading-style filters through the depth-limit service with snapshots."""
         try:
@@ -670,6 +760,24 @@ class StructureController:
                         break
                     idx = (idx + 1) % len(STYLE_COLORS)
         return colors
+
+    # --- Internal helper to locate nodes by index_path ---
+
+    def _locate_node_by_index_path(self, index_path: List[int]):
+        try:
+            root = getattr(self.context, "ditamap_root", None)
+            if root is None:
+                return None
+            node = root
+            for idx in index_path:
+                # Filter to structural children only to match tree view
+                structural_children = [el for el in list(node) if getattr(el, "tag", None) in ("topicref", "topichead")]
+                if idx < 0 or idx >= len(structural_children):
+                    return None
+                node = structural_children[idx]
+            return node
+        except Exception:
+            return None
 
     def select_items(self, item_refs: List[str]) -> None:
         """Set the current selection to the provided list of item references.
