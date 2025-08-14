@@ -40,6 +40,9 @@ except Exception:
     HTML_WEB_AVAILABLE = False
     HtmlFrame = None  # type: ignore
 
+# Local imports
+from orlando_toolkit.ui.widgets.breadcrumb_widget import BreadcrumbWidget, BreadcrumbItem
+
 
 Mode = Literal["html", "xml"]
 
@@ -56,6 +59,7 @@ class PreviewPanel(ttk.Frame):
         *,
         on_mode_changed: Optional[Callable[[Mode], None]] = None,
         on_refresh: Optional[Callable[[], None]] = None,
+        on_breadcrumb_clicked: Optional[Callable[[str], None]] = None,
         **kwargs,
     ) -> None:
         super().__init__(parent, **kwargs)
@@ -63,6 +67,7 @@ class PreviewPanel(ttk.Frame):
         self.on_mode_changed: Optional[Callable[[Mode], None]] = on_mode_changed
         # Keep for API compatibility, but no UI control triggers it.
         self.on_refresh: Optional[Callable[[], None]] = on_refresh
+        self.on_breadcrumb_clicked: Optional[Callable[[str], None]] = on_breadcrumb_clicked
 
         # Layout
         self.columnconfigure(0, weight=1)
@@ -72,9 +77,10 @@ class PreviewPanel(ttk.Frame):
         # Header row (compact)
         header = ttk.Frame(self)
         header.grid(row=0, column=0, sticky="ew", padx=4, pady=2)
-        # Columns: 0=left group (radiobuttons + status), 1=spacer
+        # Columns: 0=left group (radiobuttons + status), 1=spacer, 2=breadcrumb
         header.columnconfigure(0, weight=0)
         header.columnconfigure(1, weight=1)  # stretch spacer
+        header.columnconfigure(2, weight=0)
 
         # Mode toggle - compact
         self._mode_var = tk.StringVar(value="html")
@@ -96,6 +102,13 @@ class PreviewPanel(ttk.Frame):
 
         self._status_label = ttk.Label(toggle, textvariable=self._status_var)
         self._status_label.grid(row=0, column=2, padx=(8, 0), pady=0, sticky="w")
+
+        # Breadcrumb widget
+        self._breadcrumb = BreadcrumbWidget(
+            header,
+            on_item_clicked=self._on_breadcrumb_clicked
+        )
+        self._breadcrumb.grid(row=0, column=2, sticky="e", padx=(8, 0))
 
         # Body: HTML-capable text widget with graceful fallback
         self._title_var = tk.StringVar(value="")  # retained for API compatibility
@@ -207,6 +220,14 @@ class PreviewPanel(ttk.Frame):
         self._title_var.set("")
         self.set_content("")
         self.set_loading(False)
+        self._breadcrumb.clear()
+
+    def set_breadcrumb_path(self, path_items: list[BreadcrumbItem]) -> None:
+        """Set the breadcrumb navigation path."""
+        try:
+            self._breadcrumb.set_path(path_items)
+        except Exception:
+            pass
 
     # Internal callbacks
 
@@ -225,6 +246,15 @@ class PreviewPanel(ttk.Frame):
         if callable(cb):
             try:
                 cb()
+            except Exception:
+                pass
+
+    def _on_breadcrumb_clicked(self, value: str) -> None:
+        """Handle breadcrumb item click."""
+        callback = self.on_breadcrumb_clicked
+        if callable(callback):
+            try:
+                callback(value)
             except Exception:
                 pass
 

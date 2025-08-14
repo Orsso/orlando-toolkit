@@ -17,6 +17,7 @@ if False:  # TYPE_CHECKING pragma
 
 __all__ = [
     "slugify",
+    "clean_heading_text",
     "generate_dita_id",
     "save_xml_file",
     "save_minified_xml_file",
@@ -36,6 +37,59 @@ def slugify(text: str) -> str:
     """
     text = re.sub(r"[^\w\s-]", "", text).strip().lower()
     return re.sub(r"[-\s]+", "_", text)
+
+
+def clean_heading_text(text: str) -> str:
+    """Remove hardcoded section numbering from heading text.
+
+    Removes common numbering patterns that would conflict with Orlando's
+    automatic numbering system. Preserves the original casing and formatting
+    of the cleaned title.
+
+    Args:
+        text: Raw heading text that may contain section numbers
+
+    Returns:
+        Cleaned heading text with numbering patterns removed
+
+    Examples:
+        >>> clean_heading_text("1.2.3 My Title")
+        "My Title"
+        >>> clean_heading_text("1.2.3. My Title")
+        "My Title"
+        >>> clean_heading_text("1) My Title")
+        "My Title"
+        >>> clean_heading_text("a) My Title")
+        "My Title"
+        >>> clean_heading_text("I. My Title")
+        "My Title"
+        >>> clean_heading_text("My Title")  # No numbering
+        "My Title"
+    """
+    if not text or not isinstance(text, str):
+        return text
+
+    # Pattern to match common section numbering at the beginning of titles:
+    # - 1.2.3 Title (decimal with dots)
+    # - 1.2.3. Title (decimal with dots and final period)
+    # - 1) Title (decimal with parenthesis)
+    # - a) Title (lowercase letter with parenthesis)
+    # - A) Title (uppercase letter with parenthesis)
+    # - I. Title (Roman numeral with period)
+    # - i. Title (lowercase Roman numeral with period)
+    # - 1- Title (decimal with dash)
+    # Also handles leading whitespace
+    numbering_pattern = re.compile(
+        r"^\s*(?:"
+        r"\d+(?:\.\d+)*\.?\s+"    # 1.2.3 or 1.2.3.
+        r"|\d+[)\-]\s+"           # 1) or 1-
+        r"|[a-zA-Z][)\-]\s+"      # a) or A) or a- or A-
+        r"|[ivxlcdmIVXLCDM]+\.\s+" # Roman numerals with period
+        r")"
+    )
+
+    cleaned = numbering_pattern.sub("", text).strip()
+    return cleaned if cleaned else text  # Fallback to original if everything was removed
 
 
 def generate_dita_id() -> str:

@@ -182,6 +182,134 @@ class StructureController:
 
         return True
 
+    def get_topic_path(self, topic_ref: str) -> List[tuple[str, str]]:
+        """Get the hierarchical path for a topic reference.
+        
+        Returns a list of (title, href) tuples representing the path from
+        root to the given topic with real section titles. Used for breadcrumb navigation.
+        
+        Parameters
+        ----------
+        topic_ref : str
+            The topic reference (href) to get the path for.
+            
+        Returns
+        -------
+        List[tuple[str, str]]
+            List of (title, href) tuples representing the hierarchical path.
+            Empty list if topic_ref is not found.
+        """
+        if not topic_ref or not hasattr(self, "context"):
+            return []
+            
+        try:
+            root = getattr(self.context, "ditamap_root", None)
+            if root is None:
+                return []
+                
+            # Find the topicref element with this href
+            target_ref = root.find(f".//topicref[@href='{topic_ref}']")
+            if target_ref is None:
+                return []
+                
+            # Build path by walking up the tree
+            path = []
+            current = target_ref
+            
+            while current is not None:
+                # Only include topicref and topichead elements
+                if current.tag in ("topicref", "topichead"):
+                    title = self._extract_node_title(current)
+                    
+                    # For breadcrumb navigation, use a simple unique identifier
+                    # - topicref: use href
+                    # - topichead: use memory address as unique ID
+                    if current.tag == "topicref":
+                        nav_id = current.get("href", "")
+                    else:
+                        # Use id() as unique identifier for sections
+                        nav_id = f"section_{id(current)}"
+                    
+                    path.insert(0, (title, nav_id))
+                
+                # Move up to parent
+                current = current.getparent()
+                # Stop if we reach the root map element
+                if current is not None and current.tag == "map":
+                    break
+                    
+            return path
+            
+        except Exception:
+            return []
+
+    def _extract_node_title(self, node) -> str:
+        """Extract title from a topicref/topichead node with section numbers."""
+        try:
+            # Get base title
+            base_title = ""
+            
+            # Try topicmeta/navtitle first
+            try:
+                navtitle_el = node.find("topicmeta/navtitle")
+                if navtitle_el is not None and navtitle_el.text:
+                    base_title = navtitle_el.text.strip()
+            except Exception:
+                pass
+                
+            # Try title element
+            if not base_title:
+                try:
+                    title_el = node.find("title")
+                    if title_el is not None and title_el.text:
+                        base_title = title_el.text.strip()
+                except Exception:
+                    pass
+                    
+            # Try navtitle attribute
+            if not base_title:
+                try:
+                    navtitle_attr = node.get("navtitle", "")
+                    if navtitle_attr.strip():
+                        base_title = navtitle_attr.strip()
+                except Exception:
+                    pass
+                    
+            # Fallback to href filename for topicref
+            if not base_title:
+                if node.tag == "topicref":
+                    href = node.get("href", "")
+                    if href:
+                        base_title = href.split("/")[-1].replace(".dita", "").replace("_", " ").title()
+                else:
+                    base_title = "Section"
+            
+            # Add section number if available
+            section_number = self._get_section_number_for_node(node)
+            if section_number and section_number != "0":
+                return f"{section_number}. {base_title}"
+            
+            return base_title
+            
+        except Exception:
+            return "Section"
+
+    def _get_section_number_for_node(self, node) -> str:
+        """Get section number for a node using utils.calculate_section_numbers."""
+        try:
+            root = getattr(self.context, "ditamap_root", None)
+            if root is None:
+                return ""
+                
+            # Calculate section numbers for the entire map
+            from orlando_toolkit.core.utils import calculate_section_numbers
+            section_map = calculate_section_numbers(root)
+            
+            return section_map.get(node, "")
+            
+        except Exception:
+            return ""
+
     def handle_move_operation(
         self, direction: Literal["up", "down", "promote", "demote"]
     ) -> OperationResult:

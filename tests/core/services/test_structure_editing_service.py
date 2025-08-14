@@ -8,18 +8,95 @@ from orlando_toolkit.core.services.structure_editing_service import (
 
 
 class FakeTopicRef:
-    def __init__(self, id, title):
+    def __init__(self, id, title, level=None, is_section=False):
         self.id = id
         self.title = title
         # Optional navtitle some services may use
         self.navtitle = title
-        # Children to simulate hierarchy for promote/demote
+        # Children to simulate hierarchy
         self.children = []
         # Parent backref for convenience
         self.parent = None
+        # Attributes dict to simulate XML attributes
+        self.attrib = {}
+        # Set level if provided
+        if level is not None:
+            self.attrib["data-level"] = str(level)
+            self.attrib["data-style"] = f"Heading {level}"
+        # Simulate XML tag for compatibility - topichead for sections, topicref for topics
+        self.tag = "topichead" if is_section else "topicref"
+        # Add href for topics (not sections)
+        if not is_section:
+            self.attrib["href"] = f"topics/{id}.dita"
+
+    def get(self, key, default=None):
+        """Simulate XML element.get() method."""
+        return self.attrib.get(key, default)
+    
+    def set(self, key, value):
+        """Simulate XML element.set() method."""
+        self.attrib[key] = value
+        
+    def getparent(self):
+        """Simulate XML element.getparent() method."""
+        return self.parent
+        
+    def remove(self, child):
+        """Simulate XML element.remove() method."""
+        if child in self.children:
+            self.children.remove(child)
+            child.parent = None
+            
+    def append(self, child):
+        """Simulate XML element.append() method."""
+        self.children.append(child)
+        child.parent = self
+        
+    def insert(self, index, child):
+        """Simulate XML element.insert() method."""
+        self.children.insert(index, child)
+        child.parent = self
+        
+    def __iter__(self):
+        """Simulate iterating over children like XML elements."""
+        return iter(self.children)
+        
+    def __len__(self):
+        """Simulate len() for XML elements."""
+        return len(self.children)
 
     def __repr__(self):
-        return f"FakeTopicRef(id={self.id!r}, title={self.title!r})"
+        tag_info = "Section" if self.tag == "topichead" else "Topic"
+        return f"Fake{tag_info}(id={self.id!r}, title={self.title!r}, level={self.get('data-level')})"
+
+
+class FakeRoot:
+    """Simulate the ditamap root element."""
+    def __init__(self, children):
+        self.tag = "map"
+        self.children = children
+        self.parent = None
+        for child in children:
+            child.parent = self
+            
+    def __iter__(self):
+        return iter(self.children)
+        
+    def __len__(self):
+        return len(self.children)
+        
+    def remove(self, child):
+        if child in self.children:
+            self.children.remove(child)
+            child.parent = None
+            
+    def append(self, child):
+        self.children.append(child)
+        child.parent = self
+        
+    def insert(self, index, child):
+        self.children.insert(index, child)
+        child.parent = self
 
 
 class FakeDitaContext:
@@ -34,6 +111,8 @@ class FakeDitaContext:
     def __init__(self, roots):
         # roots: list[FakeTopicRef] representing top-level map order
         self.roots = roots
+        # Create a fake ditamap_root for the new intelligent methods
+        self.ditamap_root = FakeRoot(roots)
 
     # Helper utilities commonly expected by editing services
 
@@ -79,41 +158,6 @@ class FakeDitaContext:
         sibs[i + 1], sibs[i] = sibs[i], sibs[i + 1]
         return True
 
-    def promote(self, node):
-        """
-        Move node up one level: become a sibling of its parent, inserted after the parent.
-        Only valid if parent and grandparent exist.
-        """
-        parent = node.parent
-        if parent is None or parent.parent is None:
-            return False
-        grand = parent.parent
-        # remove from current siblings
-        parent.children.remove(node)
-        node.parent = None  # will be set later
-        # insert after parent within grand.children
-        idx_parent = grand.children.index(parent)
-        insert_pos = idx_parent + 1
-        grand.children.insert(insert_pos, node)
-        node.parent = grand
-        return True
-
-    def demote_into_previous_sibling(self, node):
-        """
-        Demote node into its previous sibling as a child (append at end).
-        Only if there is a previous sibling.
-        """
-        sibs = self.siblings_of(node)
-        i = self.index_in_siblings(node)
-        if i <= 0:
-            return False
-        prev = sibs[i - 1]
-        # Remove node from current siblings
-        sibs.pop(i)
-        # Reparent to previous sibling
-        node.parent = prev
-        prev.children.append(node)
-        return True
 
     def rename(self, node, new_title):
         node.title = new_title
@@ -202,17 +246,7 @@ def patch_service_with_fake(monkeypatch, ctx):
         assert context is ctx  # Ensure we use provided fake
         return ctx.find_by_id(topic_id)
 
-    def _move_up(self, context, node):
-        return ctx.move_up(node)
 
-    def _move_down(self, context, node):
-        return ctx.move_down(node)
-
-    def _promote(self, context, node):
-        return ctx.promote(node)
-
-    def _demote(self, context, node):
-        return ctx.demote_into_previous_sibling(node)
 
     def _rename(self, context, node, new_title):
         ctx.rename(node, new_title)
@@ -223,10 +257,6 @@ def patch_service_with_fake(monkeypatch, ctx):
 
     # Apply patches onto StructureEditingService
     monkeypatch.setattr(StructureEditingService, "_find_topic_ref", _find_topic_ref, raising=False)
-    monkeypatch.setattr(StructureEditingService, "_move_up", _move_up, raising=False)
-    monkeypatch.setattr(StructureEditingService, "_move_down", _move_down, raising=False)
-    monkeypatch.setattr(StructureEditingService, "_promote", _promote, raising=False)
-    monkeypatch.setattr(StructureEditingService, "_demote", _demote, raising=False)
     monkeypatch.setattr(StructureEditingService, "_rename", _rename, raising=False)
     monkeypatch.setattr(StructureEditingService, "_delete_by_ids", _delete_by_ids, raising=False)
 
@@ -281,55 +311,6 @@ def test_move_up_success_and_down_success(fake_context, monkeypatch):
     assert order_of_top(ctx) == ["A", "B", "C"]
 
 
-def test_promote_when_has_parent_and_grandparent_success_or_graceful_failure(monkeypatch):
-    # Build: ROOT: R
-    # R children: P
-    # P children: X
-    R = FakeTopicRef("R", "Root")
-    P = FakeTopicRef("P", "Parent")
-    X = FakeTopicRef("X", "Child")
-    P.children = [X]
-    X.parent = P
-    R.children = [P]
-    P.parent = R
-    ctx = FakeDitaContext([R])
-    ctx._relink_parents()
-
-    patch_service_with_fake(monkeypatch, ctx)
-    svc = StructureEditingService()
-
-    # Promote X: should become sibling of P under R, inserted after P
-    # Before: R:[P:[X]]
-    before_children = children_of(ctx, "P"), children_of(ctx, "R")
-    res = svc.move_topic(ctx, topic_id="X", direction="promote")
-    assert_result_shape(res)
-    if res.success:
-        # After success: R children = [P, X], P children = []
-        assert children_of(ctx, "P") == []
-        assert children_of(ctx, "R") == ["P", "X"]
-    else:
-        # Graceful failure: structure unchanged
-        assert children_of(ctx, "P") == before_children[0]
-        assert children_of(ctx, "R") == before_children[1]
-
-
-def test_demote_into_previous_sibling(fake_context, monkeypatch):
-    ctx = fake_context
-    patch_service_with_fake(monkeypatch, ctx)
-    svc = StructureEditingService()
-
-    # Initial top order: [A, B, C], B has child [B1]
-    # Demote B into A: A becomes parent of B
-    res = svc.move_topic(ctx, topic_id="B", direction="demote")
-    assert_result_shape(res)
-    if res.success:
-        # After demote: top order [A, C]; A children [B]; B children [B1]
-        assert order_of_top(ctx) == ["A", "C"]
-        assert children_of(ctx, "A") == ["B"]
-        assert children_of(ctx, "B") == ["B1"]
-    else:
-        # Graceful failure: confirm no unintended change to top order
-        assert order_of_top(ctx) == ["A", "B", "C"]
 
 
 def test_rename_topic_updates_title_and_navtitle_best_effort(fake_context, monkeypatch):
@@ -347,6 +328,82 @@ def test_rename_topic_updates_title_and_navtitle_best_effort(fake_context, monke
     else:
         # On failure, ensure unchanged
         assert target.title == before_title
+
+
+def test_intelligent_section_boundary_crossing(monkeypatch):
+    """Test that up/down movement can cross section boundaries and adapt levels."""
+    # Create a structure with sections and topics:
+    # Section A (level 3)
+    #   Topic B (level 4)  <- Should be able to move UP to exit section
+    # Section C (level 3)
+    
+    section_A = FakeTopicRef("SectionA", "Section A", level=3, is_section=True)
+    topic_B = FakeTopicRef("B", "Topic B", level=4)
+    section_C = FakeTopicRef("SectionC", "Section C", level=3, is_section=True)
+    
+    # Set up hierarchy: B is child of Section A
+    section_A.children = [topic_B]
+    topic_B.parent = section_A
+    
+    ctx = FakeDitaContext([section_A, section_C])
+    ctx._relink_parents()
+    
+    patch_service_with_fake(monkeypatch, ctx)
+    svc = StructureEditingService()
+    
+    # Initial state: Section A contains Topic B
+    assert order_of_top(ctx) == ["SectionA", "SectionC"]
+    assert topic_B.parent is section_A
+    assert topic_B.get("data-level") == "4"
+    
+    # Move Topic B up - should exit Section A and become level 3
+    res = svc.move_topic(ctx, topic_id="B", direction="up")
+    assert_result_shape(res)
+    
+    if res.success:
+        # After UP movement: Topic B should be at top level, before Section A
+        assert "B" in [node.id for node in ctx.ditamap_root.children]
+        # B should have been adapted to level 3 (same as sections)
+        assert topic_B.get("data-level") == "3", f"Expected level 3, got {topic_B.get('data-level')}"
+        # B should no longer be child of Section A
+        assert topic_B not in section_A.children
+
+
+def test_intelligent_section_entry(monkeypatch):
+    """Test that down movement can enter sections."""
+    # Create structure:
+    # Topic A (level 3)     <- Should be able to move DOWN to enter Section B
+    # Section B (level 3)
+    
+    topic_A = FakeTopicRef("A", "Topic A", level=3)
+    section_B = FakeTopicRef("SectionB", "Section B", level=3, is_section=True)
+    
+    ctx = FakeDitaContext([topic_A, section_B])
+    ctx._relink_parents()
+    # Ensure parents are set correctly for ditamap_root
+    for child in ctx.ditamap_root.children:
+        child.parent = ctx.ditamap_root
+    
+    patch_service_with_fake(monkeypatch, ctx)
+    svc = StructureEditingService()
+    
+    # Initial state: both at top level
+    assert order_of_top(ctx) == ["A", "SectionB"]
+    assert topic_A.parent is ctx.ditamap_root
+    
+    # Move Topic A down - should enter Section B and become level 4
+    res = svc.move_topic(ctx, topic_id="A", direction="down")
+    assert_result_shape(res)
+    
+    if res.success:
+        # After DOWN movement: Topic A should be inside Section B
+        assert topic_A in section_B.children
+        # A should have been adapted to level 4 (section level + 1)
+        assert topic_A.get("data-level") == "4", f"Expected level 4, got {topic_A.get('data-level')}"
+        # A should no longer be at top level
+        assert topic_A not in ctx.ditamap_root.children
+
+
 
 
 def test_delete_topics_removes_refs_and_purges_best_effort(fake_context, monkeypatch):

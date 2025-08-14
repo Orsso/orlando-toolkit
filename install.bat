@@ -52,7 +52,6 @@ echo.
 :: ---------------------------------------------------------------------------------
 :: Preflight: ensure dirs, logging, and determine action (Install/Update/Up-to-date)
 :: ---------------------------------------------------------------------------------
-if exist "%TOOLS_DIR%" rmdir /s /q "%TOOLS_DIR%" >nul 2>&1
 for %%D in ("%VENDOR_DIR%" "%SRC_DIR%" "%APP_DIR%" "%TOOLS_DIR%" "%LOGS_DIR%") do if not exist %%~D mkdir %%~D
 
 :: Prepare timestamp and log file now (prefer PowerShell, fallback to WMIC/date)
@@ -252,9 +251,17 @@ if not exist "%APP_DIR%" mkdir "%APP_DIR%"
 set "TARGET_EXE=%APP_DIR%\OrlandoToolkit.exe"
 copy /y "%SOURCE_EXE%" "%TARGET_EXE%" >nul
 if %errorlevel% neq 0 (
-  echo     ERROR: Failed to copy executable to App directory
-    call :Log "ERROR - Copy to App failed: %SOURCE_EXE% -> %TARGET_EXE%"
-  goto :Fail
+  call :Log "WARN  - Copy failed (possibly in-use). Attempting to stop running app and retry."
+  taskkill /IM "OrlandoToolkit.exe" /F >nul 2>&1
+  powershell -NoProfile -Command "Start-Sleep -Seconds 1" >nul 2>&1
+  copy /y "%SOURCE_EXE%" "%TARGET_EXE%" >nul
+  if %errorlevel% neq 0 (
+    echo     ERROR: Failed to copy executable to App directory
+    call :Log "ERROR - Copy to App failed after retry: %SOURCE_EXE% -> %TARGET_EXE%"
+    goto :Fail
+  ) else (
+    call :Log "INFO  - Copy to App succeeded after stopping running instance"
+  )
 )
 
 :: Write installed version marker for future update checks
@@ -333,19 +340,45 @@ exit /b 0
 call :ProgressDetail "Setting up portable environment"
 if not exist "%TOOLS_DIR%" mkdir "%TOOLS_DIR%"
 
-:: If user requested a reinstall on SKIP, purge existing WinPython and SFX first
-if defined FORCE_REINSTALL (
+:: Decide whether to refresh the portable Python
+set "_reset_py=0"
+if defined FORCE_REINSTALL set "_reset_py=1"
+rem Only auto-reset for UPDATE when not being called from health-repair path
+if /I "%PROPOSED_ACTION%"=="UPDATE" if /I not "%OT_CALLER%"=="HEALTH" set "_reset_py=1"
+
+if "%_reset_py%"=="1" (
   call :ProgressDetail "Resetting portable environment"
-  call :Log "INFO - Forced reinstall: purging cached WinPython and installer"
+  if defined FORCE_REINSTALL (
+    call :Log "INFO - Resetting portable Python (forced reinstall)"
+  ) else (
+    call :Log "INFO - Resetting portable Python (action %PROPOSED_ACTION%)"
+  )
   for /d %%D in ("%TOOLS_DIR%\WPy*") do rmdir /s /q "%%~fD" >nul 2>&1
-  if exist "%TOOLS_DIR%\%WPFILENAME%" del /f /q "%TOOLS_DIR%\%WPFILENAME%" >nul 2>&1
+  rem Keep the SFX if present to avoid a second network download in the same run
 )
 
-:: Always download and extract fresh WinPython
+:: Attempt to locate an existing Python before downloading
+set "PYTHON_CMD="
+for /d %%D in ("%TOOLS_DIR%\WPy*") do (
+  for /d %%P in ("%%~fD\python-*") do (
+    if exist "%%~fP\python.exe" set "PYTHON_CMD=%%~fP\python.exe"
+  )
+)
+
+if defined PYTHON_CMD if "%_reset_py%"=="0" (
+  call :ProgressDetail "Reusing existing portable Python"
+  goto :EnsurePipTk
+)
+
+:: Download and extract WinPython only if needed (avoid double network download in same run)
 set "PY_SFX=%TOOLS_DIR%\%WPFILENAME%"
-call :ProgressDetail "Downloading portable environment"
-call :DownloadWinPython
-if %errorlevel% neq 0 exit /b 1
+set "WP_SIZE=0"
+if exist "%PY_SFX%" for %%A in ("%PY_SFX%") do set "WP_SIZE=%%~zA"
+if %WP_SIZE% LSS 20000000 (
+  call :ProgressDetail "Downloading portable environment"
+  call :DownloadWinPython
+  if %errorlevel% neq 0 exit /b 1
+)
 
 call :ProgressDetail "Extracting WinPython"
 "%PY_SFX%" -y -o"%TOOLS_DIR%" >> "%LOG_FILE%" 2>&1
@@ -355,22 +388,23 @@ if %errorlevel% neq 0 (
   exit /b 1
 )
 
-:: Locate python.exe under tools (prefer WPy*/python-*/python.exe)
+:: Locate python.exe under tools (prefer WPy*/python-*/python.exe) AFTER extraction
 set "PYTHON_CMD="
 for /d %%D in ("%TOOLS_DIR%\WPy*") do (
   for /d %%P in ("%%~fD\python-*") do (
     if exist "%%~fP\python.exe" set "PYTHON_CMD=%%~fP\python.exe"
   )
 )
-if not defined PYTHON_CMD for /r "%TOOLS_DIR%" %%F in (python.exe) do set "PYTHON_CMD=%%~fF"
 if not defined PYTHON_CMD (
   echo     ERROR: python.exe not found after extraction.
   exit /b 1
 )
 
+call :Log "PYTHON_CMD selected: %PYTHON_CMD%"
+
 :EnsurePipTk
-:: Delete the downloaded SFX to save space (only if exists)
-if exist "%PY_SFX%" del /f /q "%PY_SFX%" >nul 2>&1
+:: Keep the downloaded SFX during this run to avoid a second download if we must reset
+:: It will be cleaned at the end when CLEAN_TOOLS=1 prunes the tools folder
 
 :: Ensure pip and tkinter
 "%PYTHON_CMD%" -m ensurepip --default-pip >> "%LOG_FILE%" 2>&1
@@ -410,15 +444,22 @@ if not errorlevel 1 (
   exit /b 0
 )
 
-rem If still broken, nuke embedded WinPython to force a clean re-extract next run
+rem If still broken, nuke embedded WinPython to force a clean re-extract this run
+if defined HEALTH_RESET_DONE (
+  call :Log "HEALTH - Already reset once; aborting to prevent loop"
+  exit /b 1
+)
+set "HEALTH_RESET_DONE=1"
 call :Log "HEALTH - PyInstaller utils import failed; resetting portable Python"
 call :ProgressDetail "Resetting portable Python (corrupted)"
 set "_tools=%TOOLS_DIR%"
 for /d %%D in ("%_tools%\WPy*") do rmdir /s /q "%%~fD" >nul 2>&1
 if exist "%_tools%\python.exe" del /f /q "%_tools%\python.exe" >nul 2>&1
 
-rem Re-extract portable Python now and re-prepare environment within same run
+rem Re-extract portable Python now and re-prepare environment within same run without re-downloading
+set "OT_CALLER=HEALTH"
 call :SetupPortablePython
+set "OT_CALLER="
 if errorlevel 1 (
   exit /b 1
 )

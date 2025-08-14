@@ -22,7 +22,7 @@ from datetime import datetime
 from lxml import etree as ET  # type: ignore
 
 from orlando_toolkit.core.models import DitaContext
-from orlando_toolkit.core.utils import generate_dita_id
+from orlando_toolkit.core.utils import generate_dita_id, clean_heading_text
 from orlando_toolkit.core.generators import create_dita_table
 from orlando_toolkit.core.converter.helpers import (
     create_dita_concept,
@@ -156,7 +156,7 @@ def build_document_structure(doc: Document, style_heading_map: dict, all_images_
                 except Exception:
                     pass
                 # Create new heading node
-                text = block.text.strip()
+                text = clean_heading_text(block.text.strip())
                 if not text:
                     continue  # Skip empty headings
                 

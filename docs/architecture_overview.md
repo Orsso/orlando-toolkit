@@ -108,7 +108,7 @@ Helpers in `converter/helpers.py` handle inline formatting, Wingdings checkbox n
   - `write_package(ctx, output_zip)` → `DATA/` layout and ZIP.
 - `PreviewService` → raw XML and HTML preview through `preview/xml_compiler.py`.
 - `UndoService` → immutable snapshots of the full `DitaContext` for undo/redo.
-- `StructureEditingService` (used via `StructureController`) → move/promote/demote, rename, delete, apply depth/style filters.
+- `StructureEditingService` (used via `StructureController`) → move up/down, rename, delete, apply depth/style filters.
 
 Models:
 - `DitaContext` now includes helpers to save/restore original structure to make depth filtering reversible in-session.

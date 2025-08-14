@@ -32,7 +32,7 @@ from typing import Any, Dict, List, Optional, Literal
 from lxml import etree as ET  # type: ignore
 
 from orlando_toolkit.core.models import DitaContext
-from orlando_toolkit.core import utils, merge
+from orlando_toolkit.core import merge
 
 
 __all__ = ["OperationResult", "StructureEditingService"]
@@ -86,7 +86,7 @@ class StructureEditingService:
         self,
         context,
         topic_id: str,
-        direction: Literal["up", "down", "promote", "demote"],
+        direction: Literal["up", "down"],
     ) -> OperationResult:
         """Move a topic within the DITA map by topic_id.
 
@@ -106,14 +106,7 @@ class StructureEditingService:
         if direction == "down":
             ok = self._move_down(context, node)
             return OperationResult(ok, ("Moved topic down." if ok else "Cannot move down (at boundary)."), {"topic_id": topic_id})
-        if direction == "promote":
-            ok = self._promote(context, node)
-            return OperationResult(ok, ("Promoted topic." if ok else "Cannot promote (at root or invalid)."), {"topic_id": topic_id})
-        if direction == "demote":
-            ok = self._demote(context, node)
-            return OperationResult(ok, ("Demoted topic." if ok else "Cannot demote (no previous sibling)."), {"topic_id": topic_id})
-
-        return OperationResult(False, f"Unsupported move direction '{direction}'.", {"allowed": ["up", "down", "promote", "demote"]})
+        return OperationResult(False, f"Unsupported move direction '{direction}'.", {"allowed": ["up", "down"]})
 
     def merge_topics(self, context, source_ids: List[str], target_id: str) -> OperationResult:
         """Manually merge selected topics into the first selected target.
@@ -281,29 +274,301 @@ class StructureEditingService:
         return self._find_topicref_by_filename(root, filename)
 
     def _move_up(self, context, node) -> bool:
-        """Adapter mapping to internal move up."""
-        parent = node.getparent()
-        if parent is None:
-            return False
-        res = self._move_sibling(context, parent, node, delta=-1)
-        return bool(res.success)
+        """Move topic up in the visual list with intelligent level adaptation."""
+        return self._move_up_intelligent(context, node)
 
     def _move_down(self, context, node) -> bool:
-        """Adapter mapping to internal move down."""
-        parent = node.getparent()
-        if parent is None:
+        """Move topic down in the visual list with intelligent level adaptation."""
+        return self._move_down_intelligent(context, node)
+
+    def _move_up_intelligent(self, context, node) -> bool:
+        """Move node up with intelligent section boundary crossing and level adaptation."""
+        try:
+            # Get the root for building linear view
+            root = getattr(context, "ditamap_root", None)
+            if root is None:
+                return False
+            
+            # Build linear view of all structural nodes
+            linear_view = self._build_linear_view(root)
+            if not linear_view:
+                return False
+            
+            # Find current node in linear view
+            current_index = self._find_node_in_linear_view(linear_view, node)
+            if current_index <= 0:  # Already at top or not found
+                return False
+            
+            # Get target position (one position up in visual order)
+            target_index = current_index - 1
+            target_node, target_parent, target_index_in_parent = linear_view[target_index]
+            
+            # Get current node info
+            current_node, current_parent, current_index_in_parent = linear_view[current_index]
+            
+            # Case 1: Moving within same parent (simple sibling movement)
+            if current_parent is target_parent:
+                # Use existing sibling movement logic
+                res = self._move_sibling(context, current_parent, node, delta=-1)
+                return bool(res.success)
+            
+            # Case 2: Moving to different parent (section boundary crossing)
+            # Special case: previous item is our parent (exiting a section). Place node
+            # directly above the section it exits by inserting BEFORE the parent at the
+            # grandparent level.
+            if target_node is current_parent:
+                grandparent = current_parent.getparent()
+                if grandparent is None:
+                    return False
+                try:
+                    parent_index_in_gp = list(grandparent).index(current_parent)
+                except ValueError:
+                    return False
+                self._reparent_node(node, current_parent, grandparent, parent_index_in_gp)
+                target_level = self._calculate_target_level(node, grandparent)
+                self._apply_level_adaptation(node, target_level)
+                return True
+
+            # Try to enter the nearest enclosing section that is a direct child of current_parent
+            # Example: moving from between Section 2 and Section 3 into Section 2 should append
+            # as the last direct child of Section 2, not inside a nested subsection.
+            enter_parent = None
+            probe = target_node
+            try:
+                while probe is not None and probe.getparent() is not None and probe.getparent() is not current_parent:
+                    probe = probe.getparent()
+                # If probe is a section under current_parent, enter it
+                if getattr(probe, "tag", None) == "topichead" and probe.getparent() is current_parent:
+                    enter_parent = probe
+            except Exception:
+                enter_parent = None
+
+            if enter_parent is not None:
+                # Append to the end of the section (last direct child)
+                self._reparent_node(node, current_parent, enter_parent, 10**9)
+                target_level = self._calculate_target_level(node, enter_parent)
+                self._apply_level_adaptation(node, target_level)
+                return True
+
+            # General case: move to the same level as target_node, placing right after it
+            insert_index = target_index_in_parent + 1
+            self._reparent_node(node, current_parent, target_parent, insert_index)
+            target_level = self._calculate_target_level(node, target_parent)
+            self._apply_level_adaptation(node, target_level)
+            
+            return True
+            
+        except Exception:
             return False
-        res = self._move_sibling(context, parent, node, delta=1)
-        return bool(res.success)
 
-    def _promote(self, context, node) -> bool:  # adapter name required; delegates to existing internal
-        res = super(type(self), self)._promote(context, node) if False else self.__class__.__dict__['_promote'](self, context, node)  # type: ignore
-        # The above indirection keeps name intact while returning bool for adapter
-        return bool(res.success)
+    def _move_down_intelligent(self, context, node) -> bool:
+        """Move node down with intelligent section boundary crossing and level adaptation."""
+        try:
+            # Get the root for building linear view
+            root = getattr(context, "ditamap_root", None)
+            if root is None:
+                return False
+            
+            # Build linear view of all structural nodes
+            linear_view = self._build_linear_view(root)
+            if not linear_view:
+                return False
+            
+            # Find current node in linear view
+            current_index = self._find_node_in_linear_view(linear_view, node)
+            if current_index < 0 or current_index >= len(linear_view) - 1:  # Already at bottom or not found
+                return False
+            
+            # Get target position (one position down in visual order)
+            target_index = current_index + 1
+            target_node, target_parent, target_index_in_parent = linear_view[target_index]
+            
+            # Get current node info
+            current_node, current_parent, current_index_in_parent = linear_view[current_index]
+            
+            # If moving down from inside a section and the next item is the next section
+            # at the same grandparent level, first exit current section and land after it
+            # (symmetric to the UP behavior), instead of entering the next section directly.
+            if getattr(target_node, "tag", None) == "topichead":
+                try:
+                    # Find the nearest ancestor of current_parent that is a direct child of target_parent
+                    ancestor = current_parent
+                    while (
+                        ancestor is not None
+                        and getattr(ancestor, "getparent", None) is not None
+                        and ancestor.getparent() is not None
+                        and ancestor.getparent() is not target_parent
+                    ):
+                        ancestor = ancestor.getparent()
 
-    def _demote(self, context, node) -> bool:  # adapter name required; delegates to existing internal
-        res = super(type(self), self)._demote(context, node) if False else self.__class__.__dict__['_demote'](self, context, node)  # type: ignore
-        return bool(res.success)
+                    if (
+                        ancestor is not None
+                        and getattr(ancestor, "getparent", None) is not None
+                        and ancestor.getparent() is target_parent
+                        and getattr(ancestor, "tag", None) in ("topicref", "topichead")
+                    ):
+                        # Insert right after this ancestor at target_parent level
+                        try:
+                            ancestor_index = list(target_parent).index(ancestor)
+                        except ValueError:
+                            ancestor_index = None
+                        if ancestor_index is not None:
+                            self._reparent_node(node, current_parent, target_parent, ancestor_index + 1)
+                            target_level = self._calculate_target_level(node, target_parent)
+                            self._apply_level_adaptation(node, target_level)
+                            return True
+                except Exception:
+                    pass
+                # Default: enter the section - become first child of target_node
+                new_parent = target_node
+                insert_index = 0
+                self._reparent_node(node, current_parent, new_parent, insert_index)
+                target_level = self._calculate_target_level(node, new_parent)
+                self._apply_level_adaptation(node, target_level)
+                return True
+            
+            # Case 1: Moving within same parent (simple sibling movement)
+            elif current_parent is target_parent:
+                # Use existing sibling movement logic
+                res = self._move_sibling(context, current_parent, node, delta=1)
+                return bool(res.success)
+            
+            # Case 2: Moving to different parent (section boundary crossing)
+            else:
+                # Move to same level as target_node using reference-based insert
+                new_parent = target_parent
+                place_before = False
+                # If moving to a shallower level (target_parent is an ancestor of current_parent),
+                # place BEFORE the target so numbering advances to the next top-level (e.g., 5.5.2 -> 5.6)
+                try:
+                    probe = current_parent
+                    while probe is not None:
+                        if probe is new_parent:
+                            place_before = True
+                            break
+                        probe = probe.getparent() if hasattr(probe, "getparent") else None
+                except Exception:
+                    pass
+
+                # Perform relative insertion using the real index of target_node
+                try:
+                    if current_parent is not None:
+                        current_parent.remove(node)
+                    raw_children = list(new_parent)
+                    ref_idx = raw_children.index(target_node)
+                    insert_at = ref_idx if place_before else ref_idx + 1
+                    if insert_at >= len(raw_children):
+                        new_parent.append(node)
+                    else:
+                        new_parent.insert(insert_at, node)
+                except Exception:
+                    # Fallback to simple reparent by index
+                    self._reparent_node(node, current_parent, new_parent, target_index_in_parent + (0 if place_before else 1))
+
+                # Adapt level for new position
+                target_level = self._calculate_target_level(node, new_parent)
+                self._apply_level_adaptation(node, target_level)
+                return True
+            
+        except Exception:
+            return False
+
+    def _build_linear_view(self, root):
+        """Build a flattened linear view of all structural nodes in document order.
+        
+        Returns a list of (node, parent, index_in_parent) tuples representing
+        the order nodes appear visually in the tree widget.
+        """
+        linear_view = []
+        
+        def traverse(parent_element, depth=0):
+            if parent_element is None:
+                return
+                
+            # Get structural children (topicref/topichead) only
+            children = [el for el in list(parent_element) if el.tag in ("topicref", "topichead")]
+            
+            for index, child in enumerate(children):
+                # Add current node to linear view
+                linear_view.append((child, parent_element, index))
+                
+                # Recursively traverse children
+                traverse(child, depth + 1)
+        
+        # Start traversal from root
+        traverse(root)
+        return linear_view
+
+    def _find_node_in_linear_view(self, linear_view, target_node):
+        """Find the index of target_node in the linear view."""
+        for i, (node, parent, index) in enumerate(linear_view):
+            if node is target_node:
+                return i
+        return -1
+
+    def _calculate_target_level(self, node, new_parent):
+        """Calculate appropriate level for node when placed under new_parent."""
+        try:
+            # If new_parent is the root (map), check siblings to determine level
+            if new_parent.tag == "map":
+                # Look at siblings at root level to determine appropriate level
+                siblings = [el for el in list(new_parent) if el.tag in ("topicref", "topichead") and el is not node]
+                if siblings:
+                    # Get level from first sibling
+                    for sibling in siblings:
+                        level_attr = sibling.get("data-level")
+                        if level_attr:
+                            return int(level_attr)
+                # Default to level 1 if no siblings with levels found
+                return 1
+            
+            # Get new_parent's level and add 1
+            parent_level_attr = new_parent.get("data-level")
+            if parent_level_attr:
+                parent_level = int(parent_level_attr)
+                return parent_level + 1
+            
+            # Fallback: calculate by counting hierarchy depth
+            depth = 1
+            current = new_parent
+            while current is not None and current.tag != "map":
+                if current.tag in ("topicref", "topichead"):
+                    depth += 1
+                current = current.getparent()
+            return depth
+        except (ValueError, TypeError):
+            return 1
+
+    def _apply_level_adaptation(self, node, target_level):
+        """Apply the target level to the node's attributes."""
+        try:
+            node.set("data-level", str(target_level))
+            # Update data-style if it's a generic heading style
+            current_style = node.get("data-style", "")
+            if not current_style or current_style.startswith("Heading "):
+                node.set("data-style", f"Heading {target_level}")
+        except Exception:
+            pass
+
+    def _reparent_node(self, node, old_parent, new_parent, new_index):
+        """Move node from old_parent to new_parent at the specified index."""
+        try:
+            # Remove from old parent
+            if old_parent is not None:
+                old_parent.remove(node)
+            
+            # Insert into new parent at specified index
+            new_parent_children = list(new_parent)
+            if new_index >= len(new_parent_children):
+                new_parent.append(node)
+            else:
+                new_parent.insert(new_index, node)
+                    
+        except Exception:
+            # If reparenting fails, ensure node stays in tree
+            if node.getparent() is None and old_parent is not None:
+                old_parent.append(node)
+
 
     def _rename(self, context, node, new_title) -> bool:
         """Adapter encapsulating rename logic; updates topic title and navtitle."""
@@ -440,88 +705,7 @@ class StructureEditingService:
         parent.insert(insert_at, tref)
         return OperationResult(True, "Moved topic.", {"from_index": current_index, "to_index": insert_at})
 
-    def _promote(self, context: DitaContext, tref: ET.Element) -> OperationResult:
-        """Promote a topicref one level up (outdent), placing it after its former parent."""
-        parent = tref.getparent()
-        if parent is None:
-            return OperationResult(False, "Cannot promote: node has no parent.", {})
-
-        grandparent = parent.getparent()
-        if grandparent is None:
-            return OperationResult(False, "Cannot promote: node is at root level.", {})
-
-        # Find position of parent within grandparent among structural nodes
-        gp_children = list(grandparent)
-        if parent not in gp_children:
-            return OperationResult(False, "Internal error: parent not found under grandparent.", {})
-        parent_index = gp_children.index(parent)
-
-        # Remove from current parent and insert after parent in grandparent
-        parent.remove(tref)
-
-        insert_at = parent_index + 1
-        grandparent.insert(insert_at, tref)
-
-        # Optionally update data-level to reflect new depth if present
-        self._update_level_attributes_after_reparent(tref, parent, grandparent, direction="promote")
-
-        return OperationResult(True, "Promoted topic one level up.", {"insert_index": insert_at})
-
-    def _demote(self, context: DitaContext, tref: ET.Element) -> OperationResult:
-        """Demote a topicref one level down (indent), making it the last child of the nearest previous sibling."""
-        parent = tref.getparent()
-        if parent is None:
-            return OperationResult(False, "Cannot demote: node has no parent.", {})
-
-        # Find previous sibling that is a structural/content node
-        siblings = [el for el in list(parent) if el.tag in ("topicref", "topichead")]
-        if tref not in siblings:
-            return OperationResult(False, "Internal error: node not found among siblings.", {})
-        idx = siblings.index(tref)
-        if idx == 0:
-            return OperationResult(False, "Cannot demote: no preceding sibling to become the new parent.", {})
-
-        new_parent = siblings[idx - 1]
-
-        # Only topicref or topichead can accept children; both are fine structurally
-        # Insert as last child
-        parent.remove(tref)
-        new_parent.append(tref)
-
-        # Optionally update data-level to reflect new depth if present
-        self._update_level_attributes_after_reparent(tref, parent, new_parent, direction="demote")
-
-        return OperationResult(True, "Demoted topic under previous sibling.", {})
-
-    @staticmethod
-    def _update_level_attributes_after_reparent(tref: ET.Element, old_parent: ET.Element, new_parent: ET.Element, *, direction: str) -> None:
-        """Best-effort update of data-level attributes after reparenting.
-
-        The codebase uses a 'data-level' attribute in several places to record
-        logical depth. This helper performs a conservative adjustment:
-
-        - promote: decrease tref's data-level by 1 if present
-        - demote: increase tref's data-level by 1 if present
-
-        It does not recursively update descendants; deeper synchronization may be
-        addressed in future iterations if required by callers.
-
-        TODO: Consider recalculating all levels with a traversal for strict
-        consistency, or using utils.calculate_section_numbers if appropriate.
-        """
-        try:
-            level_attr = tref.get("data-level")
-            if level_attr is None:
-                return
-            level = int(level_attr)
-            if direction == "promote":
-                level = max(1, level - 1)
-            elif direction == "demote":
-                level = level + 1
-            tref.set("data-level", str(level))
-        except Exception:
-            # Fail silently; level annotations are best-effort
-            pass
+    # Removed legacy promote/demote helpers (unused). Up/Down implement reparenting and level adaptation.
 
     @staticmethod
     def _purge_unreferenced_topics(context: DitaContext) -> None:

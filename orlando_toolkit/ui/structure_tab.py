@@ -296,6 +296,7 @@ class StructureTab(ttk.Frame):
         self._preview_panel = PreviewPanel(
             right,
             on_mode_changed=self._on_preview_mode_changed,
+            on_breadcrumb_clicked=self._on_breadcrumb_clicked,
         )
         self._preview_panel.grid(row=0, column=0, sticky="nsew")
         self._filter_panel: Optional[HeadingFilterPanel] = None
@@ -317,10 +318,9 @@ class StructureTab(ttk.Frame):
         # Keyboard shortcuts (non-invasive)
         self.bind("<Control-z>", self._on_shortcut_undo)
         self.bind("<Control-y>", self._on_shortcut_redo)
+        # Up/Down perform intelligent movement with level adaptation
         self.bind("<Alt-Up>",   lambda e: self._on_shortcut_move("up"))
         self.bind("<Alt-Down>", lambda e: self._on_shortcut_move("down"))
-        self.bind("<Alt-Left>", lambda e: self._on_shortcut_move("promote"))
-        self.bind("<Alt-Right>",lambda e: self._on_shortcut_move("demote"))
         # Ensure shortcuts work regardless of focused child by binding at the application level
         try:
             self.bind_all("<Control-z>", self._on_shortcut_undo, add=True)
@@ -800,6 +800,11 @@ class StructureTab(ttk.Frame):
             else:
                 msg = getattr(res, "message", None) or "Unable to render preview"
                 panel.show_error(str(msg))
+                
+            # Update breadcrumb path if successful
+            if getattr(res, "success", False) and hasattr(panel, 'set_breadcrumb_path'):
+                self._update_breadcrumb_for_ref(topic_ref, panel)
+                
         finally:
             try:
                 panel.set_loading(False)
@@ -860,6 +865,72 @@ class StructureTab(ttk.Frame):
 
         # Delegate to helper method
         self._render_preview_for_ref(topic_ref, panel)
+
+    def _update_breadcrumb_for_ref(self, topic_ref: str, panel: object) -> None:
+        """Update breadcrumb path for the given topic reference."""
+        ctrl = self._controller
+        if ctrl is None or not hasattr(ctrl, 'get_topic_path'):
+            return
+            
+        try:
+            from orlando_toolkit.ui.widgets.breadcrumb_widget import BreadcrumbItem
+            path_data = ctrl.get_topic_path(topic_ref)
+            breadcrumb_items = [
+                BreadcrumbItem(label=title, value=href)
+                for title, href in path_data
+            ]
+            if hasattr(panel, 'set_breadcrumb_path'):
+                panel.set_breadcrumb_path(breadcrumb_items)
+        except Exception:
+            pass
+
+    def _on_breadcrumb_clicked(self, nav_id: str) -> None:
+        """Handle breadcrumb navigation click."""
+        try:
+            if nav_id.startswith("section_"):
+                # Section navigation - find first child topic and navigate to it
+                self._navigate_to_section_by_id(nav_id)
+            else:
+                # Topic navigation - direct href navigation
+                if hasattr(self._tree, 'update_selection'):
+                    self._tree.update_selection([nav_id])
+                
+                panel = getattr(self, "_preview_panel", None)
+                if panel:
+                    self._render_preview_for_ref(nav_id, panel)
+        except Exception:
+            pass
+
+    def _navigate_to_section_by_id(self, section_id: str) -> None:
+        """Navigate to a section by finding its first child topic."""
+        ctrl = self._controller
+        if not ctrl or not hasattr(ctrl, "context"):
+            return
+            
+        try:
+            # Extract section memory ID and find the corresponding node
+            section_mem_id = section_id.replace("section_", "")
+            root = getattr(ctrl.context, "ditamap_root", None)
+            if root is None:
+                return
+                
+            # Find first topicref child of this section for navigation
+            for node in root.iter():
+                if str(id(node)) == section_mem_id and node.tag == "topichead":
+                    # Find first topicref descendant
+                    first_topic = node.find(".//topicref[@href]")
+                    if first_topic is not None:
+                        href = first_topic.get("href", "")
+                        if href:
+                            if hasattr(self._tree, 'update_selection'):
+                                self._tree.update_selection([href])
+                            
+                            panel = getattr(self, "_preview_panel", None)
+                            if panel:
+                                self._render_preview_for_ref(href, panel)
+                    break
+        except Exception:
+            pass
 
     def _on_tree_context_menu(self, event: "tk.Event", refs: List[str]) -> None:
         """Ensure latest selection and show context menu."""

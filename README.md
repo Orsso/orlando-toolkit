@@ -15,7 +15,7 @@ Orlando Toolkit parses a .docx, builds a DITA map with topics, extracts images, 
 - Orlando‑compliant DITA map and topic files
 - Image extraction and normalization to PNG for reliable preview
 - Live preview (HTML when available, safe XML/text fallback)
-- Structure editing: move up/down, promote/demote, rename, delete
+- Structure editing: move up/down, rename, delete
 - Depth‑limit merge with optional style exclusions (Structure tab)
 - Undo/redo for structure changes
 - One‑click ZIP packaging for import

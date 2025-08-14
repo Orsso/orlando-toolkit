@@ -22,7 +22,7 @@ Core processing layer used by all front-end interfaces.
 
 ## Editing & packaging
 
-- `StructureEditingService` performs safe in-memory edits (move/promote/demote, rename, delete, depth/style filtering).
+- `StructureEditingService` performs safe in-memory edits (move up/down, rename, delete, depth/style filtering).
 - `UndoService` stores full-context snapshots and restores them for undo/redo.
 - `ConversionService.prepare_package()` applies unified merge (`merge.merge_topics_unified`), prunes empties, then renames topics/images.
 - `ConversionService.write_package()` writes `DATA/` and zips it.
