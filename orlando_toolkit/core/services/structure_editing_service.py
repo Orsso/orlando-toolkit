@@ -138,14 +138,11 @@ class StructureEditingService:
             merged_count = 0
             removed_files: List[str] = []
 
-            # Import helpers locally to avoid tight coupling
+            # Import shared helper to DRY merge behavior
             try:
-                from orlando_toolkit.core.merge import _add_title_paragraph as _mt_add_title, _copy_content as _mt_copy
+                from orlando_toolkit.core.merge import merge_topicref_into as _merge_tref
             except Exception:
-                def _mt_add_title(_dest, _t):
-                    return
-                def _mt_copy(_s, _d):
-                    return
+                _merge_tref = None
 
             # Merge each source in given order
             for sid in list(source_ids):
@@ -161,26 +158,23 @@ class StructureEditingService:
                 if src_topic is None:
                     continue
 
-                # Title then content
-                title_text = ""
-                try:
-                    t_el = src_topic.find("title")
-                    if t_el is not None and t_el.text:
-                        title_text = t_el.text
-                except Exception:
-                    title_text = ""
-                _mt_add_title(target_topic, title_text)
-                _mt_copy(src_topic, target_topic)
-
-                # Remove topicref from the map
-                parent = src_node.getparent()
-                if parent is not None:
-                    try:
-                        parent.remove(src_node)
-                        merged_count += 1
-                        removed_files.append(src_fname)
-                    except Exception:
-                        pass
+                # Merge via helper for consistent behavior
+                if _merge_tref is not None:
+                    removed_name = _merge_tref(context, target_topic, src_node)
+                else:
+                    removed_name = None
+                # Fallback if helper unavailable
+                if removed_name is None:
+                    parent = src_node.getparent()
+                    if parent is not None:
+                        try:
+                            parent.remove(src_node)
+                        except Exception:
+                            pass
+                    removed_name = src_fname
+                merged_count += 1
+                if removed_name:
+                    removed_files.append(removed_name)
 
             # Purge unreferenced topics
             for fn in removed_files:
@@ -964,146 +958,25 @@ class StructureEditingService:
             if section is None or getattr(section, "tag", None) != "topichead":
                 return OperationResult(False, "Section not found.", {"index_path": list(index_path)})
 
-            # Find or create a content module child
-            content_child = None
-            for child in list(section):
-                if getattr(child, "tag", None) == "topicref" and child.get("href"):
-                    content_child = child
-                    break
-            if content_child is None:
-                try:
-                    merge._ensure_content_module(context, section)  # type: ignore[attr-defined]
-                except Exception:
-                    pass
-                for child in list(section):
-                    if getattr(child, "tag", None) == "topicref" and child.get("href"):
-                        content_child = child
-                        break
-            if content_child is None:
+            # Delegate to shared merge helper for uniform behavior
+            try:
+                from orlando_toolkit.core.merge import convert_section_to_local_topic
+            except Exception:
+                return OperationResult(False, "Merge helper unavailable.")
+
+            target_topic_el, removed_files = convert_section_to_local_topic(context, section)
+            if target_topic_el is None:
                 return OperationResult(False, "Failed to create content module for section.")
 
-            # Resolve target topic element for merging
-            target_topic_el = None
-            try:
-                href = content_child.get("href") or ""
-                fname = href.split("/")[-1] if href else ""
-                target_topic_el = context.topics.get(fname)
-            except Exception:
-                target_topic_el = None
-
-            # Import merge helpers
-            try:
-                from orlando_toolkit.core.merge import _add_title_paragraph as _mt_add_title, _copy_content as _mt_copy
-            except Exception:
-                def _mt_add_title(_dest, _t):
-                    return
-                def _mt_copy(_s, _d):
-                    return
-
-            # Merge all descendants' content into target_topic_el, removing child refs
-            removed_files: List[str] = []
-
-            def _merge_descendants(node: ET.Element) -> None:
-                for sub in list(node):
-                    tag = getattr(sub, "tag", None)
-                    if tag not in ("topicref", "topichead"):
-                        continue
-                    # Do not process the content module itself
-                    try:
-                        if sub is content_child:
-                            continue
-                    except Exception:
-                        pass
-                    if tag == "topicref" and sub.get("href"):
-                        # Merge this topic's title and content, then recurse its children
-                        try:
-                            s_href = sub.get("href") or ""
-                            s_fname = s_href.split("/")[-1]
-                            s_topic = context.topics.get(s_fname)
-                        except Exception:
-                            s_topic = None
-                            s_fname = ""
-                        if target_topic_el is not None and s_topic is not None:
-                            # Title paragraph then body content
-                            try:
-                                t_el = s_topic.find("title")
-                                t_txt = t_el.text if t_el is not None and t_el.text else ""
-                            except Exception:
-                                t_txt = ""
-                            _mt_add_title(target_topic_el, t_txt)
-                            _mt_copy(s_topic, target_topic_el)
-                        # Recurse deeper under same target
-                        _merge_descendants(sub)
-                        # Remove this child from original section after processing
-                        try:
-                            if sub.getparent() is node:
-                                node.remove(sub)
-                            if s_fname:
-                                removed_files.append(s_fname)
-                        except Exception:
-                            pass
-                    else:
-                        # topichead: recurse; all its descendants will merge
-                        _merge_descendants(sub)
-                        try:
-                            if sub.getparent() is node:
-                                node.remove(sub)
-                        except Exception:
-                            pass
-
-            # Perform merging from the section (excluding the content_child itself)
-            _merge_descendants(section)
-
-            # Transfer navtitle and attributes; normalize level/style
-            section_navtitle = section.find("topicmeta/navtitle")
-            if section_navtitle is not None and section_navtitle.text:
-                tm = content_child.find("topicmeta")
-                if tm is None:
-                    tm = ET.SubElement(content_child, "topicmeta")
-                nt = tm.find("navtitle")
-                if nt is None:
-                    nt = ET.SubElement(tm, "navtitle")
-                nt.text = section_navtitle.text
-
-            for attr, value in section.attrib.items():
-                content_child.set(attr, value)
-            try:
-                lvl_attr = section.get("data-level")
-                if lvl_attr is not None:
-                    new_level = int(lvl_attr)
-                else:
-                    new_level = 1
-                    cur = section.getparent()
-                    while cur is not None:
-                        try:
-                            if getattr(cur, "tag", None) in ("topicref", "topichead"):
-                                new_level += 1
-                        except Exception:
-                            pass
-                        cur = cur.getparent()
-            except Exception:
-                new_level = 1
-            try:
-                content_child.set("data-level", str(new_level))
-                if not content_child.get("data-style"):
-                    content_child.set("data-style", f"Heading {new_level}")
-            except Exception:
-                pass
-
-            # Replace section with content child
-            parent = section.getparent()
-            if parent is not None:
-                idx = list(parent).index(section)
-                parent.remove(section)
-                parent.insert(idx, content_child)
-
             # Purge removed topics
-            for fn in removed_files:
-                context.topics.pop(fn, None)
+            for fn in removed_files or []:
+                try:
+                    context.topics.pop(fn, None)
+                except Exception:
+                    pass
 
-            # Ensure future depth-limit operations use this as baseline
+            # Persist baseline after structural change
             self._invalidate_original_structure(context)
-
             return OperationResult(True, "Section converted to topic.", {"index_path": list(index_path)})
         except Exception as e:
             return OperationResult(False, "Failed to convert section.", {"error": str(e)})
