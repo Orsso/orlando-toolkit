@@ -171,19 +171,20 @@ class StructureTab(ttk.Frame):
                 wrap=False,
             )
             self._depth_spin.grid(row=0, column=1, padx=(6, 0))
-
-            # Busy indicator next to depth control (hidden by default)
+            # Reduce selection side-effects for better UX
             try:
-                self._depth_busy = ttk.Progressbar(depth_container, mode="indeterminate", length=60, maximum=100)
-                self._depth_busy.grid(row=0, column=2, padx=(6, 0), sticky="w")
-                self._depth_busy.grid_remove()
+                self._depth_spin.configure(exportselection=False)
             except Exception:
-                self._depth_busy = None  # type: ignore[assignment]
+                pass
 
-            # Bind Return (Enter) and focus-out to commit manual edits
+            # (Busy overlay is created later inside the left pane to avoid layout shifts)
+
+            # Bind Return/FocusOut to commit edits and clear selection; clear on spin buttons too
             try:
-                self._depth_spin.bind("<Return>", lambda e: self._on_depth_changed())
-                self._depth_spin.bind("<FocusOut>", lambda e: self._on_depth_changed())
+                self._depth_spin.bind("<Return>", lambda e: (self._on_depth_changed(), self._clear_depth_spin_selection()))
+                self._depth_spin.bind("<FocusOut>", lambda e: (self._on_depth_changed(), self._clear_depth_spin_selection()))
+                self._depth_spin.bind("<<Increment>>", lambda e: self._clear_depth_spin_selection(), add=True)
+                self._depth_spin.bind("<<Decrement>>", lambda e: self._clear_depth_spin_selection(), add=True)
             except Exception:
                 pass
         except Exception:
@@ -272,6 +273,21 @@ class StructureTab(ttk.Frame):
             on_context_menu=self._on_tree_context_menu,
         )
         self._tree.grid(row=0, column=0, sticky="nsew")
+        # Busy overlay anchored to the top of the list, spans full width without affecting layout
+        try:
+            self._structure_busy_overlay = ttk.Frame(left)
+            self._structure_busy_overlay.place(relx=0.0, rely=0.0, relwidth=1.0, y=0)
+            self._structure_busy_prog = ttk.Progressbar(self._structure_busy_overlay, mode="indeterminate", maximum=100)
+            self._structure_busy_prog.pack(fill="x")
+            try:
+                self._structure_busy_overlay.lift()
+            except Exception:
+                pass
+            # Hidden by default, so no layout shift occurs
+            self._structure_busy_overlay.place_forget()
+        except Exception:
+            self._structure_busy_overlay = None  # type: ignore[assignment]
+            self._structure_busy_prog = None  # type: ignore[assignment]
 
         # Preview panel on the right
         from orlando_toolkit.ui.widgets.preview_panel import PreviewPanel  # local import to avoid cycles
@@ -571,7 +587,7 @@ class StructureTab(ttk.Frame):
     # ---------------------------------------------------------------------------------
 
     def _set_busy(self, busy: bool) -> None:
-        """Set a simple busy flag and toggle a small progress indicator near depth control."""
+        """Set a simple busy flag and toggle a non-intrusive progress overlay atop the structure list."""
         try:
             self._busy = bool(busy)
             # Disable toolbar buttons while busy
@@ -579,20 +595,25 @@ class StructureTab(ttk.Frame):
                 self._toolbar.enable_buttons(False)
             except Exception:
                 pass
-            # Toggle inline progress indicator near depth spinbox
+            # Toggle the overlay progress bar placed over the list (no layout shifts)
             try:
-                prog = getattr(self, "_depth_busy", None)
-                if prog is not None:
+                overlay = getattr(self, "_structure_busy_overlay", None)
+                prog = getattr(self, "_structure_busy_prog", None)
+                if overlay is not None and prog is not None:
                     if self._busy:
                         try:
-                            prog.grid()
+                            overlay.place(relx=0.0, rely=0.0, relwidth=1.0, y=0)
+                            try:
+                                overlay.lift()
+                            except Exception:
+                                pass
                             prog.start(10)
                         except Exception:
                             pass
                     else:
                         try:
                             prog.stop()
-                            prog.grid_remove()
+                            overlay.place_forget()
                         except Exception:
                             pass
             except Exception:
@@ -621,6 +642,24 @@ class StructureTab(ttk.Frame):
                     done_fn(res)
             except Exception:
                 pass
+
+    def _clear_depth_spin_selection(self) -> None:
+        """Clear selection highlight in the depth spinbox without changing focus globally."""
+        try:
+            spin = getattr(self, "_depth_spin", None)
+            if spin is None:
+                return
+            # Many ttk.Spinbox implementations support selection_clear
+            try:
+                spin.selection_clear()
+            except Exception:
+                # Fallback: focus a non-text widget to drop selection rendering
+                try:
+                    self.focus_set()
+                except Exception:
+                    pass
+        except Exception:
+            pass
 
     # ---------------------------------------------------------------------------------
         # ---------------------------------------------------------------------------------
@@ -1290,7 +1329,6 @@ class StructureTab(ttk.Frame):
         if len(refs) != 1:
             return
         try:
-            from tkinter import simpledialog
             # Prefill with current title
             current_title = ""
             try:
@@ -1298,7 +1336,12 @@ class StructureTab(ttk.Frame):
                     current_title = self._controller.get_title_for_ref(refs[0])  # type: ignore[attr-defined]
             except Exception:
                 current_title = ""
-            new_title = simpledialog.askstring("Rename topic", "New title:", initialvalue=current_title or "", parent=self)
+            try:
+                from orlando_toolkit.ui.dialogs.rename_dialog import RenameDialog
+                new_title = RenameDialog.ask_string(self, "Rename topic", "New title:", initialvalue=current_title or "")
+            except Exception:
+                from tkinter import simpledialog
+                new_title = simpledialog.askstring("Rename topic", "New title:", initialvalue=current_title or "", parent=self)
             if not new_title:
                 return
             res = self._controller.handle_rename(refs[0], new_title)  # type: ignore[attr-defined]
@@ -1365,8 +1408,12 @@ class StructureTab(ttk.Frame):
                 current_title = self._controller.get_title_for_section(index_path)  # type: ignore[attr-defined]
             except Exception:
                 current_title = ""
-            from tkinter import simpledialog
-            new_title = simpledialog.askstring("Rename section", "New title:", initialvalue=current_title or "", parent=self)
+            try:
+                from orlando_toolkit.ui.dialogs.rename_dialog import RenameDialog
+                new_title = RenameDialog.ask_string(self, "Rename section", "New title:", initialvalue=current_title or "")
+            except Exception:
+                from tkinter import simpledialog
+                new_title = simpledialog.askstring("Rename section", "New title:", initialvalue=current_title or "", parent=self)
             if not new_title:
                 return
             res = self._controller.handle_rename_section(index_path, new_title)  # type: ignore[attr-defined]

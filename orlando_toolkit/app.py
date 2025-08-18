@@ -264,14 +264,18 @@ class OrlandoToolkit:
             if logo_path.exists():
                 logo_img = tk.PhotoImage(file=logo_path)
                 try:
+                    # Target around 180px height for better visibility on the summary screen
                     h = logo_img.height()
-                    # Prefer a larger logo on the summary screen; scale up when small
-                    if h > 0 and h < 128:
-                        # Simple 2x upscale for small logos
-                        logo_img = logo_img.zoom(2, 2)
-                    elif h >= 220:
-                        # If excessively large, scale down moderately
-                        logo_img = logo_img.subsample(2, 2)
+                    target_h = 180
+                    if h > 0:
+                        if h < target_h:
+                            scale = max(1, min(3, target_h // h))
+                            if scale > 1:
+                                logo_img = logo_img.zoom(scale, scale)
+                        elif h > int(target_h * 1.5):
+                            # Downscale large logos to keep layout compact
+                            factor = max(2, int(round(h / float(target_h))))
+                            logo_img = logo_img.subsample(factor, factor)
                 except Exception:
                     pass
                 logo_lbl = ttk.Label(self.home_center, image=logo_img)
