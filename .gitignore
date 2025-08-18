@@ -18,8 +18,12 @@ verification_output/
 *.swp
 .cursor/
 .vscode/
-CLAUDE.md
 preview_design.md
 preview_plan.md
 CLAUDE.md
 .claude/
+
+dita-project/
+user_guide.md
+user_guide_outline.md
+AIROPS/

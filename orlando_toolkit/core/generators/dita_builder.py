@@ -360,9 +360,27 @@ def create_dita_table(table: Table, image_map: Dict[str, str]) -> ET.Element:
     if has_header and thead is not None and len(thead) == 0:
         tgroup.remove(thead)
 
-    # Prune empty tbody (ensures validation when all rows are headers)
+    # Ensure tbody is present and non-empty to satisfy DITA DTD (colspec*, thead?, tbody)
     if tbody is not None and len(tbody) == 0:
-        tgroup.remove(tbody)
+        # Insert a single invisible placeholder row so the CALS model is respected
+        placeholder_row = ET.SubElement(tbody, 'row', id=generate_dita_id())
+        placeholder_row.set('outputclass', 'aux-empty')
+        if num_cols > 1:
+            entry_attrs = {
+                'namest': 'column-0',
+                'nameend': f'column-{num_cols - 1}',
+                'colsep': '0',
+                'rowsep': '0'
+            }
+            entry_el = ET.SubElement(placeholder_row, 'entry', **entry_attrs)
+        else:
+            entry_attrs = {
+                'colname': 'column-0',
+                'colsep': '0',
+                'rowsep': '0'
+            }
+            entry_el = ET.SubElement(placeholder_row, 'entry', **entry_attrs)
+        ET.SubElement(entry_el, 'p', id=generate_dita_id())
 
     return dita_table 
 

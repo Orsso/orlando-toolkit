@@ -136,9 +136,10 @@ class ConversionService:
 
         # 5) Strip helper attributes (e.g., data-level) that are not valid DITA
         if context.ditamap_root is not None:
-            for el in context.ditamap_root.xpath('.//*[@data-level or @data-style]'):
+            for el in context.ditamap_root.xpath('.//*[@data-level or @data-style or @data-origin]'):
                 el.attrib.pop('data-level', None)
                 el.attrib.pop('data-style', None)
+                el.attrib.pop('data-origin', None)
         return context
 
     def write_package(self, context: DitaContext, output_zip: str | Path, *,

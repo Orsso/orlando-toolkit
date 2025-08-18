@@ -329,7 +329,6 @@ def generate_dita_from_structure(
                 try:
                     module_topicref.set("data-level", str(level + 1))
                     module_topicref.set("data-style", f"Heading {level + 1}")
-                    module_topicref.set("data-origin", "auto-module")
                 except Exception:
                     pass
                 

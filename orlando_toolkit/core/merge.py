@@ -285,18 +285,26 @@ def _ensure_content_module(ctx: "DitaContext", section_tref: ET.Element) -> ET.E
     child_ref.set("data-level", str(next_level))
     # Standardize style so style-based filters operate predictably
     child_ref.set("data-style", f"Heading {next_level}")
-    # Mark origin for downstream logic (auto-generated content module)
-    try:
-        child_ref.set("data-origin", "auto-module")
-    except Exception:
-        pass
+    # Mark origin was previously recorded via a non-standard attribute; avoid invalid DITA attrs
     # Keep navtitle in sync
     nav = ET.SubElement(child_ref, "topicmeta")
     navtitle = ET.SubElement(nav, "navtitle")
     navtitle.text = title_txt
 
-    # Insert as first child to preserve order
-    section_tref.insert(0, child_ref)
+    # Insert after topicmeta to preserve DTD order (topicmeta must be first if present)
+    try:
+        tm_index = None
+        for idx, ch in enumerate(list(section_tref)):
+            if getattr(ch, "tag", None) == "topicmeta":
+                tm_index = idx
+                break
+        if tm_index is None:
+            section_tref.insert(0, child_ref)
+        else:
+            section_tref.insert(tm_index + 1, child_ref)
+    except Exception:
+        # Fallback to append
+        section_tref.append(child_ref)
 
     return topic_el 
 
