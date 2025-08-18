@@ -1050,3 +1050,107 @@ class StructureController:
             return self.preview_service.render_html_preview(self.context, ref)
         except Exception:
             return PreviewResult(success=False, message="HTML rendering failed")
+
+    # ---------------------------------------------------------------------
+    # Send-to operations and destination listing
+    # ---------------------------------------------------------------------
+
+    def handle_send_topics_to(
+        self, target_index_path: Optional[List[int]], topic_refs: List[str]
+    ) -> OperationResult:
+        """Move given topic refs to the destination identified by index_path (or root).
+
+        Topics are appended at destination end in the provided order.
+        """
+        refs = [r for r in (topic_refs or []) if isinstance(r, str) and r]
+        if not refs:
+            return OperationResult(success=False, message="No topics to move")
+        try:
+            return self._recorded_edit(
+                lambda: self.editing_service.move_topics_to_target(self.context, refs, target_index_path)
+            )
+        except Exception:
+            return OperationResult(success=False, message="Failed to move topics")
+
+    def handle_send_section_to(
+        self, target_index_path: Optional[List[int]], section_index_path: List[int]
+    ) -> OperationResult:
+        """Move a section (topichead) to another section or root (append at end)."""
+        idx = list(section_index_path or [])
+        if not idx:
+            return OperationResult(success=False, message="No section to move")
+        try:
+            return self._recorded_edit(
+                lambda: self.editing_service.move_section_to_target(self.context, idx, target_index_path)
+            )
+        except Exception:
+            return OperationResult(success=False, message="Failed to move section")
+
+    def list_send_to_destinations(self) -> List[Dict[str, object]]:
+        """Return list of possible destinations for Send-to menu.
+
+        Each entry is a dict with keys:
+        - 'label': str (e.g., "Root (Top level)" or "3.2. Section title")
+        - 'index_path': Optional[List[int]] (None means root)
+        """
+        destinations: List[Dict[str, object]] = []
+        try:
+            destinations.append({"label": "Root (Top level)", "index_path": None})
+            root = getattr(self.context, "ditamap_root", None)
+            if root is None:
+                return destinations
+
+            # Precompute section numbering once (O(N)) and reuse
+            try:
+                from orlando_toolkit.core.utils import calculate_section_numbers
+                section_number_map = calculate_section_numbers(root) or {}
+            except Exception:
+                section_number_map = {}
+
+            def _extract_base_title(node: object) -> str:
+                # Minimal, non-recursive title extraction to avoid heavy work in loop
+                try:
+                    nav = node.find("topicmeta/navtitle") if hasattr(node, "find") else None
+                    if nav is not None and getattr(nav, "text", None):
+                        return str(nav.text).strip()
+                except Exception:
+                    pass
+                try:
+                    t = node.find("title") if hasattr(node, "find") else None
+                    if t is not None and getattr(t, "text", None):
+                        return str(t.text).strip()
+                except Exception:
+                    pass
+                try:
+                    if hasattr(node, "get"):
+                        attr = node.get("navtitle", "")
+                        if isinstance(attr, str) and attr.strip():
+                            return attr.strip()
+                except Exception:
+                    pass
+                return "Section"
+
+            def walk(node: object, path: List[int]) -> None:
+                try:
+                    structural_children = [el for el in list(node) if getattr(el, "tag", None) in ("topicref", "topichead")]
+                except Exception:
+                    structural_children = []
+                for i, child in enumerate(structural_children):
+                    child_path = path + [i]
+                    tag = getattr(child, "tag", None)
+                    if tag == "topichead":
+                        # Build label from precomputed section number + base title
+                        try:
+                            num = section_number_map.get(child, "")
+                        except Exception:
+                            num = ""
+                        base = _extract_base_title(child)
+                        label = f"{num}. {base}" if num and num != "0" else base
+                        destinations.append({"label": label, "index_path": child_path})
+                    # Recurse
+                    walk(child, child_path)
+
+            walk(root, [])
+        except Exception:
+            pass
+        return destinations

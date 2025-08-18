@@ -1202,6 +1202,30 @@ class StructureTreeWidget(ttk.Frame):
         except Exception:
             pass
         return expanded_refs
+
+    def get_selected_sections_index_paths(self) -> List[List[int]]:
+        """Return index paths for all currently selected section rows (topichead).
+
+        The index path is computed with `get_index_path_for_item_id`.
+        """
+        paths: List[List[int]] = []
+        try:
+            for item_id in self._tree.selection():
+                try:
+                    tags = tuple(self._tree.item(item_id, "tags") or ())
+                except Exception:
+                    tags = ()
+                if "section" not in tags:
+                    continue
+                try:
+                    path = self.get_index_path_for_item_id(item_id)
+                except Exception:
+                    path = []
+                if path:
+                    paths.append(path)
+        except Exception:
+            return []
+        return paths
     
     def _collect_expanded_refs(self, item_id: str, expanded_refs: set[str]) -> None:
         """Recursively collect expanded item refs."""
@@ -1723,6 +1747,14 @@ class StructureTreeWidget(ttk.Frame):
             # Toggle open state if this is a section
             tags = tuple(self._tree.item(item_id, "tags") or ())
             if "section" in tags:
+                # If user is performing multi-select gestures (Shift/Ctrl), do not toggle
+                try:
+                    state = int(getattr(event, "state", 0))
+                except Exception:
+                    state = 0
+                # Tk state bitmask: Shift=0x0001, Control=0x0004 (common across platforms)
+                if (state & 0x0001) or (state & 0x0004):
+                    return
                 is_open = bool(self._tree.item(item_id, "open"))
                 self._tree.item(item_id, open=not is_open)
                 # Prevent selection styling from applying to sections

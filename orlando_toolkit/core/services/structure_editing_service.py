@@ -265,6 +265,227 @@ class StructureEditingService:
             return OperationResult(False, "Failed to apply depth limit", {"error": str(e)})
 
     # -------------------------------------------------------------------------
+    # New: direct move operations to a destination
+    # -------------------------------------------------------------------------
+
+    def move_topics_to_target(
+        self,
+        context: DitaContext,
+        topic_ids: List[str],
+        target_index_path: Optional[List[int]]
+    ) -> OperationResult:
+        """Move one or more topics (topicref with @href) to a destination section or root.
+
+        - The destination is the map root when target_index_path is None.
+        - Topics are appended at the end of the destination in the order provided.
+        - Section nodes (topichead) are ignored in this API.
+        - Levels/styles are adapted similarly to intelligent move behavior.
+        """
+        try:
+            root = getattr(context, "ditamap_root", None)
+            if root is None:
+                return OperationResult(False, "No ditamap available in context.")
+
+            # Resolve destination parent element
+            if target_index_path is None:
+                dest_parent = root
+            else:
+                dest_parent = self._locate_node_by_index_path(context, target_index_path)
+                if dest_parent is None or getattr(dest_parent, "tag", None) not in ("topichead", "topicref", "map"):
+                    return OperationResult(False, "Destination not found.", {"target_index_path": list(target_index_path)})
+
+            # Resolve candidate nodes (topics only)
+            candidate_nodes = []
+            id_by_node = {}
+            for tid in list(topic_ids or []):
+                node = self._find_topic_ref(context, tid)
+                if node is None:
+                    continue
+                # Only content-bearing topics
+                href = node.get("href")
+                if not href:
+                    continue
+                candidate_nodes.append(node)
+                id_by_node[node] = tid
+
+            if not candidate_nodes:
+                return OperationResult(False, "No topics to move.")
+
+            # Keep only roots among selected nodes (preserve relative structure)
+            roots: List[Any] = []
+            for n in candidate_nodes:
+                is_descendant = False
+                for other in candidate_nodes:
+                    if other is n:
+                        continue
+                    if self._is_ancestor(other, n):
+                        is_descendant = True
+                        break
+                if not is_descendant:
+                    roots.append(n)
+
+            # Prevent moving into a descendant of any root
+            for r in roots:
+                if self._is_ancestor(r, dest_parent):
+                    return OperationResult(False, "Cannot move into a descendant of a selected topic.")
+
+            # Preserve original document order when appending
+            order_index = {}
+            try:
+                linear = self._build_linear_view(root)
+                for i, (node, _p, _idx) in enumerate(linear):
+                    order_index[node] = i
+            except Exception:
+                # Fallback: keep current order
+                pass
+            try:
+                roots.sort(key=lambda n: order_index.get(n, 10**9))
+            except Exception:
+                pass
+
+            moved: List[str] = []
+            for node in roots:
+                old_parent = node.getparent()
+                if old_parent is None:
+                    continue
+                self._reparent_node(node, old_parent, dest_parent, 10**9)
+                target_level = self._calculate_target_level(node, dest_parent)
+                self._apply_level_adaptation(node, target_level)
+                moved.append(id_by_node.get(node, ""))
+
+            if not moved:
+                return OperationResult(False, "No topics moved.")
+
+            # Persist as new baseline
+            self._invalidate_original_structure(context)
+            return OperationResult(True, "Moved topics to destination.", {"count": len(moved)})
+        except Exception as e:
+            return OperationResult(False, "Failed to move topics to destination.", {"error": str(e)})
+
+    def move_section_to_target(
+        self,
+        context: DitaContext,
+        section_index_path: List[int],
+        target_index_path: Optional[List[int]]
+    ) -> OperationResult:
+        """Move a section (topichead) identified by index_path to a destination section or root.
+
+        - Appends the section at the end of the destination.
+        - Prevents moving a section into its own descendant subtree.
+        - Adapts level/style for the moved section root.
+        """
+        try:
+            root = getattr(context, "ditamap_root", None)
+            if root is None:
+                return OperationResult(False, "No ditamap available in context.")
+
+            section = self._locate_node_by_index_path(context, section_index_path)
+            if section is None or getattr(section, "tag", None) != "topichead":
+                return OperationResult(False, "Section not found.", {"index_path": list(section_index_path or [])})
+
+            # Resolve destination
+            if target_index_path is None:
+                dest_parent = root
+            else:
+                dest_parent = self._locate_node_by_index_path(context, target_index_path)
+                if dest_parent is None or getattr(dest_parent, "tag", None) not in ("topichead", "topicref", "map"):
+                    return OperationResult(False, "Destination not found.", {"target_index_path": list(target_index_path)})
+
+            # Prevent moving into own descendant subtree
+            if self._is_ancestor(section, dest_parent):
+                return OperationResult(False, "Cannot move a section into its own descendant.")
+
+            old_parent = section.getparent()
+            if old_parent is None:
+                return OperationResult(False, "Cannot move root section.")
+
+            self._reparent_node(section, old_parent, dest_parent, 10**9)
+
+            # Adapt level/style for section root
+            target_level = self._calculate_target_level(section, dest_parent)
+            self._apply_level_adaptation(section, target_level)
+
+            self._invalidate_original_structure(context)
+            return OperationResult(True, "Moved section to destination.", {"index_path": list(section_index_path)})
+        except Exception as e:
+            return OperationResult(False, "Failed to move section to destination.", {"error": str(e)})
+
+    def move_sections_to_target(
+        self,
+        context: DitaContext,
+        section_index_paths: List[List[int]],
+        target_index_path: Optional[List[int]]
+    ) -> OperationResult:
+        """Move multiple sections to a destination (append in order), preserving relative structure.
+
+        - Keeps only roots among selected sections (no descendant of another selected section).
+        - Appends in document order.
+        - Prevents moving into a descendant of any selected root.
+        """
+        try:
+            root = getattr(context, "ditamap_root", None)
+            if root is None:
+                return OperationResult(False, "No ditamap available in context.")
+
+            # Resolve destination
+            if target_index_path is None:
+                dest_parent = root
+            else:
+                dest_parent = self._locate_node_by_index_path(context, target_index_path)
+                if dest_parent is None or getattr(dest_parent, "tag", None) not in ("topichead", "topicref", "map"):
+                    return OperationResult(False, "Destination not found.", {"target_index_path": list(target_index_path)})
+
+            # Resolve nodes and filter to topichead
+            nodes = []
+            for ip in list(section_index_paths or []):
+                node = self._locate_node_by_index_path(context, list(ip))
+                if node is not None and getattr(node, "tag", None) == "topichead":
+                    nodes.append(node)
+            if not nodes:
+                return OperationResult(False, "No sections to move.")
+
+            # Keep only roots (exclude nodes that are descendants of another selected node)
+            roots = []
+            for n in nodes:
+                if not any(self._is_ancestor(other, n) for other in nodes if other is not n):
+                    roots.append(n)
+            if not roots:
+                return OperationResult(False, "No sections to move.")
+
+            # Prevent moving into a descendant of any root
+            for r in roots:
+                if self._is_ancestor(r, dest_parent):
+                    return OperationResult(False, "Cannot move into a descendant of a selected section.")
+
+            # Sort roots by document order
+            order_index = {}
+            try:
+                linear = self._build_linear_view(root)
+                for i, (node, _p, _idx) in enumerate(linear):
+                    order_index[node] = i
+                roots.sort(key=lambda n: order_index.get(n, 10**9))
+            except Exception:
+                pass
+
+            moved = 0
+            for node in roots:
+                old_parent = node.getparent()
+                if old_parent is None:
+                    continue
+                self._reparent_node(node, old_parent, dest_parent, 10**9)
+                target_level = self._calculate_target_level(node, dest_parent)
+                self._apply_level_adaptation(node, target_level)
+                moved += 1
+
+            if moved <= 0:
+                return OperationResult(False, "No sections moved.")
+
+            self._invalidate_original_structure(context)
+            return OperationResult(True, "Moved sections to destination.", {"count": moved})
+        except Exception as e:
+            return OperationResult(False, "Failed to move sections to destination.", {"error": str(e)})
+
+    # -------------------------------------------------------------------------
     # Internal helpers (non-destructive, isolated)
     # -------------------------------------------------------------------------
 
@@ -966,3 +1187,18 @@ class StructureEditingService:
             context.metadata.pop("merged_exclude_styles", None)
         except Exception:
             pass
+
+    # ----------------------- Small helpers -----------------------
+
+    @staticmethod
+    def _is_ancestor(ancestor: ET.Element, node: ET.Element) -> bool:
+        """Return True if ancestor is an ancestor of node (or the same node)."""
+        try:
+            cur = node
+            while cur is not None:
+                if cur is ancestor:
+                    return True
+                cur = cur.getparent() if hasattr(cur, "getparent") else None
+        except Exception:
+            return False
+        return False

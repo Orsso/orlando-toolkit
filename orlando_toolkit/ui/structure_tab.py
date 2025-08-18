@@ -945,7 +945,184 @@ class StructureTab(ttk.Frame):
             except Exception:
                 pass
 
+            # Build Send-to destinations submenu entries
+            try:
+                ctrl = self._controller
+                destinations = []
+                if ctrl is not None and hasattr(ctrl, "list_send_to_destinations"):
+                    destinations = ctrl.list_send_to_destinations()  # type: ignore[attr-defined]
+                send_entries = []
+                MAX_MENU_DEST = 200  # Threshold to keep context menu responsive
+                if isinstance(destinations, list):
+                    if is_section:
+                        # Create commands for moving sections: if multiple sections are selected, move them all
+                        try:
+                            selected_section_paths = self._tree.get_selected_sections_index_paths()  # type: ignore[attr-defined]
+                        except Exception:
+                            selected_section_paths = []
+                        if not selected_section_paths:
+                            # Fallback to the section under cursor
+                            item_id = info.get("item_id") or ""
+                            if item_id:
+                                try:
+                                    selected_section_paths = [self._tree.get_index_path_for_item_id(item_id)]  # type: ignore[attr-defined]
+                                except Exception:
+                                    selected_section_paths = []
+                        # Helper to add an entry either for single or multi-section move
+                        def add_entry(label, tpath):
+                            if len(selected_section_paths) > 1:
+                                send_entries.append((str(label), (lambda sps=list(selected_section_paths), t=tpath: self._ctx_send_sections_to(sps, t))))
+                            else:
+                                # single
+                                s = selected_section_paths[0] if selected_section_paths else []
+                                send_entries.append((str(label), (lambda sp=s, t=tpath: self._ctx_send_section_to(sp, t))))
+                        # Strategy: if many destinations, propose a small set: Root + ancestors + siblings + top-level
+                        if len(destinations) > MAX_MENU_DEST:
+                            # Always include Root
+                            add_entry("Root (Top level)", None)
+                            # Compute ancestors and siblings from the current item
+                            try:
+                                # Build ancestors paths progressively
+                                ancestors = []
+                                p = list(source_index_path)
+                                while p:
+                                    p = p[:-1]
+                                    if p:
+                                        ancestors.append(tuple(p))
+                                # Deduplicate and map to labels by lookup in destinations
+                                path_to_label = {}
+                                for d in destinations:
+                                    ip = d.get("index_path")
+                                    if isinstance(ip, list):
+                                        path_to_label[tuple(ip)] = d.get("label")
+                                # Ancestors
+                                for ap in ancestors[:5]:
+                                    lbl = path_to_label.get(ap)
+                                    if isinstance(lbl, str):
+                                        add_entry(lbl, list(ap))
+                                # Siblings at same parent
+                                base_path = tuple(selected_section_paths[0][:-1]) if selected_section_paths else tuple()
+                                if len(base_path) >= 0:
+                                    # Collect siblings from destinations (same parent path depth)
+                                    sib_count = 0
+                                    for d in destinations:
+                                        ip = d.get("index_path")
+                                        if isinstance(ip, list) and (not selected_section_paths or len(ip) == len(selected_section_paths[0])) and tuple(ip[:-1]) == base_path and (ip not in selected_section_paths):
+                                            add_entry(d.get("label"), ip)
+                                            sib_count += 1
+                                            if sib_count >= 10:
+                                                break
+                            except Exception:
+                                pass
+                            # Add a lightweight chooser entry
+                            if len(selected_section_paths) > 1:
+                                send_entries.append(("More destinations…", (lambda sps=list(selected_section_paths): self._open_destination_picker_for_sections(sps))))
+                            else:
+                                s = selected_section_paths[0] if selected_section_paths else []
+                                send_entries.append(("More destinations…", (lambda sp=s: self._open_destination_picker_for_section(sp))))
+                        else:
+                            for d in destinations:
+                                try:
+                                    label = d.get("label")
+                                    target_index_path = d.get("index_path")
+                                    # Skip moving to self (single) or to any of selected paths (multi)
+                                    if len(selected_section_paths) <= 1:
+                                        s = selected_section_paths[0] if selected_section_paths else []
+                                        if isinstance(s, list) and isinstance(target_index_path, list) and s == target_index_path:
+                                            continue
+                                        send_entries.append((str(label), (lambda sp=s, t=target_index_path: self._ctx_send_section_to(sp, t))))
+                                    else:
+                                        if isinstance(target_index_path, list) and target_index_path in selected_section_paths:
+                                            continue
+                                        send_entries.append((str(label), (lambda sps=list(selected_section_paths), t=target_index_path: self._ctx_send_sections_to(sps, t))))
+                                except Exception:
+                                    continue
+                    else:
+                        # Create commands for moving selected topics
+                        topic_refs = list(current_refs or [])
+                        def add_entry_topics(label, tpath):
+                            send_entries.append((str(label), (lambda r=topic_refs, t=tpath: self._ctx_send_topics_to(r, t))))
+                        if len(destinations) > MAX_MENU_DEST:
+                            add_entry_topics("Root (Top level)", None)
+                            # Suggest top-level sections only (limit)
+                            top_level = 0
+                            for d in destinations:
+                                try:
+                                    ip = d.get("index_path")
+                                    if isinstance(ip, list) and len(ip) == 1:
+                                        add_entry_topics(d.get("label"), ip)
+                                        top_level += 1
+                                        if top_level >= 15:
+                                            break
+                                except Exception:
+                                    continue
+                            # Add a chooser entry for full list
+                            send_entries.append(("More destinations…", (lambda r=topic_refs: self._open_destination_picker_for_topics(r))))
+                        else:
+                            for d in destinations:
+                                try:
+                                    label = d.get("label")
+                                    target_index_path = d.get("index_path")
+                                    send_entries.append((str(label), (lambda r=topic_refs, t=target_index_path: self._ctx_send_topics_to(r, t))))
+                                except Exception:
+                                    continue
+                if send_entries:
+                    ctx["send_to_entries"] = send_entries
+            except Exception:
+                pass
+
             self._ctx_menu.show_context_menu(event, current_refs, context=ctx)
+        except Exception:
+            pass
+
+    def _open_destination_picker_for_topics(self, refs: List[str]) -> None:
+        """Open a simple destination picker dialog for topics (lazy-loaded list)."""
+        try:
+            from orlando_toolkit.ui.dialogs.destination_picker import DestinationPicker
+        except Exception:
+            DestinationPicker = None  # type: ignore[assignment]
+        if DestinationPicker is None:
+            return
+        try:
+            ctrl = self._controller
+            if ctrl is None:
+                return
+            # Build fresh destinations on open
+            dests = ctrl.list_send_to_destinations()  # type: ignore[attr-defined]
+            picker = DestinationPicker(self, destinations=dests)
+            target = picker.show()
+            if target is not None:
+                self._ctx_send_topics_to(refs, target)
+        except Exception:
+            pass
+
+    def _open_destination_picker_for_section(self, source_index_path: List[int]) -> None:
+        """Open a simple destination picker dialog for moving a section."""
+        try:
+            from orlando_toolkit.ui.dialogs.destination_picker import DestinationPicker
+        except Exception:
+            DestinationPicker = None  # type: ignore[assignment]
+        if DestinationPicker is None:
+            return
+        try:
+            ctrl = self._controller
+            if ctrl is None:
+                return
+            dests = ctrl.list_send_to_destinations()  # type: ignore[attr-defined]
+            # Filter out self
+            filt = []
+            for d in dests:
+                try:
+                    ip = d.get("index_path")
+                    if isinstance(ip, list) and ip == source_index_path:
+                        continue
+                    filt.append(d)
+                except Exception:
+                    continue
+            picker = DestinationPicker(self, destinations=filt)
+            target = picker.show()
+            if target is not None:
+                self._ctx_send_section_to(source_index_path, target)
         except Exception:
             pass
 
@@ -1080,6 +1257,90 @@ class StructureTab(ttk.Frame):
             if not getattr(res, "success", False):
                 return
             self._refresh_tree()
+        except Exception:
+            pass
+
+    # --------------------------- Send-to handlers ---------------------------
+    def _ctx_send_topics_to(self, refs: List[str], target_index_path: Optional[List[int]]) -> None:
+        ctrl = self._controller
+        if ctrl is None:
+            return
+        try:
+            res = ctrl.handle_send_topics_to(target_index_path, refs)  # type: ignore[attr-defined]
+            if not getattr(res, "success", False):
+                return
+            self._refresh_tree()
+            # Keep selection on moved items (best-effort)
+            try:
+                self._tree.update_selection(refs)  # type: ignore[attr-defined]
+            except Exception:
+                pass
+        except Exception:
+            pass
+
+    def _ctx_send_section_to(self, source_index_path: List[int], target_index_path: Optional[List[int]]) -> None:
+        ctrl = self._controller
+        if ctrl is None:
+            return
+        try:
+            if not isinstance(source_index_path, list) or not source_index_path:
+                return
+            res = ctrl.handle_send_section_to(target_index_path, source_index_path)  # type: ignore[attr-defined]
+            if not getattr(res, "success", False):
+                return
+            self._refresh_tree()
+        except Exception:
+            pass
+
+    def _ctx_send_sections_to(self, source_index_paths: List[List[int]], target_index_path: Optional[List[int]]) -> None:
+        ctrl = self._controller
+        if ctrl is None:
+            return
+        try:
+            if not isinstance(source_index_paths, list) or not source_index_paths:
+                return
+            # Dispatch to multi-section move if available; else fallback to sequential moves
+            if hasattr(ctrl.editing_service, "move_sections_to_target"):
+                res = ctrl._recorded_edit(lambda: ctrl.editing_service.move_sections_to_target(ctrl.context, source_index_paths, target_index_path))  # type: ignore[attr-defined]
+            else:
+                # Fallback: move in document order
+                res = None
+                for ip in source_index_paths:
+                    r = ctrl._recorded_edit(lambda p=list(ip): ctrl.editing_service.move_section_to_target(ctrl.context, p, target_index_path))  # type: ignore[attr-defined]
+                    res = r
+            if res and not getattr(res, "success", False):
+                return
+            self._refresh_tree()
+        except Exception:
+            pass
+
+    def _open_destination_picker_for_sections(self, source_index_paths: List[List[int]]) -> None:
+        try:
+            from orlando_toolkit.ui.dialogs.destination_picker import DestinationPicker
+        except Exception:
+            DestinationPicker = None  # type: ignore[assignment]
+        if DestinationPicker is None:
+            return
+        try:
+            ctrl = self._controller
+            if ctrl is None:
+                return
+            dests = ctrl.list_send_to_destinations()  # type: ignore[attr-defined]
+            # Filter out any of the selected paths from choices
+            skip = {tuple(p) for p in (source_index_paths or [])}
+            filt = []
+            for d in dests:
+                try:
+                    ip = d.get("index_path")
+                    if isinstance(ip, list) and tuple(ip) in skip:
+                        continue
+                    filt.append(d)
+                except Exception:
+                    continue
+            picker = DestinationPicker(self, destinations=filt)
+            target = picker.show()
+            if target is not None:
+                self._ctx_send_sections_to(source_index_paths, target)
         except Exception:
             pass
 

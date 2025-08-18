@@ -207,6 +207,26 @@ class ContextMenuHandler:
                 command=lambda: self._execute_command(self._on_delete, selected_items),
             )
 
+        # Optional: Send to submenu
+        try:
+            send_entries = None
+            if isinstance(context, dict):
+                send_entries = context.get("send_to_entries")
+            if isinstance(send_entries, list) and len(send_entries) > 0:
+                send_menu = Menu(menu, tearoff=False)
+                for entry in send_entries:
+                    try:
+                        label = entry[0]
+                        callback = entry[1]
+                        if not isinstance(label, str) or not callable(callback):
+                            continue
+                        send_menu.add_command(label=label, command=lambda cb=callback: self._execute_simple_command(cb))
+                    except Exception:
+                        continue
+                menu.add_cascade(label="📤 Send to", menu=send_menu)
+        except Exception:
+            pass
+
         # Ensure we tear down the menu on focus loss.
         try:
             menu.bind("<FocusOut>", lambda _e: self._teardown_menu_safe(), add=True)
