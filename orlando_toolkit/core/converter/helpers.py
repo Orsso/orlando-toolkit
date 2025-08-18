@@ -183,6 +183,82 @@ def _split_mixed_table_content(paragraph: Paragraph) -> list[str]:
 
 def _process_paragraph_runs(p_element: ET.Element, paragraph: Paragraph, image_map: dict, *, exclude_images: bool = False) -> None:  # noqa: D401,E501
     """Rebuild the runs of a Word paragraph into DITA inline markup."""
+    # Fast-path: explicit Word hyperlinks → emit DITA xref elements
+    try:
+        # Detect Word hyperlink containers
+        hyperlink_nodes = list(paragraph._p.findall(qn('w:hyperlink')))  # type: ignore[attr-defined]
+        if hyperlink_nodes:
+            last_element: Optional[ET.Element] = None
+            # Iterate children preserving order: plain runs and hyperlinks
+            for child in paragraph._p.iterchildren():  # type: ignore[attr-defined]
+                tag = getattr(child, 'tag', None)
+                if tag == qn('w:hyperlink'):
+                    # Extract target URL from relationship id when present
+                    rel_id = child.get(qn('r:id'))
+                    url: Optional[str] = None
+                    try:
+                        if rel_id and hasattr(paragraph, 'part') and hasattr(paragraph.part, 'rels'):
+                            rel = paragraph.part.rels.get(rel_id)  # type: ignore[attr-defined]
+                            if rel is not None:
+                                url = getattr(rel, 'target_ref', None) or getattr(rel, 'target', None)
+                    except Exception:
+                        url = None
+                    # Fallback for internal anchors (ignored as external links)
+                    link_text = ""
+                    try:
+                        for t_elem in child.iter():
+                            if t_elem.tag == qn('w:t') and t_elem.text:
+                                link_text += t_elem.text
+                    except Exception:
+                        pass
+                    if url:
+                        href_el = ET.Element("xref", id=generate_dita_id())
+                        href_el.set("class", "- topic/xref ")
+                        href_el.set("format", "html")
+                        href_el.set("scope", "external")
+                        href_el.set("href", url)
+                        href_el.text = link_text or url
+                        p_element.append(href_el)
+                        last_element = href_el
+                    else:
+                        # No resolvable URL: treat as plain text
+                        if last_element is not None:
+                            last_element.tail = (last_element.tail or "") + link_text
+                        else:
+                            p_element.text = (p_element.text or "") + link_text  # type: ignore[assignment]
+                elif tag == qn('w:r'):
+                    # Plain run text outside hyperlinks (no rich formatting in fast-path)
+                    run_text = ""
+                    try:
+                        for t_elem in child.iter():
+                            if t_elem.tag == qn('w:t') and t_elem.text:
+                                run_text += t_elem.text
+                    except Exception:
+                        pass
+                    if run_text:
+                        if last_element is not None:
+                            last_element.tail = (last_element.tail or "") + run_text
+                        else:
+                            p_element.text = (p_element.text or "") + run_text  # type: ignore[assignment]
+                else:
+                    # Other nodes (sdt, etc.) → append their visible text conservatively
+                    extra = ""
+                    try:
+                        for t_elem in child.iter():
+                            if t_elem.tag == qn('w:t') and t_elem.text:
+                                extra += t_elem.text
+                    except Exception:
+                        pass
+                    if extra:
+                        if last_element is not None:
+                            last_element.tail = (last_element.tail or "") + extra
+                        else:
+                            p_element.text = (p_element.text or "") + extra  # type: ignore[assignment]
+            return
+    except Exception:
+        # Continue with standard path if hyperlink handling fails
+        pass
+
     # Check if this paragraph has SDT content that regular runs miss
     regular_text = paragraph.text or ""
     sdt_aware_text = _get_all_paragraph_text_with_sdt(paragraph)

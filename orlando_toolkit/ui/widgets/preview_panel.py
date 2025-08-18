@@ -120,14 +120,46 @@ class PreviewPanel(ttk.Frame):
 
         if HTML_WEB_AVAILABLE:
             try:
+                # Define external link handler for tkinterweb so clicks open in system browser
+                def _open_external(url: str) -> str:
+                    try:
+                        if isinstance(url, str) and (url.startswith("http://") or url.startswith("https://") or url.startswith("mailto:")):
+                            import webbrowser
+                            webbrowser.open_new_tab(url)
+                            return "break"
+                    except Exception:
+                        pass
+                    # Fallback: allow default handling inside the HtmlFrame
+                    return ""
                 self._text = HtmlFrame(
                     self,
                     horizontal_scrollbar="auto",  # type: ignore[arg-type]
                     vertical_scrollbar="auto",    # type: ignore[arg-type]
                     messages_enabled=False,        # silence debug banner
+                    on_link_click=_open_external,  # open external links in system browser
                 )
                 self._html_rendering_enabled = True
                 self._html_widget_kind = "tkinterweb"
+                # Best-effort: open links in external browser when supported by tkinterweb
+                try:
+                    def _open_external(url: str) -> str:
+                        try:
+                            import webbrowser
+                            if isinstance(url, str) and url:
+                                webbrowser.open_new_tab(url)
+                        except Exception:
+                            pass
+                        return "break"
+                    for attr_name in ("on_link_click", "on_link", "set_on_link_click", "set_on_link"):
+                        cb = getattr(self._text, attr_name, None)
+                        if callable(cb):
+                            try:
+                                cb(_open_external)  # type: ignore[misc]
+                                break
+                            except Exception:
+                                pass
+                except Exception:
+                    pass
             except Exception:
                 # Fallback continues below
                 pass

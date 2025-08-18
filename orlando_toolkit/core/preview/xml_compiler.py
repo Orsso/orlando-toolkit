@@ -7,10 +7,10 @@ This module is **read-only** and has *no* GUI dependencies.  It relies only on
 that it can be reused in tests, CLI tools or future features.
 """
 
-from typing import Optional
+from typing import Optional, TYPE_CHECKING
 from lxml import etree as ET  # type: ignore
 
-if False:  # TYPE_CHECKING pragma
+if TYPE_CHECKING:  # pragma: no cover - for type checkers only
     from orlando_toolkit.core.models import DitaContext  # noqa: F401
 
 __all__ = [
@@ -159,6 +159,21 @@ def render_html_preview(ctx: "DitaContext", tref: ET.Element, *, pretty: bool = 
           </xsl:attribute>
           <xsl:apply-templates/>
         </p>
+      </xsl:template>
+
+      <!-- xref (namespace-agnostic) to HTML anchor -->
+      <xsl:template match="*[local-name()='xref']">
+        <xsl:variable name="href" select="@href"/>
+        <xsl:variable name="scope" select="@scope"/>
+        <a>
+          <xsl:attribute name="href"><xsl:value-of select="$href"/></xsl:attribute>
+          <!-- Open external links in new tab/window to avoid navigating inside preview -->
+          <xsl:if test="$scope='external' or starts-with($href,'http://') or starts-with($href,'https://')">
+            <xsl:attribute name="target">_blank</xsl:attribute>
+            <xsl:attribute name="rel">noopener noreferrer</xsl:attribute>
+          </xsl:if>
+          <xsl:apply-templates/>
+        </a>
       </xsl:template>
 
       <!-- inline phrase (namespace-agnostic) maps to span with colour styles -->
