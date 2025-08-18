@@ -716,11 +716,9 @@ def merge_topics_unified(ctx: "DitaContext", depth_limit: int, exclude_style_map
 
     # Post-merge cleanup: collapse redundant section + content module structures
     _collapse_redundant_sections(ctx)
-    # Ensure sections at the depth boundary are promoted to topics for usability
-    try:
-        _promote_sections_at_depth_limit(ctx, depth_limit)
-    except Exception:
-        pass
+    # Note: We no longer promote sections at the depth boundary into topics here.
+    # Keeping sections at the boundary preserves collapsibility and expected UI behavior
+    # when users increase the depth afterward.
 
     # Note: No final cleanup needed since topichead elements don't have conbody
 
