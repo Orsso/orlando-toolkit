@@ -426,12 +426,18 @@ class StructureTab(ttk.Frame):
                 pass
             return
 
-        # Preserve expansion state before refresh
+        # Preserve expansion state before refresh (topics by ref, sections by index path)
         expanded_refs = set()
+        expanded_section_paths: List[List[int]] = []
         try:
             expanded_refs = self._tree.get_expanded_items()
         except Exception:
             pass
+        try:
+            if hasattr(self._tree, "get_expanded_section_index_paths"):
+                expanded_section_paths = self._tree.get_expanded_section_index_paths()  # type: ignore[attr-defined]
+        except Exception:
+            expanded_section_paths = []
 
         try:
             # Apply current heading exclusions from controller before population
@@ -443,13 +449,27 @@ class StructureTab(ttk.Frame):
                 pass
 
             self._tree.populate_tree(ctrl.context, max_depth=getattr(ctrl, "max_depth", 999))
-            
-            # Restore expansion state after population, or expand all if no previous state
+
+            # Restore expansion state after population when we have prior state
             try:
-                if expanded_refs:
-                    self._tree.restore_expanded_items(expanded_refs)
+                if expanded_refs or expanded_section_paths:
+                    try:
+                        self._tree.collapse_all()
+                    except Exception:
+                        pass
+                    # Restore sections first (structural), then topics by ref
+                    try:
+                        if expanded_section_paths and hasattr(self._tree, "restore_expanded_sections"):
+                            self._tree.restore_expanded_sections(expanded_section_paths)  # type: ignore[attr-defined]
+                    except Exception:
+                        pass
+                    try:
+                        if expanded_refs:
+                            self._tree.restore_expanded_items(expanded_refs)
+                    except Exception:
+                        pass
                 else:
-                    # No previous expansion state, keep the default expansion from populate_tree
+                    # No previous expansion state; keep default expansion from populate
                     pass
             except Exception:
                 pass
@@ -576,10 +596,37 @@ class StructureTab(ttk.Frame):
         # Delegate to controller and refresh tree
         try:
             changed = False
+            # Capture a best-effort target for viewport centering post-merge
+            predicted_target: Optional[str] = None
+            current_sel: List[str] = []
+            try:
+                if hasattr(ctrl, "get_selection"):
+                    current_sel = list(ctrl.get_selection())  # type: ignore[attr-defined]
+                if current_sel:
+                    sel_ref = current_sel[0]
+                    predicted_target = self._predict_merge_target_href_for_ref(sel_ref)
+            except Exception:
+                predicted_target = None
             if hasattr(ctrl, "handle_depth_change"):
                 changed = bool(ctrl.handle_depth_change(val))
             if changed:
                 self._refresh_tree()
+                # After refresh, center viewport on a surviving target (original or predicted)
+                try:
+                    target_ref: Optional[str] = None
+                    # Prefer original if it still exists
+                    if current_sel:
+                        try:
+                            if hasattr(self._tree, 'find_item_by_ref') and self._tree.find_item_by_ref(current_sel[0]):  # type: ignore[attr-defined]
+                                target_ref = current_sel[0]
+                        except Exception:
+                            pass
+                    if not target_ref:
+                        target_ref = predicted_target
+                    if target_ref and hasattr(self._tree, 'focus_item_centered_by_ref'):
+                        self._tree.focus_item_centered_by_ref(target_ref)  # type: ignore[attr-defined]
+                except Exception:
+                    pass
                 # Re-apply search after tree refresh to preserve search results
                 try:
                     current_search_term = self._search.get_search_term()
@@ -982,9 +1029,9 @@ class StructureTab(ttk.Frame):
                             add_entry("Root (Top level)", None)
                             # Compute ancestors and siblings from the current item
                             try:
-                                # Build ancestors paths progressively
+                                # Build ancestors paths progressively from the first selected section
                                 ancestors = []
-                                p = list(source_index_path)
+                                p = list(selected_section_paths[0]) if selected_section_paths else []
                                 while p:
                                     p = p[:-1]
                                     if p:
@@ -1383,6 +1430,17 @@ class StructureTab(ttk.Frame):
             # Build style exclusion map per levels for merge via controller helper
             style_excl_map = ctrl.build_style_exclusion_map_from_flags(exclusions)
 
+            # Predict a best-effort target for viewport centering post-merge
+            predicted_target: Optional[str] = None
+            original_ref: str = ""
+            try:
+                current_sel = list(ctrl.get_selection())
+                if current_sel:
+                    original_ref = current_sel[0]
+                    predicted_target = self._predict_merge_target_href_for_ref(original_ref)
+            except Exception:
+                predicted_target = None
+
             # Validate mergability upfront and inform user if some items cannot be merged
             try:
                 unmergable = ctrl.estimate_unmergable(style_excl_map)
@@ -1406,6 +1464,19 @@ class StructureTab(ttk.Frame):
 
             # Refresh tree and keep preview hidden while panel is up
             self._refresh_tree()
+            # Center viewport on predicted or original target
+            try:
+                # Prefer original if it still exists; else predicted
+                target_ref = original_ref
+                try:
+                    if not target_ref or not self._tree.find_item_by_ref(target_ref):  # type: ignore[attr-defined]
+                        target_ref = predicted_target or ""
+                except Exception:
+                    target_ref = predicted_target or target_ref
+                if target_ref and hasattr(self._tree, 'focus_item_centered_by_ref'):
+                    self._tree.focus_item_centered_by_ref(target_ref)  # type: ignore[attr-defined]
+            except Exception:
+                pass
             # Optionally, update status
             try:
                 self._filter_panel.update_status("Filters applied")  # type: ignore[attr-defined]
@@ -1785,6 +1856,107 @@ class StructureTab(ttk.Frame):
                 return
         except Exception:
             pass
+
+    # ---------------------------------------------------------------------------------
+    # Merge target prediction for centering viewport
+    # ---------------------------------------------------------------------------------
+
+    def _predict_merge_target_href_for_ref(self, topic_ref: str) -> Optional[str]:
+        """Best-effort prediction of the href that will receive a merged topic.
+
+        Strategy mirrors core.merge.merge_topics_unified behavior:
+        - If the selected ref remains after merge, prefer it (i.e., it is a content-bearing ancestor)
+        - Else, try nearest ancestor topicref (content-bearing) up the chain
+        - Else, try previous sibling topicref with href (closest content-bearing sibling)
+        - Else, fallback to parent content module under nearest section
+        Returns the predicted href string or None.
+        """
+        try:
+            # Fast path: if item exists now and is content-bearing, it may survive
+            item_id = None
+            try:
+                if hasattr(self._tree, 'find_item_by_ref'):
+                    item_id = self._tree.find_item_by_ref(topic_ref)  # type: ignore[attr-defined]
+            except Exception:
+                item_id = None
+            if item_id:
+                # If this item has href and is a topicref, assume it could remain
+                return topic_ref
+
+            # Otherwise, try to find the previous content-bearing sibling from the same parent
+            # by scanning visible order in the widget under the same parent chain.
+            # 1) Find the parent chain using index path of the first occurrence of the ref's row if any
+            #    Since item does not exist, this branch is limited; fall back to scanning by sibling order.
+            # Use controller context to walk the ditamap for a precise prediction
+            ctrl = self._controller
+            if ctrl is None or not hasattr(ctrl, 'context') or getattr(ctrl, 'context', None) is None:
+                return None
+            root = getattr(ctrl.context, 'ditamap_root', None)
+            if root is None:
+                return None
+
+            from lxml import etree as ET  # local import for xpath
+            # Locate the topicref element by href
+            try:
+                tref = root.find(f".//topicref[@href='{topic_ref}']")
+            except Exception:
+                tref = None
+            if tref is None:
+                return None
+
+            # Prefer nearest ancestor content-bearing topicref
+            probe = tref.getparent()
+            while probe is not None:
+                if getattr(probe, 'tag', None) == 'topicref' and probe.get('href'):
+                    return probe.get('href')
+                probe = probe.getparent()
+
+            parent = tref.getparent()
+            if parent is None:
+                return None
+            siblings = list(parent)
+            try:
+                idx = siblings.index(tref)
+            except ValueError:
+                idx = -1
+            if idx > 0:
+                for i in range(idx - 1, -1, -1):
+                    sib = siblings[i]
+                    if getattr(sib, 'tag', None) != 'topicref':
+                        continue
+                    href = sib.get('href') or ''
+                    if href:
+                        return href
+
+            # Fallback: find or create parent content module prediction (first topicref child under nearest topichead)
+            probe = parent
+            while probe is not None and getattr(probe, 'tag', None) != 'topichead':
+                probe = probe.getparent()
+            if probe is not None and getattr(probe, 'tag', None) == 'topichead':
+                for ch in list(probe):
+                    if getattr(ch, 'tag', None) == 'topicref' and ch.get('href'):
+                        return ch.get('href')
+            return None
+        except Exception:
+            return None
+
+    def _collect_hrefs_from_topic_path(self, topic_ref: str) -> List[str]:
+        """Collect hrefs from breadcrumb path for the given topic_ref, nearest ancestor first.
+
+        Returns a list of hrefs for content-bearing ancestors (excluding sections), ordered
+        from nearest ancestor to farthest.
+        """
+        try:
+            ctrl = self._controller
+            if ctrl is None or not hasattr(ctrl, 'get_topic_path'):
+                return []
+            path = ctrl.get_topic_path(topic_ref)
+            # path is [(title, href_or_section_id)...]; filter real hrefs and reverse to nearest-first
+            hrefs = [href for (_title, href) in (path or []) if isinstance(href, str) and href.startswith('topics/')]
+            hrefs.reverse()
+            return hrefs
+        except Exception:
+            return []
 
     # Removed: no button binds to this; keep preview refresh via mode/selection changes
 

@@ -1263,6 +1263,77 @@ class StructureTreeWidget(ttk.Frame):
         except Exception:
             pass
     
+    def get_expanded_section_index_paths(self) -> List[List[int]]:
+        """Return index paths for currently expanded section (topichead) rows.
+
+        The index path is computed with `get_index_path_for_item_id` and is
+        resilient to item id remapping after a repopulate.
+        """
+        paths: List[List[int]] = []
+        try:
+            for item_id in self._iter_all_item_ids():
+                try:
+                    tags = tuple(self._tree.item(item_id, "tags") or ())
+                    is_open = bool(self._tree.item(item_id, "open"))
+                except Exception:
+                    tags = ()
+                    is_open = False
+                if ("section" in tags) and is_open:
+                    try:
+                        path = self.get_index_path_for_item_id(item_id)
+                    except Exception:
+                        path = []
+                    if path:
+                        paths.append(path)
+        except Exception:
+            return []
+        return paths
+    
+    def find_item_id_by_index_path(self, index_path: List[int]) -> Optional[str]:
+        """Locate a tree item id by walking the structural index path from the root.
+
+        Returns None if the path is invalid or out of bounds.
+        """
+        try:
+            parent = ""
+            path = list(index_path or [])
+            for idx in path:
+                children = list(self._tree.get_children(parent))
+                if idx < 0 or idx >= len(children):
+                    return None
+                parent = children[idx]
+            return parent if parent else None
+        except Exception:
+            return None
+    
+    def restore_expanded_sections(self, index_paths: List[List[int]]) -> None:
+        """Restore expansion state for sections addressed by index paths."""
+        restored_ids: List[str] = []
+        try:
+            for path in (index_paths or []):
+                item_id = self.find_item_id_by_index_path(path)
+                if item_id:
+                    try:
+                        self._tree.item(item_id, open=True)
+                        restored_ids.append(item_id)
+                    except Exception:
+                        continue
+            # Update geometry once
+            try:
+                self._tree.update_idletasks()
+            except Exception:
+                pass
+        except Exception:
+            pass
+        # Refresh markers for restored sections
+        try:
+            if restored_ids:
+                self._refresh_section_markers(restored_ids)
+            else:
+                self._refresh_section_markers()
+        except Exception:
+            pass
+    
     def expand_all(self) -> None:
         """Expand all items in the tree."""
         try:
