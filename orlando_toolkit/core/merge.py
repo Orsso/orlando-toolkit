@@ -203,6 +203,21 @@ def _add_title_paragraph(target_el: ET.Element, title_text: str) -> None:
         pass
     parent_body.append(head_p)
 
+
+def _copy_section_attrs_to_child_preserving_style(section_tref: ET.Element, child_ref: ET.Element) -> None:
+    """Copy attributes from a section to its child topicref, excluding style/level.
+
+    Excludes `data-style` and `data-level` so the child keeps or synthesizes its
+    own neutral style for predictable filter behavior.
+    """
+    try:
+        for attr, value in section_tref.attrib.items():
+            if attr in ("data-style", "data-level"):
+                continue
+            child_ref.set(attr, value)
+    except Exception:
+        pass
+
 def _extract_title_text(element: ET.Element, is_topichead: bool = False) -> str:
     """Extract title text from topic or topichead element.
     
@@ -426,8 +441,8 @@ def convert_section_to_local_topic(ctx: "DitaContext", section_tref: ET.Element)
             nt = ET.SubElement(tm, "navtitle")
         nt.text = section_navtitle.text
 
-    for attr, value in section_tref.attrib.items():
-        content_child.set(attr, value)
+    # Copy attributes except style/level so the child keeps its own style
+    _copy_section_attrs_to_child_preserving_style(section_tref, content_child)
     try:
         lvl_attr = section_tref.get("data-level")
         if lvl_attr is not None:
@@ -446,7 +461,9 @@ def convert_section_to_local_topic(ctx: "DitaContext", section_tref: ET.Element)
         new_level = 1
     try:
         content_child.set("data-level", str(new_level))
-        if not content_child.get("data-style"):
+        # Align standard heading styles to the new level; preserve custom styles
+        child_style = content_child.get("data-style") or ""
+        if (not child_style) or child_style.startswith("Heading "):
             content_child.set("data-style", f"Heading {new_level}")
     except Exception:
         pass
@@ -553,6 +570,42 @@ def merge_topics_unified(ctx: "DitaContext", depth_limit: int, exclude_style_map
                 continue
 
             t_level = int(tref.get("data-level", level))
+
+            # Boundary anchor: if this is a section exactly at the depth limit,
+            # convert it to a local content topic NOW, then recurse with the new
+            # topic as ancestor so deeper merges land here rather than elsewhere.
+            if tref.tag == "topichead" and t_level == depth_limit:
+                parent = tref.getparent()
+                try:
+                    insert_pos = list(parent).index(tref) if parent is not None else None
+                except Exception:
+                    insert_pos = None
+
+                topic_el, removed = convert_section_to_local_topic(ctx, tref)
+                for fn in removed:
+                    removed_topics.add(fn)
+
+                # Identify the newly inserted topicref to recurse into
+                new_ref = None
+                try:
+                    if parent is not None and insert_pos is not None:
+                        children_after = list(parent)
+                        if 0 <= insert_pos < len(children_after):
+                            candidate = children_after[insert_pos]
+                            if getattr(candidate, "tag", None) == "topicref":
+                                new_ref = candidate
+                except Exception:
+                    new_ref = None
+
+                if new_ref is not None:
+                    nhref = new_ref.get("href") or ""
+                    nfname = nhref.split("/")[-1] if nhref else ""
+                    ntopic = ctx.topics.get(nfname)
+                    # Recurse with the new topic as ancestor so >depth children merge here
+                    _recurse(new_ref, t_level + 1, ntopic, new_ref)
+                    # No immediate removal; keep the boundary anchor as visible topic
+                # Continue with siblings after establishing anchor
+                continue
 
             # Resolve the topic element that this topicref points to (if any)
             href = tref.get("href")
@@ -716,9 +769,12 @@ def merge_topics_unified(ctx: "DitaContext", depth_limit: int, exclude_style_map
 
     # Post-merge cleanup: collapse redundant section + content module structures
     _collapse_redundant_sections(ctx)
-    # Note: We no longer promote sections at the depth boundary into topics here.
-    # Keeping sections at the boundary preserves collapsibility and expected UI behavior
-    # when users increase the depth afterward.
+
+    # Promote sections at the depth boundary into content-bearing topics so that
+    # boundary items are previewable and not visually empty in the UI when a
+    # max depth limit is active. This preserves all content by creating/reusing
+    # a module and merging descendants, then replacing the section in place.
+    _promote_sections_at_depth_limit(ctx, depth_limit)
 
     # Note: No final cleanup needed since topichead elements don't have conbody
 
@@ -793,8 +849,8 @@ def _collapse_redundant_sections(ctx: "DitaContext") -> None:
         
         # Copy section attributes to content child and normalize level to match the section;
         # but preserve explicit custom data-style from the child when present.
-        for attr, value in section_topichead.attrib.items():
-            content_child.set(attr, value)
+        # Copy attributes except style/level so the child keeps its own style
+        _copy_section_attrs_to_child_preserving_style(section_topichead, content_child)
         # Determine correct level: prefer section's data-level; else compute from tree depth
         try:
             lvl_attr = section_topichead.get("data-level")
@@ -815,9 +871,9 @@ def _collapse_redundant_sections(ctx: "DitaContext") -> None:
             new_level = 1
         try:
             content_child.set("data-level", str(new_level))
-            # Preserve child's custom style if it has one; else synthesize from level
-            child_style = content_child.get("data-style")
-            if not child_style:
+            # Align standard heading styles to the new level; preserve custom styles
+            child_style = content_child.get("data-style") or ""
+            if (not child_style) or child_style.startswith("Heading "):
                 content_child.set("data-style", f"Heading {new_level}")
         except Exception:
             pass
@@ -882,8 +938,8 @@ def _promote_sections_at_depth_limit(ctx: "DitaContext", depth_limit: int) -> No
                 nt = ET.SubElement(tm, "navtitle")
             nt.text = section_navtitle.text
 
-        for attr, value in section_topichead.attrib.items():
-            content_child.set(attr, value)
+        # Copy attributes except style/level so the child keeps its own style
+        _copy_section_attrs_to_child_preserving_style(section_topichead, content_child)
         # Normalize level to match the section; preserve explicit custom style if present
         try:
             lvl_attr = section_topichead.get("data-level")
@@ -904,8 +960,9 @@ def _promote_sections_at_depth_limit(ctx: "DitaContext", depth_limit: int) -> No
             new_level = 1
         try:
             content_child.set("data-level", str(new_level))
-            child_style = content_child.get("data-style")
-            if not child_style:
+            child_style = content_child.get("data-style") or ""
+            # Align standard heading styles to the new level; preserve custom styles
+            if (not child_style) or child_style.startswith("Heading "):
                 content_child.set("data-style", f"Heading {new_level}")
         except Exception:
             pass

@@ -144,15 +144,17 @@ class StructureController:
             if hasattr(self, "logger"):
                 self.logger.warning("Failed to push undo snapshot for depth change", exc_info=True)
 
-        # Build a minimal style exclusions map for the merge API:
-        # Convert controller's heading_filter_exclusions (Dict[str, bool], True means excluded)
-        # into the expected Dict[int, Set[str]] where key 1 is used for "all levels" for now.
-        if hasattr(self, "heading_filter_exclusions") and isinstance(self.heading_filter_exclusions, dict):
-            names = sorted([name for name, flag in self.heading_filter_exclusions.items() if flag])
-        else:
-            names = []
-        # Deliberately simple mapping pending per-level filters.
-        style_exclusions_map = None if not names else {1: set(names)}
+        # Build a per-level style exclusion map using the original structure for levels.
+        # This keeps exclusions precise and stable across depth changes.
+        style_exclusions_map = None
+        try:
+            if hasattr(self, "heading_filter_exclusions") and isinstance(self.heading_filter_exclusions, dict):
+                # Derive levels per style from original structure
+                style_exclusions_map = self.build_style_exclusion_map_from_flags(self.heading_filter_exclusions)
+                if not any(style_exclusions_map.values()):
+                    style_exclusions_map = None
+        except Exception:
+            style_exclusions_map = None
 
         # Delegate to the structure editing service to apply the depth limit/merge.
         try:
