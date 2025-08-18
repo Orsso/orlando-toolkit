@@ -29,6 +29,7 @@ Notes:
 from __future__ import annotations
 
 from typing import Optional, List
+import threading
 import tkinter as tk
 from tkinter import ttk
 
@@ -170,6 +171,14 @@ class StructureTab(ttk.Frame):
                 wrap=False,
             )
             self._depth_spin.grid(row=0, column=1, padx=(6, 0))
+
+            # Busy indicator next to depth control (hidden by default)
+            try:
+                self._depth_busy = ttk.Progressbar(depth_container, mode="indeterminate", length=60, maximum=100)
+                self._depth_busy.grid(row=0, column=2, padx=(6, 0), sticky="w")
+                self._depth_busy.grid_remove()
+            except Exception:
+                self._depth_busy = None  # type: ignore[assignment]
 
             # Bind Return (Enter) and focus-out to commit manual edits
             try:
@@ -317,6 +326,10 @@ class StructureTab(ttk.Frame):
             self._update_style_legend()
         except Exception:
             pass
+
+        # Background execution helpers state
+        self._busy: bool = False
+        self._preview_job_seq: int = 0
 
     # ---------------------------------------------------------------------------------
     # Public API shims to preserve external expectations (conservative, presentation-only)
@@ -554,36 +567,84 @@ class StructureTab(ttk.Frame):
             pass
 
     # ---------------------------------------------------------------------------------
+    # Background execution helpers (minimal; keep UI thread clean)
+    # ---------------------------------------------------------------------------------
+
+    def _set_busy(self, busy: bool) -> None:
+        """Set a simple busy flag and toggle a small progress indicator near depth control."""
+        try:
+            self._busy = bool(busy)
+            # Disable toolbar buttons while busy
+            try:
+                self._toolbar.enable_buttons(False)
+            except Exception:
+                pass
+            # Toggle inline progress indicator near depth spinbox
+            try:
+                prog = getattr(self, "_depth_busy", None)
+                if prog is not None:
+                    if self._busy:
+                        try:
+                            prog.grid()
+                            prog.start(10)
+                        except Exception:
+                            pass
+                    else:
+                        try:
+                            prog.stop()
+                            prog.grid_remove()
+                        except Exception:
+                            pass
+            except Exception:
+                pass
+        except Exception:
+            pass
+
+    def _run_in_thread(self, work_fn, done_fn=None) -> None:
+        """Run work_fn in a daemon thread; deliver result to done_fn via Tk after()."""
+        def _runner():
+            try:
+                result = work_fn()
+            except Exception:
+                result = None
+            try:
+                self.after(0, (lambda r=result: done_fn(r) if callable(done_fn) else None))
+            except Exception:
+                pass
+        try:
+            threading.Thread(target=_runner, daemon=True).start()
+        except Exception:
+            # Fallback: execute inline as last resort
+            try:
+                res = work_fn()
+                if callable(done_fn):
+                    done_fn(res)
+            except Exception:
+                pass
+
+    # ---------------------------------------------------------------------------------
         # ---------------------------------------------------------------------------------
     # Depth control callback
     # ---------------------------------------------------------------------------------
 
     def _on_depth_changed(self) -> None:
-        """Handle user changes to the 'Depth' spinbox.
-
-        Reads the value, clamps it to [1, 999], updates the spinbox if normalized,
-        delegates to controller.handle_depth_change, and repopulates tree while preserving expansion.
-        """
-        # Ensure var exists and controller is present
+        """Apply depth change asynchronously and refresh UI when done."""
         if not hasattr(self, "_depth_var"):
             return
         ctrl = self._controller
         if ctrl is None:
             return
+        if getattr(self, "_busy", False):
+            return
 
         try:
-            # Read and clamp
             val = int(self._depth_var.get())
         except Exception:
             val = getattr(ctrl, "max_depth", 999)
-
-        # Clamp to sensible bounds
         if val < 1:
             val = 1
         elif val > 999:
             val = 999
-
-        # Normalize UI value if needed
         try:
             if int(self._depth_var.get()) != val:
                 self._depth_var.set(val)
@@ -593,56 +654,62 @@ class StructureTab(ttk.Frame):
             except Exception:
                 pass
 
-        # Delegate to controller and refresh tree
+        # Pre-compute best-effort viewport target
+        predicted_target: Optional[str] = None
+        current_sel: List[str] = []
         try:
-            changed = False
-            # Capture a best-effort target for viewport centering post-merge
-            predicted_target: Optional[str] = None
-            current_sel: List[str] = []
-            try:
-                if hasattr(ctrl, "get_selection"):
-                    current_sel = list(ctrl.get_selection())  # type: ignore[attr-defined]
-                if current_sel:
-                    sel_ref = current_sel[0]
-                    predicted_target = self._predict_merge_target_href_for_ref(sel_ref)
-            except Exception:
-                predicted_target = None
-            if hasattr(ctrl, "handle_depth_change"):
-                changed = bool(ctrl.handle_depth_change(val))
-            if changed:
-                self._refresh_tree()
-                # After refresh, center viewport on a surviving target (original or predicted)
-                try:
-                    target_ref: Optional[str] = None
-                    # Prefer original if it still exists
-                    if current_sel:
-                        try:
-                            if hasattr(self._tree, 'find_item_by_ref') and self._tree.find_item_by_ref(current_sel[0]):  # type: ignore[attr-defined]
-                                target_ref = current_sel[0]
-                        except Exception:
-                            pass
-                    if not target_ref:
-                        target_ref = predicted_target
-                    if target_ref and hasattr(self._tree, 'focus_item_centered_by_ref'):
-                        self._tree.focus_item_centered_by_ref(target_ref)  # type: ignore[attr-defined]
-                except Exception:
-                    pass
-                # Re-apply search after tree refresh to preserve search results
-                try:
-                    current_search_term = self._search.get_search_term()
-                    if current_search_term.strip():
-                        # Re-trigger search to update highlights and results
-                        self._on_search_term_changed(current_search_term)
-                except Exception:
-                    pass
-                # Keep preview in sync when depth affects rendering
-                try:
-                    self._update_side_preview()
-                except Exception:
-                    pass
+            if hasattr(ctrl, "get_selection"):
+                current_sel = list(ctrl.get_selection())  # type: ignore[attr-defined]
+            if current_sel:
+                sel_ref = current_sel[0]
+                predicted_target = self._predict_merge_target_href_for_ref(sel_ref)
         except Exception:
-            # Keep UI stable; ignore errors
-            pass
+            predicted_target = None
+
+        def _work():
+            try:
+                if hasattr(ctrl, "handle_depth_change"):
+                    return bool(ctrl.handle_depth_change(val))
+                return False
+            except Exception:
+                return False
+
+        def _done(changed: Optional[bool]):
+            try:
+                if changed:
+                    self._refresh_tree()
+                    # Center viewport
+                    try:
+                        target_ref: Optional[str] = None
+                        if current_sel:
+                            try:
+                                if hasattr(self._tree, 'find_item_by_ref') and self._tree.find_item_by_ref(current_sel[0]):  # type: ignore[attr-defined]
+                                    target_ref = current_sel[0]
+                            except Exception:
+                                pass
+                        if not target_ref:
+                            target_ref = predicted_target
+                        if target_ref and hasattr(self._tree, 'focus_item_centered_by_ref'):
+                            self._tree.focus_item_centered_by_ref(target_ref)  # type: ignore[attr-defined]
+                    except Exception:
+                        pass
+                    # Re-apply search
+                    try:
+                        current_search_term = self._search.get_search_term()
+                        if current_search_term.strip():
+                            self._on_search_term_changed(current_search_term)
+                    except Exception:
+                        pass
+                    # Update preview
+                    try:
+                        self._update_side_preview()
+                    except Exception:
+                        pass
+            finally:
+                self._set_busy(False)
+
+        self._set_busy(True)
+        self._run_in_thread(_work, _done)
 
     # ---------------------------------------------------------------------------------
     # Toolbar callbacks
@@ -748,73 +815,86 @@ class StructureTab(ttk.Frame):
     # ---------------------------------------------------------------------------------
 
     def _render_preview_for_ref(self, topic_ref: str, panel: object) -> None:
-        """Common helper for rendering preview content in a panel.
-        
-        Handles mode detection, loading state management, rendering, and error handling.
-        
-        Parameters
-        ----------
-        topic_ref : str
-            The topic reference to render preview for.
-        panel : object
-            The preview panel to render content into.
-        """
+        """Render preview asynchronously to keep UI responsive."""
         ctrl = self._controller
         if ctrl is None:
             return
 
-        # Determine current mode and render accordingly
+        # Determine mode once on UI thread
         try:
             mode = panel.get_mode()
         except Exception:
             mode = "html"
 
-        # Set loading/title
+        # Pre-set loading/title
         try:
             panel.set_title(f"Preview — {topic_ref or 'Untitled'}")
             panel.set_loading(True)
         except Exception:
             pass
 
+        # Bump job sequence to invalidate older results
         try:
-            if mode == "xml":
-                res = ctrl.compile_preview(topic_ref)
-            else:
-                res = ctrl.render_html_preview(topic_ref)
-        except Exception as ex:
+            self._preview_job_seq += 1
+        except Exception:
+            self._preview_job_seq = 1
+        job_id = int(self._preview_job_seq)
+
+        def _work():
             try:
-                panel.show_error(f"Preview failed: {ex}")
+                if mode == "xml":
+                    return ("xml", ctrl.compile_preview(topic_ref))
+                return ("html", ctrl.render_html_preview(topic_ref))
+            except Exception as ex:
+                return ("err", ex)
+
+        def _done(result):
+            if job_id != getattr(self, "_preview_job_seq", 0):
+                try:
+                    panel.set_loading(False)
+                except Exception:
+                    pass
+                return
+            kind, payload = (result if isinstance(result, tuple) and len(result) == 2 else ("err", None))
+            try:
+                if kind == "err":
+                    raise Exception(str(payload) if payload is not None else "Preview failed")
+                res = payload
+                if getattr(res, "success", False) and isinstance(getattr(res, "content", None), str):
+                    content = getattr(res, "content")
+                    if mode == "xml":
+                        try:
+                            from html import escape as _escape
+                            content = f"<pre style=\"white-space:pre-wrap;\">{_escape(content)}</pre>"
+                        except Exception:
+                            pass
+                    try:
+                        panel.set_content(content)
+                    except Exception:
+                        pass
+                    try:
+                        if hasattr(panel, 'set_breadcrumb_path'):
+                            self._update_breadcrumb_for_ref(topic_ref, panel)
+                    except Exception:
+                        pass
+                else:
+                    msg = getattr(res, "message", None) if res is not None else None
+                    try:
+                        panel.show_error(str(msg or "Unable to render preview"))
+                    except Exception:
+                        pass
+            except Exception as _ex:
+                try:
+                    panel.show_error(f"Preview failed: {_ex}")
+                except Exception:
+                    pass
             finally:
                 try:
                     panel.set_loading(False)
                 except Exception:
                     pass
-            return
 
-        try:
-            if getattr(res, "success", False) and isinstance(getattr(res, "content", None), str):
-                content = getattr(res, "content")
-                # Ensure XML appears as preformatted when in XML mode
-                if mode == "xml":
-                    try:
-                        from html import escape as _escape
-                        content = f"<pre style=\"white-space:pre-wrap;\">{_escape(content)}</pre>"
-                    except Exception:
-                        pass
-                panel.set_content(content)
-            else:
-                msg = getattr(res, "message", None) or "Unable to render preview"
-                panel.show_error(str(msg))
-                
-            # Update breadcrumb path if successful
-            if getattr(res, "success", False) and hasattr(panel, 'set_breadcrumb_path'):
-                self._update_breadcrumb_for_ref(topic_ref, panel)
-                
-        finally:
-            try:
-                panel.set_loading(False)
-            except Exception:
-                pass
+        self._run_in_thread(_work, _done)
 
     def _on_tree_selection_changed(self, refs: List[str]) -> None:
         """Update controller selection and toolbar enablement on selection change."""
@@ -1423,6 +1503,8 @@ class StructureTab(ttk.Frame):
         ctrl = self._controller
         if ctrl is None:
             return
+        if getattr(self, "_busy", False):
+            return
         try:
             # Update controller mapping
             ctrl.heading_filter_exclusions = dict(exclusions or {})
@@ -1452,36 +1534,45 @@ class StructureTab(ttk.Frame):
             except Exception:
                 pass
 
-            # Apply via controller to ensure undo snapshots are recorded
-            res = self._controller.handle_apply_filters(style_excl_map or None)  # type: ignore[attr-defined]
-            if not getattr(res, "success", False):
-                # Surface minimal info in panel status
+            def _work():
                 try:
-                    self._filter_panel.update_status("Failed to apply heading filter")  # type: ignore[attr-defined]
+                    return self._controller.handle_apply_filters(style_excl_map or None)  # type: ignore[attr-defined]
                 except Exception:
-                    pass
-                return
+                    return None
 
-            # Refresh tree and keep preview hidden while panel is up
-            self._refresh_tree()
-            # Center viewport on predicted or original target
-            try:
-                # Prefer original if it still exists; else predicted
-                target_ref = original_ref
+            def _done(res):
                 try:
-                    if not target_ref or not self._tree.find_item_by_ref(target_ref):  # type: ignore[attr-defined]
-                        target_ref = predicted_target or ""
-                except Exception:
-                    target_ref = predicted_target or target_ref
-                if target_ref and hasattr(self._tree, 'focus_item_centered_by_ref'):
-                    self._tree.focus_item_centered_by_ref(target_ref)  # type: ignore[attr-defined]
-            except Exception:
-                pass
-            # Optionally, update status
-            try:
-                self._filter_panel.update_status("Filters applied")  # type: ignore[attr-defined]
-            except Exception:
-                pass
+                    if not (getattr(res, "success", False)):
+                        try:
+                            if self._filter_panel is not None:
+                                self._filter_panel.update_status("Failed to apply heading filter")  # type: ignore[attr-defined]
+                        except Exception:
+                            pass
+                        return
+                    # Refresh tree and keep preview hidden while panel is up
+                    self._refresh_tree()
+                    # Center viewport on predicted or original target
+                    try:
+                        target_ref = original_ref
+                        try:
+                            if not target_ref or not self._tree.find_item_by_ref(target_ref):  # type: ignore[attr-defined]
+                                target_ref = predicted_target or ""
+                        except Exception:
+                            target_ref = predicted_target or target_ref
+                        if target_ref and hasattr(self._tree, 'focus_item_centered_by_ref'):
+                            self._tree.focus_item_centered_by_ref(target_ref)  # type: ignore[attr-defined]
+                    except Exception:
+                        pass
+                    try:
+                        if self._filter_panel is not None:
+                            self._filter_panel.update_status("Filters applied")  # type: ignore[attr-defined]
+                    except Exception:
+                        pass
+                finally:
+                    self._set_busy(False)
+
+            self._set_busy(True)
+            self._run_in_thread(_work, _done)
         except Exception:
             try:
                 if self._filter_panel is not None:

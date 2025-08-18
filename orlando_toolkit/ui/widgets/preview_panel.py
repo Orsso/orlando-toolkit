@@ -176,6 +176,23 @@ class PreviewPanel(ttk.Frame):
             # For ScrolledText, make it read-only but selectable
             self._text.configure(state="disabled")
 
+        # Loading overlay (indeterminate progress) — hidden by default
+        try:
+            self._loading_frame = ttk.Frame(self)
+            self._loading_frame.grid(row=1, column=0, sticky="nsew", padx=4, pady=(0, 4))
+            self._loading_frame.columnconfigure(0, weight=1)
+            self._loading_frame.rowconfigure(0, weight=1)
+
+            inner = ttk.Frame(self._loading_frame)
+            inner.grid(row=0, column=0)
+            self._loading_prog = ttk.Progressbar(inner, mode="indeterminate", length=160, maximum=100)
+            self._loading_prog.grid(row=0, column=0, pady=8)
+            # Hidden initially
+            self._loading_frame.grid_remove()
+        except Exception:
+            self._loading_frame = None  # type: ignore[assignment]
+            self._loading_prog = None  # type: ignore[assignment]
+
     # Public API
 
     def set_mode(self, mode: Mode) -> None:
@@ -193,9 +210,53 @@ class PreviewPanel(ttk.Frame):
         return cast(Mode, "xml" if val == "xml" else "html")
 
     def set_loading(self, loading: bool) -> None:
-        """Update loading status indicator."""
+        """Toggle the loading overlay and reset the view while loading."""
         try:
-            self._status_var.set("Loading…" if loading else "")
+            # Keep status label unobtrusive; no text
+            try:
+                self._status_var.set("")
+            except Exception:
+                pass
+
+            if loading:
+                # Clear content view
+                try:
+                    if self._html_widget_kind == "tkinterweb" and hasattr(self._text, 'load_html'):
+                        self._text.load_html("<html><body></body></html>")
+                    elif self._html_widget_kind == "text":
+                        self._text.configure(state="normal")
+                        self._text.delete("1.0", "end")
+                        self._text.configure(state="disabled")
+                except Exception:
+                    pass
+                # Show overlay, hide content
+                try:
+                    self._text.grid_remove()
+                except Exception:
+                    pass
+                try:
+                    if getattr(self, "_loading_frame", None) is not None:
+                        self._loading_frame.grid()
+                    if getattr(self, "_loading_prog", None) is not None:
+                        self._loading_prog.start(10)
+                except Exception:
+                    pass
+            else:
+                # Hide overlay, show content
+                try:
+                    if getattr(self, "_loading_prog", None) is not None:
+                        self._loading_prog.stop()
+                except Exception:
+                    pass
+                try:
+                    if getattr(self, "_loading_frame", None) is not None:
+                        self._loading_frame.grid_remove()
+                except Exception:
+                    pass
+                try:
+                    self._text.grid()
+                except Exception:
+                    pass
         except Exception:
             pass
 
