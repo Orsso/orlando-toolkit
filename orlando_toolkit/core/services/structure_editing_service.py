@@ -27,6 +27,7 @@ Basic usage:
 """
 
 from dataclasses import dataclass
+import logging
 from typing import Any, Dict, List, Optional, Literal
 
 from lxml import etree as ET  # type: ignore
@@ -36,6 +37,8 @@ from orlando_toolkit.core import merge
 
 
 __all__ = ["OperationResult", "StructureEditingService"]
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -96,8 +99,10 @@ class StructureEditingService:
         """
         # Do not hard-require a real ditamap here; tests may monkeypatch adapters.
         # Always attempt to resolve via the adapter first.
+        logger.info("Edit: move_topic direction=%s topic=%s", direction, topic_id)
         node = self._find_topic_ref(context, topic_id)
         if node is None:
+            logger.warning("Edit FAIL: move_topic topic_not_found topic=%s", topic_id)
             return OperationResult(False, f"Topic not found for id '{topic_id}'.", {"topic_id": topic_id})
 
         if direction == "up":
@@ -105,13 +110,23 @@ class StructureEditingService:
             if ok:
                 # Persist this structural change as the new baseline for future depth-limit merges
                 self._invalidate_original_structure(context)
-            return OperationResult(ok, ("Moved topic up." if ok else "Cannot move up (at boundary)."), {"topic_id": topic_id})
+            res = OperationResult(ok, ("Moved topic up." if ok else "Cannot move up (at boundary)."), {"topic_id": topic_id})
+            if res.success:
+                logger.info("Edit OK: move_topic direction=up topic=%s", topic_id)
+            else:
+                logger.info("Edit noop: move_topic direction=up boundary topic=%s", topic_id)
+            return res
         if direction == "down":
             ok = self._move_down(context, node)
             if ok:
                 # Persist this structural change as the new baseline for future depth-limit merges
                 self._invalidate_original_structure(context)
-            return OperationResult(ok, ("Moved topic down." if ok else "Cannot move down (at boundary)."), {"topic_id": topic_id})
+            res = OperationResult(ok, ("Moved topic down." if ok else "Cannot move down (at boundary)."), {"topic_id": topic_id})
+            if res.success:
+                logger.info("Edit OK: move_topic direction=down topic=%s", topic_id)
+            else:
+                logger.info("Edit noop: move_topic direction=down boundary topic=%s", topic_id)
+            return res
         return OperationResult(False, f"Unsupported move direction '{direction}'.", {"allowed": ["up", "down"]})
 
     def merge_topics(self, context, source_ids: List[str], target_id: str) -> OperationResult:
@@ -123,6 +138,7 @@ class StructureEditingService:
         - Source topicrefs are removed from the map and their topic files are purged.
         """
         try:
+            logger.info("Edit: merge_topics target=%s sources=%d", target_id, len(source_ids or []))
             if getattr(context, "ditamap_root", None) is None:
                 return OperationResult(False, "No ditamap available in context.", {"reason": "missing_ditamap"})
 
@@ -183,17 +199,22 @@ class StructureEditingService:
             # Ensure future depth-limit operations take this state as the new baseline
             self._invalidate_original_structure(context)
 
-            return OperationResult(True, "Merged topics into target.", {"target": target_fname, "merged_count": merged_count})
+            result = OperationResult(True, "Merged topics into target.", {"target": target_fname, "merged_count": merged_count})
+            logger.info("Edit OK: merge_topics target=%s merged=%d", target_fname, merged_count)
+            return result
         except Exception as e:
+            logger.error("Edit FAIL: merge_topics error=%s", e, exc_info=True)
             return OperationResult(False, "Manual merge failed.", {"error": str(e)})
 
     def rename_topic(self, context, topic_id: str, new_title: str) -> OperationResult:
         """Rename a topic by topic_id (href or filename). Canonical API uses topic_id only; topic refs/elements are not accepted."""
+        logger.info("Edit: rename_topic topic=%s", topic_id)
         if getattr(context, "ditamap_root", None) is None:
             return OperationResult(False, "No ditamap available in context.", {"reason": "missing_ditamap"})
 
         node = self._find_topic_ref(context, topic_id)
         if node is None:
+            logger.warning("Edit FAIL: rename_topic topic_not_found topic=%s", topic_id)
             return OperationResult(False, f"Topic not found for id '{topic_id}'.", {"topic_id": topic_id})
 
         ok = self._rename(context, node, new_title)
@@ -201,11 +222,15 @@ class StructureEditingService:
             filename = self._normalize_filename(topic_id)
             # Persist rename across future depth-limit changes
             self._invalidate_original_structure(context)
-            return OperationResult(True, f"Renamed topic '{filename}'.", {"topic_id": topic_id, "new_title": " ".join((new_title or "").split())})
+            result = OperationResult(True, f"Renamed topic '{filename}'.", {"topic_id": topic_id, "new_title": " ".join((new_title or "").split())})
+            logger.info("Edit OK: rename_topic topic=%s", filename)
+            return result
+        logger.warning("Edit FAIL: rename_topic topic=%s", topic_id)
         return OperationResult(False, "Rename failed.", {"topic_id": topic_id})
 
     def delete_topics(self, context, topic_ids: List[str]) -> OperationResult:
         """Delete topics by topic_ids (hrefs or filenames). Canonical API uses topic_ids only; topic refs/elements are not accepted."""
+        logger.info("Edit: delete_topics count=%d", len(topic_ids or []))
         if getattr(context, "ditamap_root", None) is None:
             return OperationResult(False, "No ditamap available in context.", {"reason": "missing_ditamap"})
 
@@ -215,7 +240,12 @@ class StructureEditingService:
         # Persist deletion baseline for future depth-limit operations
         self._invalidate_original_structure(context)
         details = {"requested": requested, "deleted": deleted_count, "skipped": max(0, len(requested) - deleted_count)}
-        return OperationResult(deleted_count > 0, ("Deleted topics." if deleted_count > 0 else "No topics deleted."), details)
+        result = OperationResult(deleted_count > 0, ("Deleted topics." if deleted_count > 0 else "No topics deleted."), details)
+        if result.success:
+            logger.info("Edit OK: delete_topics deleted=%d skipped=%d", details.get("deleted", 0), details.get("skipped", 0))
+        else:
+            logger.info("Edit noop: delete_topics deleted=0")
+        return result
 
     def apply_depth_limit(self, context, depth_limit: int, style_exclusions: dict[int, set[str]] | None = None) -> OperationResult:
         """Apply a depth limit merge to the current context with reversible behavior.
@@ -226,6 +256,7 @@ class StructureEditingService:
         - Never raises; returns OperationResult with details
         """
         try:
+            logger.info("Edit: apply_depth_limit depth=%d styles=%s", depth_limit, bool(style_exclusions))
             # 1) Validate context has a ditamap_root
             if getattr(context, "ditamap_root", None) is None:
                 return OperationResult(False, "No ditamap available in context.", {"reason": "missing_ditamap"})
@@ -253,9 +284,20 @@ class StructureEditingService:
             from orlando_toolkit.core.merge import merge_topics_unified  # local import by design
             merge_topics_unified(context, depth_limit, style_exclusions)
             
-            return OperationResult(True, "Applied depth limit", {"depth_limit": depth_limit, "merged": True})
+            result = OperationResult(True, "Applied depth limit", {"depth_limit": depth_limit, "merged": True})
+            # Merge summary for diagnostics
+            try:
+                root = getattr(context, "ditamap_root", None)
+                refs = int(root.xpath('count(.//topicref[@href])')) if root is not None else 0
+                topics = len(getattr(context, "topics", {}) or {})
+                logger.info("Merge summary: topicrefs=%d topics=%d", refs, topics)
+            except Exception:
+                pass
+            logger.info("Edit OK: apply_depth_limit depth=%d", depth_limit)
+            return result
         except Exception as e:
             # Never raise; encapsulate error
+            logger.error("Edit FAIL: apply_depth_limit depth=%d error=%s", depth_limit, e, exc_info=True)
             return OperationResult(False, "Failed to apply depth limit", {"error": str(e)})
 
     # -------------------------------------------------------------------------
@@ -276,6 +318,7 @@ class StructureEditingService:
         - Levels/styles are adapted similarly to intelligent move behavior.
         """
         try:
+            logger.info("Edit: move_topics_to_target count=%d dest=%s", len(topic_ids or []), str(target_index_path))
             root = getattr(context, "ditamap_root", None)
             if root is None:
                 return OperationResult(False, "No ditamap available in context.")
@@ -352,8 +395,11 @@ class StructureEditingService:
 
             # Persist as new baseline
             self._invalidate_original_structure(context)
-            return OperationResult(True, "Moved topics to destination.", {"count": len(moved)})
+            result = OperationResult(True, "Moved topics to destination.", {"count": len(moved)})
+            logger.info("Edit OK: move_topics_to_target moved=%d", len(moved))
+            return result
         except Exception as e:
+            logger.error("Edit FAIL: move_topics_to_target error=%s", e, exc_info=True)
             return OperationResult(False, "Failed to move topics to destination.", {"error": str(e)})
 
     def move_section_to_target(
@@ -369,6 +415,7 @@ class StructureEditingService:
         - Adapts level/style for the moved section root.
         """
         try:
+            logger.info("Edit: move_section_to_target dest=%s", str(target_index_path))
             root = getattr(context, "ditamap_root", None)
             if root is None:
                 return OperationResult(False, "No ditamap available in context.")
@@ -400,8 +447,11 @@ class StructureEditingService:
             self._apply_level_adaptation(section, target_level)
 
             self._invalidate_original_structure(context)
-            return OperationResult(True, "Moved section to destination.", {"index_path": list(section_index_path)})
+            result = OperationResult(True, "Moved section to destination.", {"index_path": list(section_index_path)})
+            logger.info("Edit OK: move_section_to_target index_path=%s", str(section_index_path))
+            return result
         except Exception as e:
+            logger.error("Edit FAIL: move_section_to_target error=%s", e, exc_info=True)
             return OperationResult(False, "Failed to move section to destination.", {"error": str(e)})
 
     def move_sections_to_target(
@@ -417,6 +467,7 @@ class StructureEditingService:
         - Prevents moving into a descendant of any selected root.
         """
         try:
+            logger.info("Edit: move_sections_to_target count=%d dest=%s", len(section_index_paths or []), str(target_index_path))
             root = getattr(context, "ditamap_root", None)
             if root is None:
                 return OperationResult(False, "No ditamap available in context.")
@@ -475,8 +526,11 @@ class StructureEditingService:
                 return OperationResult(False, "No sections moved.")
 
             self._invalidate_original_structure(context)
-            return OperationResult(True, "Moved sections to destination.", {"count": moved})
+            result = OperationResult(True, "Moved sections to destination.", {"count": moved})
+            logger.info("Edit OK: move_sections_to_target moved=%d", moved)
+            return result
         except Exception as e:
+            logger.error("Edit FAIL: move_sections_to_target error=%s", e, exc_info=True)
             return OperationResult(False, "Failed to move sections to destination.", {"error": str(e)})
 
     # -------------------------------------------------------------------------
@@ -951,6 +1005,7 @@ class StructureEditingService:
         All descendant topics' titles and content are merged into the created/reused
         content module topic to match unified merge formatting.
         """
+        logger.info("Edit: convert_section_to_topic index_path=%s", str(index_path))
         if getattr(context, "ditamap_root", None) is None:
             return OperationResult(False, "No ditamap available in context.")
         try:
@@ -977,12 +1032,16 @@ class StructureEditingService:
 
             # Persist baseline after structural change
             self._invalidate_original_structure(context)
-            return OperationResult(True, "Section converted to topic.", {"index_path": list(index_path)})
+            result = OperationResult(True, "Section converted to topic.", {"index_path": list(index_path)})
+            logger.info("Edit OK: convert_section_to_topic index_path=%s", str(index_path))
+            return result
         except Exception as e:
+            logger.error("Edit FAIL: convert_section_to_topic error=%s", e, exc_info=True)
             return OperationResult(False, "Failed to convert section.", {"error": str(e)})
 
     def rename_section(self, context: DitaContext, index_path: List[int], new_title: str) -> OperationResult:
         """Rename the navtitle of a section (topichead) located by index_path."""
+        logger.info("Edit: rename_section index_path=%s", str(index_path))
         if getattr(context, "ditamap_root", None) is None:
             return OperationResult(False, "No ditamap available in context.")
         cleaned = " ".join((new_title or "").split())
@@ -1001,8 +1060,11 @@ class StructureEditingService:
             navtitle.text = cleaned
             # Persist rename across depth-limit changes
             self._invalidate_original_structure(context)
-            return OperationResult(True, "Section renamed.", {"index_path": list(index_path), "new_title": cleaned})
+            result = OperationResult(True, "Section renamed.", {"index_path": list(index_path), "new_title": cleaned})
+            logger.info("Edit OK: rename_section index_path=%s", str(index_path))
+            return result
         except Exception as e:
+            logger.error("Edit FAIL: rename_section error=%s", e, exc_info=True)
             return OperationResult(False, "Failed to rename section.", {"error": str(e)})
 
     @staticmethod
@@ -1023,6 +1085,7 @@ class StructureEditingService:
 
     def delete_section(self, context: DitaContext, index_path: List[int]) -> OperationResult:
         """Delete a section (topichead) and its subtree; then purge unreferenced topics."""
+        logger.info("Edit: delete_section index_path=%s", str(index_path))
         if getattr(context, "ditamap_root", None) is None:
             return OperationResult(False, "No ditamap available in context.")
         try:
@@ -1047,8 +1110,11 @@ class StructureEditingService:
             self._purge_unreferenced_topics(context)
             # Persist deletion baseline
             self._invalidate_original_structure(context)
-            return OperationResult(True, "Section deleted.", {"index_path": list(index_path), "purged_candidates": removed_refs})
+            result = OperationResult(True, "Section deleted.", {"index_path": list(index_path), "purged_candidates": removed_refs})
+            logger.info("Edit OK: delete_section index_path=%s purged=%d", str(index_path), len(removed_refs or []))
+            return result
         except Exception as e:
+            logger.error("Edit FAIL: delete_section error=%s", e, exc_info=True)
             return OperationResult(False, "Failed to delete section.", {"error": str(e)})
 
     @staticmethod

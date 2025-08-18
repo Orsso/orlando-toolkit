@@ -43,14 +43,14 @@ class ConversionService:
     def convert(self, docx_path: str | Path, metadata: Dict[str, Any]) -> DitaContext:
         """Convert the Word document at *docx_path* to an in-memory DitaContext."""
         docx_path = str(docx_path)
-        self.logger.info("Parsing document...")
+        self.logger.info("Convert: parsing document")
         self.logger.debug("Converting DOCX -> DITA: %s", docx_path)
         context = convert_docx_to_dita(docx_path, dict(metadata))
         return context
 
     def prepare_package(self, context: DitaContext) -> DitaContext:
         """Apply final renaming of topics and images inside *context*."""
-        self.logger.info("Preparing content for packaging...")
+        self.logger.info("Export: preparing content for packaging")
         # Determine effective depth from metadata, keeping previously applied merge depth if larger
         # so we do not inadvertently reduce the structure compared to the UI state.
         # Determine base depth: prefer metadata; else compute from style analysis
@@ -150,7 +150,7 @@ class ConversionService:
         there for inspection.
         """
         output_zip = Path(output_zip)
-        self.logger.info("Writing ZIP package...")
+        self.logger.info("Export: writing ZIP package")
         self.logger.debug("Destination: %s", output_zip)
 
         with tempfile.TemporaryDirectory(prefix="orlando_packager_") as tmp_dir:
@@ -162,6 +162,7 @@ class ConversionService:
                 shutil.copytree(tmp_dir, debug_dest)
                 self.logger.info("Debug copy written to %s", debug_dest)
             shutil.make_archive(output_zip.with_suffix(""), "zip", tmp_dir)
+            self.logger.info("Export OK: zip_written size_bytes=%s", str(output_zip.stat().st_size) if output_zip.exists() else "unknown")
 
     # Convenience one-shot -------------------------------------------------
     def convert_and_package(

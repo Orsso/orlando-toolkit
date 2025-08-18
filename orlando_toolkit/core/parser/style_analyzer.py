@@ -127,14 +127,14 @@ def build_enhanced_style_map(doc: Document, use_structural_analysis: bool = True
         Mapping of style names to heading levels
     """
     base_map = build_style_heading_map(doc)
-    logger.debug(f"Base detection: {len(base_map)} styles")
+    logger.debug(f"Style detection: base={len(base_map)}")
     
     enhanced_map = dict(base_map)
     
     if use_structural_analysis:
         try:
             structural_styles = _analyze_structural_patterns(doc, min_following_paragraphs)
-            logger.debug(f"Structural analysis: {len(structural_styles)} styles")
+            logger.debug(f"Style detection: structural={len(structural_styles)}")
             
             for style_name, level in structural_styles.items():
                 if style_name not in enhanced_map:
@@ -143,7 +143,7 @@ def build_enhanced_style_map(doc: Document, use_structural_analysis: bool = True
         except Exception as e:
             logger.warning(f"Structural analysis failed: {e}")
     
-    logger.debug(f"Enhanced detection: {len(enhanced_map)} total styles")
+    logger.debug(f"Style detection: enhanced_total={len(enhanced_map)}")
     return enhanced_map 
 
 def _resolve_heading_level(style_el, style_name: str, style_elements: dict, doc: Document) -> int | None:

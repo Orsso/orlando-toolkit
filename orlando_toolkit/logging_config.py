@@ -41,10 +41,33 @@ def setup_logging() -> None:
             },
         },
         'loggers': {
+            # Core conversion/generation internals can be verbose; route via root handlers only
             'orlando_toolkit.core.generators': {
-                'level': 'DEBUG',
-                'handlers': ['file'],
-                'propagate': False,
+                'level': 'INFO',
+                'propagate': True,
+            },
+            'orlando_toolkit.core.converter': {
+                'level': 'INFO',
+                'propagate': True,
+            },
+            'orlando_toolkit.core.parser': {
+                'level': 'INFO',
+                'propagate': True,
+            },
+            'orlando_toolkit.core.services': {
+                # Services emit concise INFO audit entries and DEBUG diagnostics
+                'level': 'INFO',
+                'propagate': True,
+            },
+            'orlando_toolkit.core.merge': {
+                # Capture merge summaries at INFO for post-mortem debugging
+                'level': 'INFO',
+                'propagate': True,
+            },
+            'orlando_toolkit.ui.controllers': {
+                # Controllers remain mostly quiet; escalate only if explicitly enabled
+                'level': 'WARNING',
+                'propagate': True,
             },
             'PIL': {
                 'level': 'INFO',

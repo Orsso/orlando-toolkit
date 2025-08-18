@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import logging
 from html import escape
 from typing import Optional, Dict, Any, Iterable, Tuple
 
 from orlando_toolkit.core.models import DitaContext
 from orlando_toolkit.core.preview import xml_compiler
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -90,8 +93,10 @@ class PreviewService:
         - Validates ``context`` and ``topic_ref`` before calling internals.
         - Does not raise for routine errors; returns a structured failure.
         """
+        logger.debug("Preview: compile_topic_preview topic_ref=%s", topic_ref)
         validation = self._validate_inputs(context, topic_ref)
         if validation is not None:
+            logger.info("Preview FAIL: invalid input reason=%s", (validation.details or {}).get("reason", "invalid_input"))
             return validation
 
         try:
@@ -100,6 +105,7 @@ class PreviewService:
                 # Not implemented or topicref not found
                 reason = str(xml.get("reason") or "not_implemented")
                 if reason == "topicref_not_found":
+                    logger.info("Preview FAIL: topicref_not_found topic_ref=%s", topic_ref)
                     return PreviewResult(
                         success=False,
                         content=None,
@@ -107,6 +113,7 @@ class PreviewService:
                         details={"reason": "topicref_not_found"},
                     )
                 # generic not implemented
+                logger.info("Preview NA: xml_compiler missing function get_raw_topic_xml")
                 return PreviewResult(
                     success=False,
                     content=None,
@@ -114,6 +121,7 @@ class PreviewService:
                     details={"reason": "compiler_function_missing" if reason == "compiler_function_missing" else "not_implemented"},
                 )
             elif isinstance(xml, str):
+                logger.debug("Preview OK: compile_topic_preview len=%d", len(xml))
                 return PreviewResult(
                     success=True,
                     content=xml,
@@ -121,6 +129,7 @@ class PreviewService:
                     details=None,
                 )
             else:
+                logger.info("Preview NA: unexpected return type from get_raw_topic_xml")
                 return PreviewResult(
                     success=False,
                     content=None,
@@ -129,6 +138,7 @@ class PreviewService:
                 )
         except Exception as exc:  # noqa: BLE001 - intentionally broad for service boundary
             # Keep traceback formatter for potential logging, but don't include in details
+            logger.error("Preview FAIL: exception type=%s msg=%s", exc.__class__.__name__, str(exc), exc_info=True)
             return PreviewResult(
                 success=False,
                 content=None,
@@ -166,8 +176,10 @@ class PreviewService:
           minimal HTML fallback (escaped, preformatted), indicating the
           fallback in ``details``.
         """
+        logger.debug("Preview: render_html_preview topic_ref=%s", topic_ref)
         validation = self._validate_inputs(context, topic_ref)
         if validation is not None:
+            logger.info("Preview FAIL: invalid input reason=%s", (validation.details or {}).get("reason", "invalid_input"))
             return validation
 
         # First attempt HTML via xml_compiler; then fallback to XML wrapped into minimal HTML.
@@ -176,6 +188,7 @@ class PreviewService:
         try:
             html = self._try_compile_html(context, topic_ref)
             if isinstance(html, str):
+                logger.debug("Preview OK: render_html_preview len=%d", len(html))
                 return PreviewResult(
                     success=True,
                     content=html,
@@ -187,6 +200,7 @@ class PreviewService:
                 html_not_impl = html  # dict or other
         except Exception as exc:  # noqa: BLE001
             # proceed to fallback
+            logger.debug("Preview: HTML compiler unavailable, falling back to XML (exc=%s)", exc.__class__.__name__)
             html_not_impl = {"_ni": True, "reason": "exception", "exception_type": exc.__class__.__name__, "exception_message": str(exc)}
 
         # Step 2: fallback: get XML and wrap
@@ -194,6 +208,7 @@ class PreviewService:
             xml_attempt = self._try_compile_xml(context, topic_ref)
             if isinstance(xml_attempt, str):
                 wrapped = self._xml_to_minimal_html(xml_attempt)
+                logger.debug("Preview OK: fallback HTML len=%d", len(wrapped))
                 return PreviewResult(
                     success=True,
                     content=wrapped,
@@ -206,12 +221,14 @@ class PreviewService:
                 reason = "compiler_function_missing" if (isinstance(xml_attempt, dict) and xml_attempt.get("reason") == "compiler_function_missing") else "not_implemented"
                 # If topicref specifically not found, prefer that message
                 if isinstance(xml_attempt, dict) and xml_attempt.get("reason") == "topicref_not_found":
+                    logger.info("Preview FAIL: topicref_not_found topic_ref=%s", topic_ref)
                     return PreviewResult(
                         success=False,
                         content=None,
                         message="Topic reference not found in the current context.",
                         details={"reason": "topicref_not_found"},
                     )
+                logger.info("Preview NA: HTML rendering unavailable (reason=%s)", reason)
                 return PreviewResult(
                     success=False,
                     content=None,
@@ -219,6 +236,7 @@ class PreviewService:
                     details={"reason": reason},
                 )
         except Exception as exc:  # noqa: BLE001
+            logger.error("Preview FAIL: exception during fallback type=%s msg=%s", exc.__class__.__name__, str(exc), exc_info=True)
             return PreviewResult(
                 success=False,
                 content=None,

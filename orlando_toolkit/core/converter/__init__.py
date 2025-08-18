@@ -153,27 +153,106 @@ def update_image_references_and_names(context: DitaContext) -> DitaContext:
 
 
 def update_topic_references_and_names(context: DitaContext) -> DitaContext:
-    """Generate stable filenames for topics and update ditamap hrefs."""
+    """Generate human-readable, stable filenames for topics and update hrefs.
+
+    Strategy:
+    - Base name on section number + slugified title/navtitle: "topic_<num>_<slug>.dita".
+    - Ensure uniqueness by suffixing "-2", "-3", ... when needed.
+    - Update both the ditamap @href and the topics dict keys.
+    """
     logger.info("Updating topic filenames and references (core.converter)...")
 
     if not context.ditamap_root:
         return context
 
+    try:
+        from orlando_toolkit.core.utils import calculate_section_numbers, slugify
+    except Exception:
+        # Fallback to UUID naming if helpers unavailable
+        new_topics: dict[str, Any] = {}
+        for old_filename, topic_el in list(context.topics.items()):
+            new_filename = f"topic_{uuid.uuid4().hex[:12]}.dita"
+            topic_el.set("id", new_filename[:-5])
+            tref = context.ditamap_root.find(f".//topicref[@href='topics/{old_filename}']")
+            if tref is not None:
+                tref.set("href", f"topics/{new_filename}")
+            new_topics[new_filename] = topic_el
+        context.topics = new_topics
+        return context
+
+    # Build section numbers for all structural nodes once
+    section_number_map = calculate_section_numbers(context.ditamap_root)
+
+    # First pass: discover referenced topics and propose deterministic names
+    rename_map: dict[str, str] = {}
+    used_names: set[str] = set()
+
+    def _pick_title_for(topic_el, tref_el) -> str:
+        # Prefer topic <title>, fallback to navtitle
+        try:
+            t = topic_el.find("title") if topic_el is not None else None
+            if t is not None and getattr(t, "text", None):
+                return str(t.text)
+        except Exception:
+            pass
+        try:
+            nav = tref_el.find("topicmeta/navtitle") if tref_el is not None else None
+            if nav is not None and getattr(nav, "text", None):
+                return str(nav.text)
+        except Exception:
+            pass
+        return "topic"
+
+    for tref in list(context.ditamap_root.xpath(".//topicref[@href]")):
+        href = tref.get("href") or ""
+        old_filename = href.split("/")[-1]
+        topic_el = context.topics.get(old_filename)
+        if topic_el is None:
+            continue
+
+        # Section number (e.g., 3.2.1) → filename-safe variant
+        number = section_number_map.get(tref, "0")
+        safe_number = number.replace(".", "-") if isinstance(number, str) else "0"
+        title = _pick_title_for(topic_el, tref)
+        base_slug = slugify(title) or "topic"
+        candidate = f"topic_{safe_number}_{base_slug}.dita"
+        unique_name = candidate
+        suffix = 2
+        while unique_name in used_names:
+            unique_name = f"topic_{safe_number}_{base_slug}-{suffix}.dita"
+            suffix += 1
+
+        used_names.add(unique_name)
+        rename_map[old_filename] = unique_name
+
+    if not rename_map:
+        return context
+
+    # Second pass: apply renames in topics dict and update map hrefs
     new_topics: dict[str, Any] = {}
-
     for old_filename, topic_el in list(context.topics.items()):
-        new_filename = f"topic_{uuid.uuid4().hex[:12]}.dita"
-        topic_el.set("id", new_filename[:-5])
-
-        topicref = context.ditamap_root.find(
-            f".//topicref[@href='topics/{old_filename}']"
-        )
-        if topicref is not None:
-            topicref.set("href", f"topics/{new_filename}")
-
+        new_filename = rename_map.get(old_filename)
+        if not new_filename:
+            # Keep as-is if unreferenced or not mapped
+            new_topics[old_filename] = topic_el
+            continue
+        try:
+            topic_el.set("id", new_filename[:-5])
+        except Exception:
+            pass
         new_topics[new_filename] = topic_el
 
+    # Update hrefs in the map
+    for tref in list(context.ditamap_root.xpath(".//topicref[@href]")):
+        href = tref.get("href") or ""
+        old_filename = href.split("/")[-1]
+        new_filename = rename_map.get(old_filename)
+        if new_filename:
+            tref.set("href", f"topics/{new_filename}")
+
     context.topics = new_topics
+    if logger.isEnabledFor(logging.DEBUG):
+        logger.debug("Renamed %d topics", len(rename_map))
     return context
 
 

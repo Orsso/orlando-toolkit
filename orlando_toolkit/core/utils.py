@@ -7,6 +7,7 @@ used across all layers of the toolkit.
 """
 
 from typing import Any, Optional, Dict
+import logging
 import re
 import uuid
 from lxml import etree as ET
@@ -27,6 +28,7 @@ __all__ = [
     "find_topicref_for_image",
 ]
 
+logger = logging.getLogger(__name__)
 
 def slugify(text: str) -> str:
     """Return a file-system-safe slug version of *text*.
@@ -129,8 +131,15 @@ def save_xml_file(element: ET.Element, path: str, doctype_str: str, *, pretty: b
         encoding="UTF-8",
         doctype=doctype_str,
     )
-    with open(path, "wb") as fh:
-        fh.write(xml_bytes)
+    try:
+        with open(path, "wb") as fh:
+            fh.write(xml_bytes)
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug("I/O: wrote XML pretty path=%s bytes=%d", path, len(xml_bytes))
+    except Exception:
+        # Caller context handles user feedback; file handler captures traceback
+        logger.error("I/O FAIL: write XML path=%s", path, exc_info=True)
+        raise
 
 
 def save_minified_xml_file(element: ET.Element, path: str, doctype_str: str) -> None:
@@ -144,8 +153,14 @@ def save_minified_xml_file(element: ET.Element, path: str, doctype_str: str) -> 
     minified_content = dom.documentElement.toxml() if dom.documentElement else ""
 
     full = f'<?xml version="1.0" encoding="UTF-8"?>{doctype_str}{minified_content}'
-    with open(path, "w", encoding="utf-8") as fh:
-        fh.write(full)
+    try:
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write(full)
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug("I/O: wrote XML minified path=%s chars=%d", path, len(full))
+    except Exception:
+        logger.error("I/O FAIL: write XML (minified) path=%s", path, exc_info=True)
+        raise
 
 
 # ---------------------------------------------------------------------------

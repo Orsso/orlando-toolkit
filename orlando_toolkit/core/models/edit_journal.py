@@ -25,12 +25,14 @@ Dispatch is delegated to StructureEditingService methods:
 """
 
 from dataclasses import dataclass
+import logging
 from typing import Any, Dict, List, Literal, Optional, TypedDict
 from typing import TYPE_CHECKING
 
 import time
 
 from orlando_toolkit.core.models import DitaContext
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     # Import only for type checking to avoid runtime circular import
@@ -107,6 +109,11 @@ class EditJournal:
         """
         entry = JournalEntry(operation=operation, details=dict(details), timestamp=time.time())
         self._entries.append(entry)
+        if logger.isEnabledFor(logging.DEBUG):
+            try:
+                logger.debug("Journal: recorded op=%s details=%s", operation, str(details))
+            except Exception:
+                pass
 
     def replay_edits(self, context: DitaContext, editing_service: "StructureEditingService") -> Dict[str, Any]:
         """Replay all recorded edits against the given DitaContext.
@@ -218,6 +225,14 @@ class EditJournal:
                 skipped += 1
                 errors.append(f"[{idx}] {op} exception: {exc}")
 
+        # Summary log for diagnostics
+        try:
+            logger.info("Journal replay: applied=%d skipped=%d errors=%d", applied, skipped, len(errors))
+            if logger.isEnabledFor(logging.DEBUG):
+                for msg in errors:
+                    logger.debug("Journal replay error: %s", msg)
+        except Exception:
+            pass
         return {"applied": applied, "skipped": skipped, "errors": errors}
 
     def clear_journal(self) -> None:

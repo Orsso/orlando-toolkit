@@ -23,11 +23,14 @@ lxml.etree.tostring() for map and topics, while copying images and metadata.
 """
 
 from dataclasses import dataclass
+import logging
 from typing import Optional, List, Dict, Any, Tuple
 
 from lxml import etree as ET
 
 from orlando_toolkit.core.models import DitaContext
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -115,6 +118,7 @@ class UndoService:
         snap = self._create_snapshot(context)
         if snap is None:
             # Graceful no-op if serialization failed
+            logger.warning("Undo: snapshot skipped due to serialization failure")
             return
         self._undo_stack.append(snap)
         # New user action invalidates redo history
@@ -126,6 +130,8 @@ class UndoService:
             overflow = len(self._undo_stack) - (self._max_history + 1)
             if overflow > 0:
                 del self._undo_stack[0:overflow]
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug("Undo: snapshot pushed (undo=%d redo=%d)", len(self._undo_stack), len(self._redo_stack))
 
     def undo(self, context: DitaContext) -> bool:
         """Restore the previous state into the provided context.
@@ -164,6 +170,8 @@ class UndoService:
             overflow = len(self._redo_stack) - self._max_history
             if overflow > 0:
                 del self._redo_stack[0:overflow]
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug("Undo: performed (undo=%d redo=%d)", len(self._undo_stack), len(self._redo_stack))
         return True
 
     def redo(self, context: DitaContext) -> bool:
@@ -189,6 +197,8 @@ class UndoService:
             overflow = len(self._undo_stack) - (self._max_history + 1)
             if overflow > 0:
                 del self._undo_stack[0:overflow]
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug("Redo: performed (undo=%d redo=%d)", len(self._undo_stack), len(self._redo_stack))
         return True
 
     def can_undo(self) -> bool:
