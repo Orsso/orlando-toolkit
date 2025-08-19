@@ -162,7 +162,7 @@ def update_topic_references_and_names(context: DitaContext) -> DitaContext:
     """
     logger.info("Updating topic filenames and references (core.converter)...")
 
-    if not context.ditamap_root:
+    if context.ditamap_root is None:
         return context
 
     try:
@@ -186,6 +186,8 @@ def update_topic_references_and_names(context: DitaContext) -> DitaContext:
     # First pass: discover referenced topics and propose deterministic names
     rename_map: dict[str, str] = {}
     used_names: set[str] = set()
+    import hashlib  # local import to avoid increasing module import time
+    MAX_FILENAME_LEN = 120  # conservative cap for Windows path constraints
 
     def _pick_title_for(topic_el, tref_el) -> str:
         # Prefer topic <title>, fallback to navtitle
@@ -215,11 +217,25 @@ def update_topic_references_and_names(context: DitaContext) -> DitaContext:
         safe_number = number.replace(".", "-") if isinstance(number, str) else "0"
         title = _pick_title_for(topic_el, tref)
         base_slug = slugify(title) or "topic"
-        candidate = f"topic_{safe_number}_{base_slug}.dita"
+        prefix = f"topic_{safe_number}_"
+        ext = ".dita"
+        allowed = MAX_FILENAME_LEN - len(prefix) - len(ext)
+        if allowed < 8:
+            allowed = 8  # ensure minimal space for slug
+        if len(base_slug) > allowed:
+            # Truncate and add deterministic suffix for stability
+            h = hashlib.md5((title or "").encode("utf-8")).hexdigest()[:8]
+            allowed2 = max(1, allowed - 9)  # account for '-' + 8-char hash
+            trimmed = base_slug[:allowed2]
+            candidate = f"{prefix}{trimmed}-{h}{ext}"
+        else:
+            candidate = f"{prefix}{base_slug}{ext}"
+
         unique_name = candidate
         suffix = 2
         while unique_name in used_names:
-            unique_name = f"topic_{safe_number}_{base_slug}-{suffix}.dita"
+            base_no_ext = unique_name[:-len(ext)]
+            unique_name = f"{base_no_ext}-{suffix}{ext}"
             suffix += 1
 
         used_names.add(unique_name)

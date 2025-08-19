@@ -153,7 +153,7 @@ class ConversionService:
         self.logger.info("Export: writing ZIP package")
         self.logger.debug("Destination: %s", output_zip)
 
-        with tempfile.TemporaryDirectory(prefix="orlando_packager_") as tmp_dir:
+        with tempfile.TemporaryDirectory(prefix="otk_") as tmp_dir:
             save_dita_package(context, tmp_dir)
             if debug_copy_dir:
                 debug_dest = Path(debug_copy_dir)
