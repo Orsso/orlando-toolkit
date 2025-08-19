@@ -7,6 +7,7 @@ allowing for deferred section vs module decisions based on complete context.
 """
 
 from typing import List
+import logging
 import re
 from docx import Document  # type: ignore
 from docx.text.paragraph import Paragraph  # type: ignore
@@ -317,7 +318,12 @@ def generate_dita_from_structure(
                 )
                 
                 # Add content to module
-                _add_content_to_topic(module_conbody, node.content_blocks, all_images_map_rid)
+                _add_content_to_topic(
+                    module_conbody,
+                    node.content_blocks,
+                    all_images_map_rid,
+                    table_context={"toc_index": toc_index, "title": node.text},
+                )
                 
                 # Create module topicref as child of section topichead
                 module_topicref = ET.SubElement(
@@ -353,7 +359,12 @@ def generate_dita_from_structure(
             )
             
             # Add content to module
-            _add_content_to_topic(module_conbody, node.content_blocks, all_images_map_rid)
+            _add_content_to_topic(
+                module_conbody,
+                node.content_blocks,
+                all_images_map_rid,
+                table_context={"toc_index": toc_index, "title": node.text},
+            )
             
             # Create topicref in ditamap
             topicref = ET.SubElement(
@@ -390,7 +401,13 @@ def generate_dita_from_structure(
             )
 
 
-def _add_content_to_topic(conbody: ET.Element, content_blocks: List, all_images_map_rid: dict) -> None:
+def _add_content_to_topic(
+    conbody: ET.Element,
+    content_blocks: List,
+    all_images_map_rid: dict,
+    *,
+    table_context: dict | None = None,
+) -> None:
     """Add content blocks to a topic's conbody element.
     
     Parameters
@@ -404,11 +421,34 @@ def _add_content_to_topic(conbody: ET.Element, content_blocks: List, all_images_
     """
     current_list = None
     current_sl = None
+    _table_counter = 0
+    _tb_logger = logging.getLogger("orlando_toolkit.core.generators.dita_builder")
     
     for block in content_blocks:
         if isinstance(block, Table):
             current_list = None
             current_sl = None
+            _table_counter += 1
+            try:
+                ctx_idx = table_context.get("toc_index") if isinstance(table_context, dict) else None
+                ctx_title = table_context.get("title") if isinstance(table_context, dict) else None
+            except Exception:
+                ctx_idx = None
+                ctx_title = None
+            loc_label = f"[{ctx_idx}] {ctx_title}" if ctx_idx and ctx_title else "[unknown]"
+            try:
+                declared_cols = len(getattr(block, "columns", []))
+                declared_rows = len(getattr(block, "rows", []))
+            except Exception:
+                declared_cols = 0
+                declared_rows = 0
+            _tb_logger.debug(
+                "Converting table #%d at %s (rows=%s, cols=%s)",
+                _table_counter,
+                loc_label,
+                declared_rows,
+                declared_cols,
+            )
             
             p_for_table = ET.SubElement(conbody, "p", id=generate_dita_id())
             dita_table = create_dita_table(block, all_images_map_rid)

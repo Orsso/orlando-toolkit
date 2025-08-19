@@ -117,7 +117,8 @@ def convert_docx_to_dita(file_path: str, metadata: Dict[str, Any]) -> DitaContex
             for style_name, level in sorted(style_heading_map.items(), key=lambda x: (x[1], x[0])):
                 logger.debug(f"  Level {level}: '{style_name}'")
 
-        logger.info("Building topics...")
+        # Prepare topic generation (two-pass). Actual building starts after structure analysis below.
+        logger.debug("Preparing topic generation (two-pass)...")
         
         # ======================================================================
         # TWO-PASS APPROACH: Build structure first, then generate DITA

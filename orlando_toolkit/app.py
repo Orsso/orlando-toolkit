@@ -595,6 +595,9 @@ class _TkStatusHandler(logging.Handler):
         self._label = target_label
 
     def emit(self, record: logging.LogRecord) -> None:  # noqa: D401
+        # Show only INFO messages in the inline UI status; ignore DEBUG/WARNING/ERROR
+        if record.levelno != logging.INFO:
+            return
         # Use .after to ensure thread-safe update from background threads.
         msg = self.format(record)
         if self._label.winfo_exists():

@@ -1,4 +1,4 @@
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 from lxml import etree as ET
 from docx.table import _Cell, Table  # type: ignore
 import logging
@@ -26,7 +26,13 @@ def _extract_runs_from_element(element) -> list:
     # Simple fallback - just return empty list
     return []
 
-def create_dita_table(table: Table, image_map: Dict[str, str]) -> ET.Element:
+def create_dita_table(
+    table: Table,
+    image_map: Dict[str, str],
+    *,
+    context_label: Optional[str] = None,
+    table_index: Optional[int] = None,
+) -> ET.Element:
     """Create a CALS DITA table from *table* using a robust matrix-based grid reconstruction."""
     logger.debug("--- Starting DITA Table Conversion (v2) ---")
 
@@ -94,6 +100,7 @@ def create_dita_table(table: Table, image_map: Dict[str, str]) -> ET.Element:
         return False
 
     # --- 1. Build Logical Grid ---
+    # Start with python-docx's view of columns, but prefer tblGrid if it defines more
     num_cols = len(table.columns)
 
     # Pre-compute column widths from tblGrid so they are available everywhere
@@ -102,6 +109,11 @@ def create_dita_table(table: Table, image_map: Dict[str, str]) -> ET.Element:
     if tblGrid_root is not None:
         _grid_cols = tblGrid_root.findall(qn("w:gridCol"))
         col_widths: list[int] = [int(col.get(qn("w:w")) or 0) for col in _grid_cols]
+        # Prefer the number of columns expressed by tblGrid if it's larger.
+        # This avoids underestimating the grid on certain pages (e.g., landscape)
+        # where python-docx may report fewer logical columns than the actual grid.
+        if len(col_widths) > num_cols:
+            num_cols = len(col_widths)
         # If Word stored fewer <gridCol> than the actual number of columns, pad with zeros
         if len(col_widths) < num_cols:
             col_widths.extend([0] * (num_cols - len(col_widths)))
@@ -180,7 +192,18 @@ def create_dita_table(table: Table, image_map: Dict[str, str]) -> ET.Element:
             
             # Safety check
             if logical_col >= num_cols:
-                logger.warning(f"Row {r} TC{tc_idx}: could not fit cell into available columns")
+                prefix = ""
+                if context_label is not None:
+                    try:
+                        t_idx = f"T#{int(table_index)}" if table_index is not None else "T#?"
+                    except Exception:
+                        t_idx = "T#?"
+                    prefix = f"[{context_label} | {t_idx}] "
+                # Downgrade log severity for hairline cells to avoid noisy warnings
+                if cell_width <= 50:
+                    logger.debug(f"{prefix}Row {r} TC{tc_idx}: tiny cell could not fit into available columns (width={cell_width})")
+                else:
+                    logger.warning(f"{prefix}Row {r} TC{tc_idx}: could not fit cell into available columns")
                 current_position += cell_width
                 continue
 
@@ -193,10 +216,20 @@ def create_dita_table(table: Table, image_map: Dict[str, str]) -> ET.Element:
                 remaining_width = cell_width
                 span_cols = 0
                 idx = logical_col
-                while idx < num_cols and remaining_width > col_widths[idx] - 50:
-                    remaining_width -= col_widths[idx]
-                    span_cols += 1
-                    idx += 1
+                # Use a relative tolerance per column width and guard against hairline columns
+                while idx < num_cols:
+                    colw_raw = col_widths[idx] if idx < len(col_widths) else 0
+                    # Treat hairline/zero-width columns as width=1 to avoid negative thresholds/infinite loops
+                    eff_colw = colw_raw if colw_raw > 0 else 1
+                    # Tolerance is proportional to column width (max 50 twips) to avoid over-span on tiny columns
+                    tol = min(50, int(eff_colw * 0.25))
+                    threshold = max(1, eff_colw - tol)
+                    if remaining_width >= threshold:
+                        remaining_width -= eff_colw
+                        span_cols += 1
+                        idx += 1
+                    else:
+                        break
                 colspan = max(1, span_cols)
             
             # Handle vertical merge
