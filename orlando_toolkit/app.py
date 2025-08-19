@@ -85,6 +85,11 @@ class OrlandoToolkit:
 
         self.load_button = ttk.Button(self.home_center, text="Load Document (.docx)", style="Accent.TButton", command=self.start_conversion_workflow)
         self.load_button.pack(pady=20, ipadx=20, ipady=10)
+        # Fix the button width to avoid resizing when text changes
+        try:
+            self.load_button.config(width=len(self.load_button.cget("text")))
+        except Exception:
+            pass
 
         self.status_label = ttk.Label(self.home_center, text="", font=("Arial", 10))
         self.status_label.pack(pady=10)
@@ -118,7 +123,17 @@ class OrlandoToolkit:
             return
 
         if self.load_button:
-            self.load_button.config(state="disabled")
+            try:
+                # Show the file name on the disabled button during processing, truncated to fit width
+                name = Path(filepath).name
+                try:
+                    max_chars = int(self.load_button.cget("width"))
+                except Exception:
+                    max_chars = len(self.load_button.cget("text"))
+                display = name if len(name) <= max_chars else (name[: max_chars - 1] + "\u2026")
+                self.load_button.config(text=display, state="disabled")
+            except Exception:
+                self.load_button.config(state="disabled")
         if self.status_label:
             self.status_label.config(text="Converting document…")
         if self.progress_bar:
@@ -207,7 +222,12 @@ class OrlandoToolkit:
         if self.status_label:
             self.status_label.config(text="Conversion failed. Please try again.")
         if self.load_button:
-            self.load_button.config(state="normal")
+            try:
+                self.load_button.config(text="Load Document (.docx)", state="normal")
+            except Exception:
+                self.load_button.config(state="normal")
+
+    
         messagebox.showerror("Conversion Error", f"Document processing failed:\n\n{error}")
 
     # ------------------------------------------------------------------
