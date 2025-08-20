@@ -36,7 +36,7 @@ class ImageTab(ttk.Frame):
         self.download_button: Optional[ttk.Button] = None
         self._proposed_names: Dict[str, str] = {}
         self._current_preview_bytes: Optional[bytes] = None
-        self._temp_edit_paths: Dict[str, str] = {}
+        self._disk_paths: Dict[str, str] = {}
         self._status_message: str = ""
         self._editor_choice_var: Optional[tk.StringVar] = None
         self._editor_paths: Dict[str, Optional[str]] = {}
@@ -222,6 +222,8 @@ class ImageTab(ttk.Frame):
             self.prefix_entry.insert(0, self.context.metadata.get("prefix", ""))
 
         self.update_image_names()
+        # Kick off async disk materialization of all images for this session
+        self._materialize_images_async()
 
     # ------------------------------------------------------------------
     # Internals
@@ -359,18 +361,33 @@ class ImageTab(ttk.Frame):
         except Exception:
             pass
 
-    def _ensure_temp_edit_path(self, original_filename: str, proposed_name: str) -> str:
-        """Return a temp file path for editing this image, creating it if absent."""
-        cached = self._temp_edit_paths.get(original_filename)
-        if cached and os.path.exists(cached):
-            return cached
-        base_dir = Path(tempfile.gettempdir()) / "orlando_toolkit" / "image_edits"
-        base_dir.mkdir(parents=True, exist_ok=True)
-        # Sanitize filename
-        safe_name = proposed_name.replace(os.sep, "_")
-        path = str(base_dir / safe_name)
-        self._temp_edit_paths[original_filename] = path
-        return path
+    def _get_disk_path(self, original_filename: str) -> Optional[str]:
+        return self._disk_paths.get(original_filename)
+
+    def _materialize_images_async(self) -> None:
+        if not self.context or not getattr(self.context, "images", None):
+            return
+        self._set_status("Preparing images on disk…")
+
+        def _work():
+            try:
+                from orlando_toolkit.core.session_storage import get_session_storage
+                storage = get_session_storage()
+            except Exception:
+                storage = None
+            for original_filename, data in list(self.context.images.items()):
+                try:
+                    if storage:
+                        path = storage.ensure_image_written(original_filename, data)
+                        self._disk_paths[original_filename] = str(path)
+                except Exception:
+                    continue
+            try:
+                self.after(0, lambda: self._set_status(""))
+            except Exception:
+                pass
+
+        threading.Thread(target=_work, daemon=True).start()
 
     def _set_status(self, message: str) -> None:
         self._status_message = message or ""
@@ -479,14 +496,10 @@ class ImageTab(ttk.Frame):
         if index >= len(self.context.images):
             return
         original_filename = list(self.context.images.keys())[index]
-        proposed = self._proposed_names.get(original_filename, original_filename)
-        temp_path = self._ensure_temp_edit_path(original_filename, proposed)
-        # Write current bytes to temp
-        try:
-            with open(temp_path, "wb") as f:
-                f.write(self.context.images[original_filename])
-        except Exception:
-            return
+        # Use session disk path for editing; ensure it's written
+        from orlando_toolkit.core.session_storage import get_session_storage
+        storage = get_session_storage()
+        disk_path = storage.ensure_image_written(original_filename, self.context.images[original_filename])
 
         # Resolve desired editor from dropdown; refresh detection each click
         chosen = self._editor_choice_var.get() if self._editor_choice_var else "System default"
@@ -494,7 +507,7 @@ class ImageTab(ttk.Frame):
         editor_path = self._editor_paths.get(chosen) if self._editor_paths else None
         if chosen == "System default":
             try:
-                os.startfile(temp_path)  # type: ignore[attr-defined]
+                os.startfile(str(disk_path))  # type: ignore[attr-defined]
                 self._set_status("Opened with default app; click '↻' to reload after saving")
             except Exception:
                 self._set_status("Failed to open with default app")
@@ -503,7 +516,7 @@ class ImageTab(ttk.Frame):
         if editor_path:
             try:
                 # Launch editor process
-                proc = subprocess.Popen([editor_path, temp_path], shell=False)
+                proc = subprocess.Popen([editor_path, str(disk_path)], shell=False)
                 # Inform user immediately
                 if chosen in ("GIMP", "Photoshop"):
                     # These apps may spawn and detach; rely on manual reload
@@ -514,7 +527,7 @@ class ImageTab(ttk.Frame):
             except Exception:
                 # As a last resort, try default handler
                 try:
-                    os.startfile(temp_path)  # type: ignore[attr-defined]
+                    os.startfile(str(disk_path))  # type: ignore[attr-defined]
                     self._set_status("Opened with default app; click '↻' to reload after saving")
                     return
                 except Exception:
@@ -525,7 +538,7 @@ class ImageTab(ttk.Frame):
             def _wait_and_reload() -> None:
                 try:
                     proc.wait()
-                    with open(temp_path, "rb") as f:
+                    with open(disk_path, "rb") as f:
                         new_bytes = f.read()
                 except Exception:
                     new_bytes = None  # type: ignore[assignment]
@@ -568,13 +581,12 @@ class ImageTab(ttk.Frame):
         else:
             self._set_status("No image selected")
             return
-        proposed = self._proposed_names.get(original_filename, original_filename)
-        temp_path = self._ensure_temp_edit_path(original_filename, proposed)
-        if not os.path.exists(temp_path):
+        disk_path = self._get_disk_path(original_filename)
+        if not disk_path or not os.path.exists(disk_path):
             self._set_status("No edited file found to reload")
             return
         try:
-            with open(temp_path, "rb") as f:
+            with open(disk_path, "rb") as f:
                 new_bytes = f.read()
             self.context.images[original_filename] = new_bytes
             self.show_image_preview(original_filename, new_bytes)
@@ -717,33 +729,23 @@ class ImageTab(ttk.Frame):
                 pass
 
     def open_images_folder(self) -> None:
-        """Open the images folder used by preview system in the system file explorer."""
+        """Open the session images folder in the system file explorer."""
         try:
-            # Use the same directory as xml_compiler.py for consistency 
-            preview_dir = Path(tempfile.gettempdir()) / 'orlando_preview'
-            preview_dir.mkdir(parents=True, exist_ok=True)
-            
-            # Open folder in system explorer
-            if os.name == 'nt':  # Windows
-                os.startfile(str(preview_dir))
-            elif os.name == 'posix':  # macOS and Linux
-                if 'darwin' in os.uname().sysname.lower():  # macOS
-                    subprocess.run(['open', str(preview_dir)])
-                else:  # Linux
-                    subprocess.run(['xdg-open', str(preview_dir)])
+            from orlando_toolkit.core.session_storage import get_session_storage
+            storage = get_session_storage()
+            folder = storage.base_dir
         except Exception:
-            # Fallback: use the temp directory
-            try:
-                temp_dir = Path(tempfile.gettempdir())
-                if os.name == 'nt':
-                    os.startfile(str(temp_dir))
-                elif os.name == 'posix':
-                    if 'darwin' in os.uname().sysname.lower():
-                        subprocess.run(['open', str(temp_dir)])
-                    else:
-                        subprocess.run(['xdg-open', str(temp_dir)])
-            except Exception:
-                pass
+            folder = Path(tempfile.gettempdir())
+        try:
+            if os.name == 'nt':
+                os.startfile(str(folder))
+            elif os.name == 'posix':
+                if 'darwin' in os.uname().sysname.lower():
+                    subprocess.run(['open', str(folder)])
+                else:
+                    subprocess.run(['xdg-open', str(folder)])
+        except Exception:
+            pass
 
     def download_all_images(self) -> None:
         """Save all images to a chosen directory using proposed filenames."""
@@ -752,20 +754,34 @@ class ImageTab(ttk.Frame):
         # Ensure proposed names are current
         if not self._proposed_names:
             self._proposed_names = self._create_per_section_image_names()
+        # Determine manual name for packaging folder
+        try:
+            manual_code = str(self.context.metadata.get("manual_code") or "").strip()
+        except Exception:
+            manual_code = ""
+        if not manual_code:
+            try:
+                from orlando_toolkit.core.utils import slugify
+                title = str(self.context.metadata.get("manual_title") or "").strip()
+                manual_code = slugify(title) if title else "images"
+            except Exception:
+                manual_code = "images"
+        folder_name = f"{manual_code}_images"
         try:
             from tkinter import filedialog
-            directory = filedialog.askdirectory(title="Choose folder to save all images")
+            directory = filedialog.askdirectory(title=f"Choose parent folder for '{folder_name}'")
         except Exception:
             directory = ""
         if not directory:
             return
         try:
-            os.makedirs(directory, exist_ok=True)
+            target_root = os.path.join(directory, folder_name)
+            os.makedirs(target_root, exist_ok=True)
         except Exception:
             pass
         for original_filename, image_data in self.context.images.items():
             target_name = self._proposed_names.get(original_filename, original_filename)
-            target_path = os.path.join(directory, target_name)
+            target_path = os.path.join(target_root, target_name)
             try:
                 with open(target_path, "wb") as f:
                     f.write(image_data)

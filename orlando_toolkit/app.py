@@ -565,6 +565,12 @@ class OrlandoToolkit:
 
     def on_close(self):
         if messagebox.askokcancel("Quit", "Really quit?"):
+            # Cleanup session storage (preview/images edits)
+            try:
+                from orlando_toolkit.core.session_storage import get_session_storage
+                get_session_storage().cleanup()
+            except Exception:
+                pass
             self.root.destroy()
 
     # ------------------------------------------------------------------

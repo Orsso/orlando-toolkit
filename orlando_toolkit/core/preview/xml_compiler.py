@@ -63,8 +63,8 @@ def render_html_preview(ctx: "DitaContext", tref: ET.Element, *, pretty: bool = 
 
         import mimetypes
         import hashlib
-        import tempfile
         from pathlib import Path
+        from orlando_toolkit.core.session_storage import get_session_storage
 
         # 1) Ensure merged-title paragraphs render in uppercase even in limited HTML engines
         def _uppercase_text_nodes(el: ET.Element) -> None:
@@ -87,7 +87,7 @@ def render_html_preview(ctx: "DitaContext", tref: ET.Element, *, pretty: bool = 
         except Exception:
             pass
 
-        # 2) Convert embedded images to temp files and point to file URIs
+        # 2) Convert embedded images to session temp files and point to file URIs
         for img in tree.findall('.//image'):
             href = img.get('href', '')
             fname = Path(href).name
@@ -100,11 +100,8 @@ def render_html_preview(ctx: "DitaContext", tref: ET.Element, *, pretty: bool = 
                 ext = (mime.split('/')[-1] if '/' in mime else 'png')
                 if ext == 'jpeg':
                     ext = 'jpg'
-                preview_dir = Path(tempfile.gettempdir()) / 'orlando_preview'
-                preview_dir.mkdir(parents=True, exist_ok=True)
-                out_path = preview_dir / f"img_{h}.{ext}"
-                if not out_path.exists():
-                    out_path.write_bytes(blob)
+                storage = get_session_storage()
+                out_path = storage.ensure_image_written(f"img_{h}.{ext}", blob)
                 img.set('href', out_path.as_uri())
 
         xml_str = ET.tostring(tree, encoding='unicode')
