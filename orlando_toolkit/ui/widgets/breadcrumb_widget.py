@@ -42,11 +42,19 @@ class BreadcrumbWidget(ttk.Frame):
         parent: tk.Widget,
         *,
         on_item_clicked: Optional[Callable[[str], None]] = None,
+        max_width: int = 400,
+        link_max_chars: int = 15,
+        current_max_chars: int = 20,
+        separator_padx: tuple[int, int] = (2, 2),
         **kwargs,
     ) -> None:
         super().__init__(parent, **kwargs)
         
         self.on_item_clicked: Optional[Callable[[str], None]] = on_item_clicked
+        self._max_width: int = max_width
+        self._link_max_chars: int = link_max_chars
+        self._current_max_chars: int = current_max_chars
+        self._separator_padx: tuple[int, int] = separator_padx
         
         # Configure layout
         self.columnconfigure(0, weight=1)
@@ -56,7 +64,7 @@ class BreadcrumbWidget(ttk.Frame):
         self._content_frame.grid(row=0, column=0, sticky="ew")
         
         # Limit maximum width to prevent overflow
-        self.configure(width=400)  # Max width constraint
+        self.configure(width=self._max_width)  # Max width constraint
         
         # Current path items
         self._path_items: List[BreadcrumbItem] = []
@@ -105,7 +113,7 @@ class BreadcrumbWidget(ttk.Frame):
             # Add separator before item (except first)
             if i > 0:
                 sep = ttk.Label(self._content_frame, text=">")
-                sep.grid(row=0, column=len(self._widgets), padx=(2, 2))
+                sep.grid(row=0, column=len(self._widgets), padx=self._separator_padx)
                 self._widgets.append(sep)
             
             # Create item widget
@@ -123,17 +131,17 @@ class BreadcrumbWidget(ttk.Frame):
                 # Last item is not clickable (current location)
                 widget = ttk.Label(
                     self._content_frame,
-                    text=self._truncate_text(item.label, 20),
+                    text=self._truncate_text(item.label, self._current_max_chars),
                     style="Breadcrumb.Current.TLabel"
                 )
                 # Add tooltip if text is truncated
-                if len(item.label) > 20:
+                if len(item.label) > self._current_max_chars:
                     self._create_tooltip(widget, item.label)
             else:
                 # All non-last items are clickable (sections and topics)
                 widget = ttk.Label(
                     self._content_frame,
-                    text=self._truncate_text(item.label, 15),
+                    text=self._truncate_text(item.label, self._link_max_chars),
                     style="Breadcrumb.Link.TLabel",
                     cursor="hand2"
                 )
@@ -141,7 +149,7 @@ class BreadcrumbWidget(ttk.Frame):
                 widget.bind("<Button-1>", lambda e, value=item.value: self._on_item_click(value))
                 
                 # Add tooltip and hover effects
-                if len(item.label) > 15:
+                if len(item.label) > self._link_max_chars:
                     self._create_tooltip_with_hover(widget, item.label)
                 else:
                     widget.bind("<Enter>", lambda e, w=widget: self._on_hover_enter(w))

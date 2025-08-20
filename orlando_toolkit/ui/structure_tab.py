@@ -479,6 +479,25 @@ class StructureTab(ttk.Frame):
 
             self._tree.populate_tree(ctrl.context, max_depth=getattr(ctrl, "max_depth", 999))
 
+            # Auto-untoggle visibility toggles for excluded styles
+            try:
+                # Get currently excluded styles from controller
+                exclusions = dict(getattr(ctrl, "heading_filter_exclusions", {}) or {})
+                excluded_styles = [style for style, excluded in exclusions.items() if excluded]
+
+                # For each excluded style, untoggle its visibility if it's currently active
+                for style in excluded_styles:
+                    if self._filter_panel is not None:
+                        try:
+                            # Check if style is currently visible and untoggle it
+                            current_visibility = self._filter_panel.get_visible_styles()
+                            if current_visibility.get(style, False):
+                                self._filter_panel.toggle_style_visibility(style, False)
+                        except Exception:
+                            pass
+            except Exception:
+                pass
+
             # Restore expansion state after population when we have prior state
             try:
                 if expanded_refs or expanded_section_paths:

@@ -103,10 +103,14 @@ class PreviewPanel(ttk.Frame):
         self._status_label = ttk.Label(toggle, textvariable=self._status_var)
         self._status_label.grid(row=0, column=2, padx=(8, 0), pady=0, sticky="w")
 
-        # Breadcrumb widget
+        # Breadcrumb widget (wider spacing in preview panel)
         self._breadcrumb = BreadcrumbWidget(
             header,
-            on_item_clicked=self._on_breadcrumb_clicked
+            on_item_clicked=self._on_breadcrumb_clicked,
+            max_width=560,
+            link_max_chars=22,
+            current_max_chars=28,
+            separator_padx=(4, 4)
         )
         self._breadcrumb.grid(row=0, column=2, sticky="e", padx=(8, 0))
 
