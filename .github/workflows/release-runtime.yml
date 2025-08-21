@@ -1,0 +1,34 @@
+name: Build Runtime Bundle
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  build-runtime:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup PowerShell TLS
+        run: |
+          powershell -NoProfile -Command "[Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12"
+
+      - name: Build runtime bundle
+        shell: pwsh
+        run: |
+          .\tools\package_runtime.ps1 -OutputDir release
+
+      - name: Upload release assets
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            release/OrlandoToolkit-AppRuntime-win64-v*.zip
+            release/OrlandoToolkit-AppRuntime-win64-v*.zip.sha256
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
