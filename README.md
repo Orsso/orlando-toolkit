@@ -16,9 +16,9 @@ Convert Microsoft Word (.docx) manuals into Orlando‑ready DITA projects with a
 
 ## Quick start
 
-### Windows (recommended)
-Download and run the [Installer](https://github.com/Orsso/orlando-toolkit/releases/download/Installer/OTK_Installer.bat).
-Note: It serve also as an updater. 
+- Download and run the [Installer](https://github.com/Orsso/orlando-toolkit/releases/download/Installer/OTK_Installer.bat).
+
+*Note: The script serve also as an updater.* 
 
 ### From source
 ```bash
