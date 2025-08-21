@@ -426,18 +426,83 @@ def test_delete_topics_removes_refs_and_purges_best_effort(fake_context, monkeyp
         assert order_of_top(ctx) == ["A", "B", "C"]
 
 
-def test_merge_topics_returns_not_implemented(fake_context, monkeypatch):
+def test_merge_topics_success_path(fake_context, monkeypatch):
     ctx = fake_context
     patch_service_with_fake(monkeypatch, ctx)
     svc = StructureEditingService()
 
-    # Expect service to return structured failure indicating not implemented
+    # Add required topics to context for successful merge
+    # The service expects context.topics to contain the topic elements
+    ctx.topics = {
+        "A.dita": object(),  # Mock topic elements
+        "B.dita": object()
+    }
+
+    # Mock the merge helper to simulate successful merge
+    def mock_merge_topicref(context, target_topic, src_node):
+        # Simulate successful merge by returning the source filename
+        href = src_node.get("href")
+        if href:
+            return href.split("/")[-1]
+        return None
+
+    monkeypatch.setattr(
+        "orlando_toolkit.core.merge.merge_topicref_into", 
+        mock_merge_topicref, 
+        raising=False
+    )
+
+    # Test merging A into B should succeed
     res = svc.merge_topics(ctx, source_ids=["A"], target_id="B")
-    assert_result_shape(res, success=False)
-    # Check message indicates not implemented
-    assert "not implemented" in res.message.lower()
-    # Ensure no mutation
-    assert order_of_top(ctx) == ["A", "B", "C"]
+    assert_result_shape(res, success=True)
+    # Check that merge was reported as successful
+    assert "merged" in res.message.lower()
+    # Verify details contain expected information
+    assert res.details.get("merged_count") == 1
+    assert res.details.get("target") == "B.dita"
+
+
+def test_merge_multiple_topics_into_target(fake_context, monkeypatch):
+    """Test merging multiple topics into a target topic and verify purging."""
+    ctx = fake_context
+    patch_service_with_fake(monkeypatch, ctx)
+    svc = StructureEditingService()
+
+    # Add required topics to context for successful merge
+    ctx.topics = {
+        "A.dita": object(),  # Source topics to be merged
+        "B.dita": object(),  # Target topic
+        "C.dita": object()   # Another source to merge
+    }
+
+    # Mock the merge helper to simulate successful merge
+    def mock_merge_topicref(context, target_topic, src_node):
+        # Simulate successful merge by returning the source filename
+        href = src_node.get("href")
+        if href:
+            return href.split("/")[-1]
+        return None
+
+    monkeypatch.setattr(
+        "orlando_toolkit.core.merge.merge_topicref_into", 
+        mock_merge_topicref, 
+        raising=False
+    )
+
+    # Test merging A and C into B should succeed
+    res = svc.merge_topics(ctx, source_ids=["A", "C"], target_id="B")
+    assert_result_shape(res, success=True)
+    # Check that merge was reported as successful
+    assert "merged" in res.message.lower()
+    # Verify details contain expected information for multiple merges
+    assert res.details.get("merged_count") == 2
+    assert res.details.get("target") == "B.dita"
+    # Verify that merged topics were purged from context.topics
+    assert "A.dita" not in ctx.topics
+    assert "C.dita" not in ctx.topics
+    assert "B.dita" in ctx.topics  # Target should remain
+
+
 # ------------------------------
 # Tests for apply_depth_limit
 # ------------------------------

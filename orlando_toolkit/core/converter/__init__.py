@@ -22,6 +22,7 @@ import uuid
 import logging
 
 from orlando_toolkit.core.models import DitaContext
+from orlando_toolkit.config import ConfigManager
 
 # Core conversion implementation
 from .docx_to_dita import convert_docx_to_dita
@@ -97,41 +98,74 @@ def update_image_references_and_names(context: DitaContext) -> DitaContext:
     """Rename image files and update hrefs inside all topic XML trees."""
     logger.info("Updating image names and references (core.converter)...")
 
-    manual_code = context.metadata.get("manual_code", "MANUAL")
-    prefix = context.metadata.get("prefix", "IMG")
+    # Get image naming configuration
+    image_naming_config = {}
+    try:
+        image_naming_config = ConfigManager().get_image_naming() or {}
+    except Exception as exc:
+        logger.error("Failed to read image naming config: %s", exc)
+
+    required_keys = {"prefix", "pattern", "index_start", "index_zero_pad"}
+    if not required_keys.issubset(image_naming_config.keys()):
+        logger.warning("Image naming config missing keys %s; skipping image renaming", 
+                       sorted(list(required_keys - set(image_naming_config.keys()))))
+        return context
+
+    manual_code = context.metadata.get("manual_code", "manual")
+    prefix = image_naming_config.get("prefix")
+    pattern = image_naming_config.get("pattern")
+    index_start = image_naming_config.get("index_start")
+    index_zero_pad = image_naming_config.get("index_zero_pad")
+
+    # Validate basic types to avoid raising
+    try:
+        index_start = int(index_start)
+        index_zero_pad = int(index_zero_pad)
+    except Exception:
+        logger.warning("Image naming config has invalid integer fields; skipping image renaming")
+        return context
 
     # Create per-section image naming
     from orlando_toolkit.core.utils import find_topicref_for_image, get_section_number_for_topicref
-    
+
     # Group images by section
-    section_images = {}
+    section_images: Dict[str, list[str]] = {}
     for image_filename in list(context.images.keys()):
         topicref = find_topicref_for_image(image_filename, context)
         if topicref is not None and context.ditamap_root is not None:
             section_number = get_section_number_for_topicref(topicref, context.ditamap_root)
         else:
             section_number = "0"
-        
-        if section_number not in section_images:
-            section_images[section_number] = []
-        section_images[section_number].append(image_filename)
-    
-    # Generate new filenames with per-section numbering
+
+        section_images.setdefault(section_number, []).append(image_filename)
+
+    # Generate new filenames with per-section numbering using configurable pattern
     rename_map: dict[str, str] = {}
     for section_number, images_in_section in section_images.items():
         for i, image_filename in enumerate(images_in_section):
             extension = os.path.splitext(image_filename)[1]
-            
-            # Base filename parts
-            base_name = f"{prefix}-{manual_code}-{section_number}"
-            
-            # Add image number only if there are multiple images in this section
+
+            # Prepare tokens for pattern substitution
+            tokens = {
+                "prefix": prefix,
+                "manual_code": manual_code,
+                "section": section_number,
+                "ext": extension,
+                "-index": "",
+            }
+
+            # Add index only if there are multiple images in this section
             if len(images_in_section) > 1:
-                img_num = i + 1
-                new_filename = f"{base_name}-{img_num}{extension}"
-            else:
-                new_filename = f"{base_name}{extension}"
-            
+                img_num = i + index_start
+                index_str = str(img_num).zfill(index_zero_pad) if index_zero_pad > 0 else str(img_num)
+                tokens["-index"] = f"-{index_str}"
+
+            try:
+                new_filename = pattern.format(**tokens)
+            except Exception as exc:
+                logger.error("Image naming pattern error: %s; skipping image renaming", exc)
+                return context
+
             rename_map[image_filename] = new_filename
 
     # Update href references in topic XML

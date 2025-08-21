@@ -20,6 +20,8 @@ import threading
 if TYPE_CHECKING:
     from orlando_toolkit.core.models import DitaContext
 
+from orlando_toolkit.config import ConfigManager
+
 
 class ImageTab(ttk.Frame):
     def __init__(self, parent, *args, **kwargs):
@@ -213,9 +215,11 @@ class ImageTab(ttk.Frame):
         """Load the DITA context and populate UI."""
         self.context = context
 
-        # Simulate default prefix if not present
+        # Initialize prefix from config if not present in metadata
         if "prefix" not in self.context.metadata:
-            self.context.metadata["prefix"] = "CRL"
+            config_manager = ConfigManager()
+            image_naming_config = config_manager.get_image_naming()
+            self.context.metadata["prefix"] = image_naming_config["prefix"]
 
         if self.prefix_entry:
             self.prefix_entry.delete(0, tk.END)
@@ -263,7 +267,11 @@ class ImageTab(ttk.Frame):
         
         from orlando_toolkit.core.utils import find_topicref_for_image, get_section_number_for_topicref
         
-        prefix = self.context.metadata.get("prefix", "")
+        prefix = self.context.metadata.get("prefix")
+        if not prefix:
+            config_manager = ConfigManager()
+            image_naming_config = config_manager.get_image_naming()
+            prefix = image_naming_config["prefix"]
         manual_code = self.context.metadata.get("manual_code", "")
         
         # Group images by section

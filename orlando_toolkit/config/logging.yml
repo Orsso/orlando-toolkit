@@ -1,0 +1,58 @@
+# Logging configuration
+# Controls logging behavior for the application
+# Users can override these settings in ~/.orlando_toolkit/logging.yml
+
+version: 1
+disable_existing_loggers: false
+
+formatters:
+  default:
+    format: '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+
+handlers:
+  console:
+    class: logging.StreamHandler
+    formatter: default
+    level: INFO
+  file:
+    class: logging.handlers.RotatingFileHandler
+    formatter: default
+    filename: logs/app.log  # Will be set dynamically based on ORLANDO_LOG_DIR
+    maxBytes: 5242880  # 5 MB
+    backupCount: 2
+    level: DEBUG
+
+loggers:
+  # Core conversion/generation internals can be verbose; route via root handlers only
+  orlando_toolkit.core.generators:
+    level: INFO
+    propagate: true
+  orlando_toolkit.core.converter:
+    level: INFO
+    propagate: true
+  orlando_toolkit.core.parser:
+    level: INFO
+    propagate: true
+  orlando_toolkit.core.services:
+    # Services emit concise INFO audit entries and DEBUG diagnostics
+    level: INFO
+    propagate: true
+  orlando_toolkit.core.merge:
+    # Capture merge summaries at INFO for post-mortem debugging
+    level: INFO
+    propagate: true
+  orlando_toolkit.ui.controllers:
+    # Controllers remain mostly quiet; escalate only if explicitly enabled
+    level: WARNING
+    propagate: true
+  PIL:
+    level: INFO
+    handlers:
+      - file
+    propagate: false
+
+root:
+  level: INFO
+  handlers:
+    - console
+    - file

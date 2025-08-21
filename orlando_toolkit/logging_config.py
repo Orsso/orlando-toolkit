@@ -8,78 +8,59 @@ Import and call :func:`setup_logging` at application start-up.
 import logging
 import os
 import logging.config
+from orlando_toolkit.config import ConfigManager
 
 __all__ = ["setup_logging"]
 
 def setup_logging() -> None:
-    """Configure logging for the application using a dictionary configuration."""
+    """Configure logging for the application using configuration from YAML files."""
     log_dir = os.environ.get("ORLANDO_LOG_DIR", "logs")
     os.makedirs(log_dir, exist_ok=True)
     log_file = os.path.join(log_dir, "app.log")
 
-    LOGGING_CONFIG = {
+    # Try to get logging config from ConfigManager
+    try:
+        config_manager = ConfigManager()
+        logging_config = config_manager.get_logging_config()
+        
+        if logging_config and isinstance(logging_config, dict) and logging_config.get("version"):
+            # Update the filename dynamically
+            if "handlers" in logging_config and "file" in logging_config["handlers"]:
+                logging_config["handlers"]["file"]["filename"] = log_file
+            
+            logging.config.dictConfig(logging_config)
+            logging.info("===== Logging initialised from config files =====")
+        else:
+            # No valid config found, use minimal fallback
+            _setup_minimal_logging(log_file)
+    except Exception as exc:
+        # Error loading config, fall back to minimal logging
+        print(f"Error loading logging config: {exc}")
+        _setup_minimal_logging(log_file)
+
+
+def _setup_minimal_logging(log_file: str) -> None:
+    """Set up minimal console-only logging when config is unavailable."""
+    minimal_config = {
         'version': 1,
         'disable_existing_loggers': False,
         'formatters': {
-            'default': {
-                'format': '%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+            'simple': {
+                'format': '%(levelname)s - %(message)s',
             },
         },
         'handlers': {
             'console': {
                 'class': 'logging.StreamHandler',
-                'formatter': 'default',
+                'formatter': 'simple',
                 'level': 'INFO',
-            },
-            'file': {
-                'class': 'logging.handlers.RotatingFileHandler',
-                'formatter': 'default',
-                'filename': log_file,
-                'maxBytes': 1024 * 1024 * 5,  # 5 MB
-                'backupCount': 2,
-                'level': 'DEBUG',
-            },
-        },
-        'loggers': {
-            # Core conversion/generation internals can be verbose; route via root handlers only
-            'orlando_toolkit.core.generators': {
-                'level': 'INFO',
-                'propagate': True,
-            },
-            'orlando_toolkit.core.converter': {
-                'level': 'INFO',
-                'propagate': True,
-            },
-            'orlando_toolkit.core.parser': {
-                'level': 'INFO',
-                'propagate': True,
-            },
-            'orlando_toolkit.core.services': {
-                # Services emit concise INFO audit entries and DEBUG diagnostics
-                'level': 'INFO',
-                'propagate': True,
-            },
-            'orlando_toolkit.core.merge': {
-                # Capture merge summaries at INFO for post-mortem debugging
-                'level': 'INFO',
-                'propagate': True,
-            },
-            'orlando_toolkit.ui.controllers': {
-                # Controllers remain mostly quiet; escalate only if explicitly enabled
-                'level': 'WARNING',
-                'propagate': True,
-            },
-            'PIL': {
-                'level': 'INFO',
-                'handlers': ['file'],
-                'propagate': False,
             },
         },
         'root': {
             'level': 'INFO',
-            'handlers': ['console', 'file'],
+            'handlers': ['console'],
         },
     }
-
-    logging.config.dictConfig(LOGGING_CONFIG)
-    logging.info("===== Logging initialised (dictConfig) =====") 
+    
+    logging.config.dictConfig(minimal_config)
+    logging.error("===== Logging initialised with minimal fallback (config error) =====") 

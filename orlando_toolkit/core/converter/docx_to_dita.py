@@ -20,6 +20,7 @@ from lxml import etree as ET  # type: ignore
 from orlando_toolkit.core.models import DitaContext
 from orlando_toolkit.core.parser import extract_images_to_context, build_style_heading_map, iter_block_items
 from orlando_toolkit.core.parser.style_analyzer import build_enhanced_style_map
+from orlando_toolkit.config import ConfigManager
 
 # Helper functions migrated from legacy converter
 from .helpers import (
@@ -58,23 +59,49 @@ def convert_docx_to_dita(file_path: str, metadata: Dict[str, Any]) -> DitaContex
 
         add_orlando_topicmeta(map_root, context.metadata)
 
-        # Enhanced style detection (new - enabled by default)
-        use_enhanced_detection = metadata.get("use_enhanced_style_detection", True)
-        
+        # Get style detection configuration (file-based only)
+        config_manager = ConfigManager()
+        style_detection_config = config_manager.get_style_detection() or {}
+
+        # Enhanced style detection: metadata can override, else config decides. If absent, keep disabled.
+        use_enhanced_detection = metadata.get("use_enhanced_style_detection")
+        if use_enhanced_detection is None:
+            use_enhanced_detection = bool(style_detection_config.get("use_enhanced_style_detection", False))
+
         if use_enhanced_detection:
-            logger.info("Analyzing document structure...")
+            # Consume optional knobs from metadata or config; if unusable, disable gracefully
+            usa = metadata.get("use_structural_analysis")
+            if usa is None:
+                usa = bool(style_detection_config.get("use_structural_analysis", False))
+
+            mfp = metadata.get("min_following_paragraphs")
+            if mfp is None:
+                mfp = style_detection_config.get("min_following_paragraphs")
+
+            try:
+                # Require an integer for mfp when enhanced mode is on; otherwise disable enhanced
+                mfp_int = int(mfp) if mfp is not None else None
+            except Exception:
+                mfp_int = None
+
+            if mfp_int is None:
+                logger.warning("Style detection config missing 'min_following_paragraphs'; disabling enhanced detection")
+                use_enhanced_detection = False
+
+        if use_enhanced_detection:
+            logger.info("Analyzing document structure (enhanced)...")
             style_heading_map = build_enhanced_style_map(
                 doc,
-                use_structural_analysis=metadata.get("use_structural_analysis", True),
-                min_following_paragraphs=metadata.get("min_following_paragraphs", 3)
+                use_structural_analysis=bool(usa),
+                min_following_paragraphs=int(mfp_int),
             )
         else:
-            logger.info("Analyzing document structure...")
+            logger.info("Analyzing document structure (base)...")
             style_heading_map = build_style_heading_map(doc)
-        
+
         # Apply legacy and user overrides with clear priority order
         logger.debug(f"Base style map: {len(style_heading_map)} styles")
-        
+
         # Priority 2: Legacy STYLE_MAP (lower priority than base detection)
         original_count = len(style_heading_map)
         style_heading_map.update(STYLE_MAP)
@@ -88,26 +115,29 @@ def convert_docx_to_dita(file_path: str, metadata: Dict[str, Any]) -> DitaContex
             style_heading_map.update(user_overrides)
             logger.debug(f"Applied {len(user_overrides)} user style overrides")
 
-        # Generic heading-name detection (e.g., "HEADING 5 GM"). Enabled by
-        # default but can be disabled with metadata["generic_heading_match"] = False.
-        if metadata.get("generic_heading_match", True):
+        # Generic heading-name detection (e.g., "HEADING 5 GM"). From config, metadata can override; default disabled.
+        generic_match_enabled = metadata.get(
+            "generic_heading_match",
+            bool(style_detection_config.get("generic_heading_match", False)),
+        )
+        if generic_match_enabled:
             from orlando_toolkit.core.parser.style_analyzer import _detect_generic_heading_level
-            
+
             generic_count = 0
             for sty in doc.styles:  # type: ignore[attr-defined]
                 try:
                     name = sty.name  # type: ignore[attr-defined]
                     if not name or name in style_heading_map:
                         continue
-                        
+
                     level = _detect_generic_heading_level(name)
                     if level:
                         style_heading_map[name] = level
                         generic_count += 1
-                        
+
                 except Exception:
                     continue
-                    
+
             if generic_count > 0:
                 logger.debug(f"Added {generic_count} generic heading pattern matches")
 
@@ -119,7 +149,7 @@ def convert_docx_to_dita(file_path: str, metadata: Dict[str, Any]) -> DitaContex
 
         # Prepare topic generation (two-pass). Actual building starts after structure analysis below.
         logger.debug("Preparing topic generation (two-pass)...")
-        
+
         # ======================================================================
         # TWO-PASS APPROACH: Build structure first, then generate DITA
         # ======================================================================
@@ -129,28 +159,28 @@ def convert_docx_to_dita(file_path: str, metadata: Dict[str, Any]) -> DitaContex
             generate_dita_from_structure,
             _add_content_to_topic,
         )
-        
+
         # Pass 1: Build complete document structure
         logger.info("Analyzing document structure...")
         root_nodes = build_document_structure(doc, style_heading_map, all_images_map_rid)
-        
+
         # Pass 2: Determine section vs module roles
         logger.info("Determining section/module roles...")
         determine_node_roles(root_nodes)
-        
+
         # Pass 3: Generate DITA topics and map structure
         logger.info("Building topics...")
         heading_counters = [0] * 9
         parent_elements: Dict[int, ET.Element] = {0: map_root}
-        
+
         generate_dita_from_structure(
-            root_nodes, 
-            context, 
+            root_nodes,
+            context,
             context.metadata,
             all_images_map_rid,
             map_root,
             heading_counters,
-            parent_elements
+            parent_elements,
         )
 
         # ------------------------------------------------------------------

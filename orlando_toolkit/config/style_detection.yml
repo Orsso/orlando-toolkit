@@ -1,0 +1,15 @@
+# Style detection configuration
+# Controls behavior of style analysis during document conversion
+# Users can override these settings in ~/.orlando_toolkit/style_detection.yml
+
+# Enable enhanced style detection algorithm
+use_enhanced_style_detection: true
+
+# Use structural analysis to improve heading detection
+use_structural_analysis: true
+
+# Minimum number of following paragraphs to consider when analyzing structure
+min_following_paragraphs: 3
+
+# Enable generic heading pattern matching (e.g., "HEADING 5 GM")
+generic_heading_match: true

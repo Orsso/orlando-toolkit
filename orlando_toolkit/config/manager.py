@@ -12,7 +12,6 @@ Python dictionaries so existing behaviour is never broken.
 """
 
 import importlib.resources as pkg_resources
-import json
 import logging
 import os
 from pathlib import Path
@@ -40,6 +39,7 @@ class ConfigManager(metaclass=_Singleton):
         "color_rules": "default_color_rules.yml",
         "image_naming": "image_naming.yml",
         "logging": "logging.yml",
+        "style_detection": "style_detection.yml",
     }
 
     def __init__(self) -> None:
@@ -61,6 +61,9 @@ class ConfigManager(metaclass=_Singleton):
     def get_logging_config(self) -> Dict[str, Any]:
         return self._data.get("logging", {})
 
+    def get_style_detection(self) -> Dict[str, Any]:
+        return self._data.get("style_detection", {})
+
     # ------------------------------------------------------------------
     # Internal loading logic
     # ------------------------------------------------------------------
@@ -75,37 +78,49 @@ class ConfigManager(metaclass=_Singleton):
             self._data = self._builtin_defaults()
             return
 
+        startup_summary = []
+        
         for key, filename in self._DEFAULT_FILENAMES.items():
             merged_cfg: Dict[str, Any] = {}
+            status = "missing"
 
             # 1. load packaged default
             try:
                 with pkg_resources.open_text(__package__, filename) as fh:
-                    merged_cfg.update(yaml.safe_load(fh) or {})
+                    packaged_data = yaml.safe_load(fh) or {}
+                    merged_cfg.update(packaged_data)
+                    status = "loaded"
             except (FileNotFoundError, OSError):
-                logger.debug("No packaged config for %s", key)
+                logger.error("Missing packaged config for %s (%s)", key, filename)
+                status = "missing"
+            except Exception as exc:
+                logger.error("Invalid packaged config for %s (%s): %s", key, filename, exc)
+                status = "invalid"
 
             # 2. load user overrides (~/.orlando_toolkit)
             user_path = Path.home() / ".orlando_toolkit" / filename
             if user_path.exists():
                 try:
-                    merged_cfg.update(yaml.safe_load(user_path.read_text()) or {})
+                    user_data = yaml.safe_load(user_path.read_text()) or {}
+                    merged_cfg.update(user_data)
+                    if status == "loaded":
+                        status = "loaded+overrides"
                 except Exception as exc:
                     logger.error("Could not parse user config %s: %s", user_path, exc)
 
             self._data[key] = merged_cfg
+            startup_summary.append(f"{key}: {status}")
 
-        # Ensure fallbacks for missing sections
-        defaults = self._builtin_defaults()
-        for k, v in defaults.items():
-            self._data.setdefault(k, v)
+        # Log startup summary
+        logger.info("Config startup: %s", " | ".join(startup_summary))
 
     @staticmethod
     def _builtin_defaults() -> Dict[str, Dict[str, Any]]:
-        """Return hard-coded defaults to guarantee behaviour parity."""
+        """Return neutral empty mappings (no business rules embedded)."""
         return {
             "style_map": {},
             "color_rules": {},
             "image_naming": {},
             "logging": {},
+            "style_detection": {},
         } 

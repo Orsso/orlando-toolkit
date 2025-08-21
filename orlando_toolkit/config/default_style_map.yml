@@ -1,0 +1,17 @@
+# Default style map configuration
+# This file defines default style to heading level mappings
+# Users can override these mappings in ~/.orlando_toolkit/default_style_map.yml
+# 
+# Format:
+#   "Style Name": heading_level
+#
+# Example entries (commented out by default):
+# "Heading 1": 1
+# "Heading 2": 2
+# "Heading 3": 3
+# "Title": 1
+# "Chapter": 1
+# "Section": 2
+
+# Empty mapping by default - automatic detection will be used
+{}

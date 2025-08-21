@@ -96,8 +96,9 @@ class ConversionService:
             _ses = StructureEditingService()
             _res = _ses.apply_depth_limit(context, depth_limit, style_excl_map or None)
             if not _res.success:
-                from orlando_toolkit.core.models import OperationResult  # ensure symbol exists locally if needed
-                return OperationResult(False, "Failed to apply depth limit", {"depth_limit": depth_limit})
+                # Log warning but continue with current context instead of returning different type
+                self.logger.warning("Failed to apply depth limit: %s", _res.message)
+                # Continue with current context - packaging will still succeed
 
         # Handle legacy title-based exclusions separately (if still needed)
         exclude_titles = set(context.metadata.get("exclude_headings", []))

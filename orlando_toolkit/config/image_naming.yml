@@ -1,0 +1,20 @@
+# Image naming configuration
+# Controls how extracted images are renamed during export
+# Users can override these settings in ~/.orlando_toolkit/image_naming.yml
+
+# Prefix for all image filenames
+prefix: "IMG"
+
+# Naming pattern with tokens:
+#   {prefix} - The prefix value above
+#   {manual_code} - Manual code from metadata
+#   {section} - Section number (e.g., "1", "2-1", "3-2-1")
+#   {-index} - Image index within section (only added when multiple images)
+#   {ext} - Original file extension
+pattern: "{prefix}-{manual_code}-{section}{-index}{ext}"
+
+# Starting number for image indices within each section
+index_start: 1
+
+# Zero-padding for image indices (0 = no padding, 2 = "01", "02", etc.)
+index_zero_pad: 0
