@@ -208,6 +208,7 @@ if exist "%SRC_ROOT%version_info.txt" (
     --icon "%ICON_PATH%" ^
     --add-data="%ADD_DATA1%" ^
     --add-data="%ADD_DATA2%" ^
+    --add-data="%ADD_DATA3%" ^
     --hidden-import tkinter ^
     --hidden-import tkinter.ttk ^
     --hidden-import tkinter.filedialog ^
@@ -215,6 +216,8 @@ if exist "%SRC_ROOT%version_info.txt" (
     --hidden-import tkinter.scrolledtext ^
     --hidden-import tkinter.font ^
     --hidden-import tkinter.constants ^
+    --hidden-import tkinterweb ^
+    --collect-all tkinterweb ^
     --version-file "%SRC_ROOT%version_info.txt" ^
     "%ENTRY_SCRIPT%" >> "%LOG_FILE%" 2>&1
 ) else (
@@ -227,6 +230,7 @@ if exist "%SRC_ROOT%version_info.txt" (
     --icon "%ICON_PATH%" ^
     --add-data="%ADD_DATA1%" ^
     --add-data="%ADD_DATA2%" ^
+    --add-data="%ADD_DATA3%" ^
     --hidden-import tkinter ^
     --hidden-import tkinter.ttk ^
     --hidden-import tkinter.filedialog ^
@@ -234,6 +238,8 @@ if exist "%SRC_ROOT%version_info.txt" (
     --hidden-import tkinter.scrolledtext ^
     --hidden-import tkinter.font ^
     --hidden-import tkinter.constants ^
+    --hidden-import tkinterweb ^
+    --collect-all tkinterweb ^
     "%ENTRY_SCRIPT%" >> "%LOG_FILE%" 2>&1
 )
 set "BUILD_STATUS=%errorlevel%"
