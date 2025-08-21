@@ -217,7 +217,7 @@ def main() -> bool:
         "--add-data",
         f"{project_root / 'orlando_toolkit' / 'config'};orlando_toolkit/config",  # Include config data
         "--add-data",
-        f"{project_root / 'orlando_toolkit' / 'core' / 'preview' / 'templates'};orlando_toolkit/core/preview/templates",  # Include XSLT templates
+        f"{project_root / 'orlando_toolkit' / 'core' / 'preview' / 'templates'};orlando_toolkit/core/preview/templates",  # Include XSLT templates (package resources)
         "--hidden-import",
         "tkinter",
         "--hidden-import",

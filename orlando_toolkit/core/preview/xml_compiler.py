@@ -10,6 +10,7 @@ that it can be reused in tests, CLI tools or future features.
 from typing import Optional, TYPE_CHECKING
 from lxml import etree as ET  # type: ignore
 import os
+import importlib.resources as pkg_resources
 from orlando_toolkit.config import ConfigManager
 
 if TYPE_CHECKING:  # pragma: no cover - for type checkers only
@@ -24,17 +25,29 @@ __all__ = [
 
 
 def _load_xslt_template_with_colors() -> str:
-    """Load XSLT template and inject dynamic color mappings from config."""
-    # Get path to template file
-    template_dir = os.path.join(os.path.dirname(__file__), 'templates')
-    template_path = os.path.join(template_dir, 'dita_to_html.xslt')
-    
-    with open(template_path, 'r', encoding='utf-8') as f:
-        template_content = f.read()
-    
+    """Load XSLT template and inject dynamic color mappings from config.
+
+    Uses package resources when available (works in dev and frozen executables),
+    with a filesystem fallback relative to this module.
+    """
+    template_content: str
+    # 1) Preferred: read from package resources
+    try:
+        template_content = (
+            pkg_resources.files("orlando_toolkit.core.preview.templates")
+            .joinpath("dita_to_html.xslt")
+            .read_text(encoding="utf-8")
+        )
+    except Exception:
+        # 2) Fallback: read from filesystem relative to this file
+        template_dir = os.path.join(os.path.dirname(__file__), 'templates')
+        template_path = os.path.join(template_dir, 'dita_to_html.xslt')
+        with open(template_path, 'r', encoding='utf-8') as f:
+            template_content = f.read()
+
     # Generate XSLT color mappings
     color_mappings_xslt = _generate_color_mappings_xslt()
-    
+
     # Inject color mappings into template
     return template_content.replace('<!-- COLOR_MAPPINGS_PLACEHOLDER -->', color_mappings_xslt)
 
