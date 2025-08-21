@@ -216,6 +216,8 @@ def main() -> bool:
         f"{project_root / 'assets'};assets",  # Include assets folder
         "--add-data",
         f"{project_root / 'orlando_toolkit' / 'config'};orlando_toolkit/config",  # Include config data
+        "--add-data",
+        f"{project_root / 'orlando_toolkit' / 'core' / 'preview' / 'templates'};orlando_toolkit/core/preview/templates",  # Include XSLT templates
         "--hidden-import",
         "tkinter",
         "--hidden-import",
