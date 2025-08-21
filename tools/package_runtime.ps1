@@ -47,6 +47,8 @@ if (Test-Path $ExtractDir) { Remove-Item -Recurse -Force $ExtractDir }
 New-Item -ItemType Directory -Force -Path $ExtractDir | Out-Null
 
 & $WinPySfx -y -o"$ExtractDir" | Out-Null
+# Reset native exit code to avoid propagating non-fatal codes
+$global:LASTEXITCODE = 0
 
 # Find python runtime directory (python-*) that contains pythonw.exe
 $PythonDir = Get-ChildItem -Path $ExtractDir -Directory -Recurse -ErrorAction SilentlyContinue |
@@ -67,7 +69,9 @@ New-Item -ItemType Directory -Force -Path $BundleApp | Out-Null
 # Copy runtime (only the python-* directory contents to keep size sane)
 Write-Host "Copying Python runtime..." -ForegroundColor Cyan
 robocopy "$($PythonDir.FullName)" "$BundleRuntime" /E /NFL /NDL /NJH /NJS /NP | Out-Null
-if ($LASTEXITCODE -ge 8) { throw "Failed to copy Python runtime (robocopy exit $LASTEXITCODE)." }
+$rc = $LASTEXITCODE
+if ($rc -ge 8) { throw "Failed to copy Python runtime (robocopy exit $rc)." }
+$global:LASTEXITCODE = 0
 
 # Ensure pip and install dependencies into runtime
 $PythonExe = Join-Path $BundleRuntime 'python.exe'
@@ -90,7 +94,9 @@ foreach ($f in $AppFiles) {
     if (Test-Path $src) {
         if ((Get-Item $src).PSIsContainer) {
             robocopy "$src" "$BundleApp\$f" /E /NFL /NDL /NJH /NJS /NP | Out-Null
-            if ($LASTEXITCODE -ge 8) { throw "Failed to copy folder $f (robocopy exit $LASTEXITCODE)." }
+            $rc = $LASTEXITCODE
+            if ($rc -ge 8) { throw "Failed to copy folder $f (robocopy exit $rc)." }
+            $global:LASTEXITCODE = 0
         } else {
             Copy-Item -LiteralPath $src -Destination (Join-Path $BundleApp (Split-Path $src -Leaf)) -Force
         }
@@ -128,3 +134,4 @@ $HashV = (Get-FileHash -Algorithm SHA256 -LiteralPath $ZipVersioned).Hash
 "$HashV *$($ZipVersioned | Split-Path -Leaf)" | Out-File -Encoding ASCII -NoNewline -FilePath (Join-Path $OutDir "$(Split-Path $ZipVersioned -Leaf).sha256")
 
 Write-Host "Done. Output in: $OutDir" -ForegroundColor Green
+$global:LASTEXITCODE = 0
