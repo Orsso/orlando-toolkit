@@ -191,6 +191,7 @@ echo     Using inline PyInstaller build... >> "%LOG_FILE%"
 set "ICON_PATH=%SRC_ROOT%assets\app_icon.ico"
 set "ADD_DATA1=%SRC_ROOT%assets;assets"
 set "ADD_DATA2=%SRC_ROOT%orlando_toolkit\config;orlando_toolkit/config"
+set "ADD_DATA3=%SRC_ROOT%orlando_toolkit\core\preview\templates;orlando_toolkit/core/preview/templates"
 
 :: Decide entry script (prefer run.py, fallback to orlando_toolkit\app.py)
 set "ENTRY_SCRIPT=run.py"
