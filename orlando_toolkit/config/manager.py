@@ -4,8 +4,10 @@ from __future__ import annotations
 
 This module centralises all declarative rules (style map, colour map, naming
 patterns, etc.).  It loads YAML files packaged with *orlando_toolkit* and
-optionally merges them with user overrides located in
-``~/.orlando_toolkit/*.yml``.
+optionally merges them with user overrides located in Local AppData.
+
+On Windows: ``%LOCALAPPDATA%\\OrlandoToolkit\\config\\*.yml``
+On Unix: ``~/.orlando_toolkit/*.yml``
 
 The class is intentionally lightweight; missing PyYAML falls back to embedded
 Python dictionaries so existing behaviour is never broken.
@@ -14,12 +16,55 @@ Python dictionaries so existing behaviour is never broken.
 import importlib.resources as pkg_resources
 import logging
 import os
+import shutil
 from pathlib import Path
 from typing import Any, Dict
 
 logger = logging.getLogger(__name__)
 
 __all__ = ["ConfigManager"]
+
+
+def _get_user_config_dir() -> Path:
+    """Get the user configuration directory in Local AppData."""
+    if os.name == 'nt':  # Windows
+        local_appdata = os.environ.get('LOCALAPPDATA')
+        if local_appdata:
+            return Path(local_appdata) / "OrlandoToolkit" / "config"
+        else:
+            # Fallback for Windows
+            return Path.home() / "AppData" / "Local" / "OrlandoToolkit" / "config"
+    else:  # Unix-like systems
+        return Path.home() / ".orlando_toolkit"
+
+
+def _ensure_user_configs_exist(user_config_dir: Path, default_filenames: Dict[str, str]) -> None:
+    """Copy default config files to user directory if they don't exist."""
+    try:
+        # Create user config directory if it doesn't exist
+        user_config_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Copy each default config file if user version doesn't exist
+        for key, filename in default_filenames.items():
+            user_config_path = user_config_dir / filename
+            
+            if not user_config_path.exists():
+                try:
+                    # Read packaged default config
+                    with pkg_resources.open_text(__package__, filename) as fh:
+                        default_content = fh.read()
+                    
+                    # Write to user config directory
+                    user_config_path.write_text(default_content, encoding='utf-8')
+                    logger.info("Created user config: %s", user_config_path)
+                    
+                except (FileNotFoundError, OSError) as e:
+                    logger.warning("Could not copy default config %s: %s", filename, e)
+                except Exception as e:
+                    logger.error("Error copying config %s: %s", filename, e)
+                    
+    except Exception as e:
+        logger.error("Could not create user config directory %s: %s", user_config_dir, e)
 
 
 class _Singleton(type):
@@ -80,6 +125,10 @@ class ConfigManager(metaclass=_Singleton):
 
         startup_summary = []
         
+        # Get user config directory and ensure configs exist
+        user_config_dir = _get_user_config_dir()
+        _ensure_user_configs_exist(user_config_dir, self._DEFAULT_FILENAMES)
+        
         for key, filename in self._DEFAULT_FILENAMES.items():
             merged_cfg: Dict[str, Any] = {}
             status = "missing"
@@ -97,8 +146,8 @@ class ConfigManager(metaclass=_Singleton):
                 logger.error("Invalid packaged config for %s (%s): %s", key, filename, exc)
                 status = "invalid"
 
-            # 2. load user overrides (~/.orlando_toolkit)
-            user_path = Path.home() / ".orlando_toolkit" / filename
+            # 2. load user overrides from Local AppData
+            user_path = user_config_dir / filename
             if user_path.exists():
                 try:
                     user_data = yaml.safe_load(user_path.read_text()) or {}

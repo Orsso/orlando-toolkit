@@ -292,7 +292,7 @@ def _process_paragraph_runs(p_element: ET.Element, paragraph: Paragraph, image_m
             content_items.append(run)
 
     current_group: list[str] = []
-    current_formatting: Optional[Tuple[Tuple[str, ...], Optional[str]]] = None
+    current_formatting: Optional[Tuple[Tuple[str, ...], Optional[str], Optional[str]]] = None
 
     color_rules = ConfigManager().get_color_rules()
 
@@ -302,20 +302,34 @@ def _process_paragraph_runs(p_element: ET.Element, paragraph: Paragraph, image_m
             return
         consolidated_text = "".join(current_group)
         formatting_tuple: Tuple[str, ...] = current_formatting[0] if current_formatting else tuple()
-        run_color: Optional[str] = current_formatting[1] if current_formatting else None
+        text_color: Optional[str] = current_formatting[1] if current_formatting else None
+        highlight_color: Optional[str] = current_formatting[2] if current_formatting else None
 
-        if formatting_tuple or run_color:
+        if formatting_tuple or text_color or highlight_color:
             target_element: Optional[ET.Element] = None
             innermost_element: Optional[ET.Element] = None
 
-            # Base <ph> for colour
-            if run_color:
+            # Outermost: highlight <ph> for background color
+            if highlight_color:
                 target_element = ET.Element("ph", id=generate_dita_id())
                 target_element.set("class", "- topic/ph ")
-                color_class = convert_color_to_outputclass(run_color, color_rules)
+                color_class = convert_color_to_outputclass(highlight_color, color_rules)
                 if color_class:
                     target_element.set("outputclass", color_class)
                 innermost_element = target_element
+
+            # Second: text color <ph>
+            if text_color:
+                text_ph = ET.Element("ph", id=generate_dita_id())
+                text_ph.set("class", "- topic/ph ")
+                color_class = convert_color_to_outputclass(text_color, color_rules)
+                if color_class:
+                    text_ph.set("outputclass", color_class)
+                if innermost_element is not None:
+                    innermost_element.append(text_ph)
+                else:
+                    target_element = text_ph
+                innermost_element = text_ph
 
             def _nest(tag: str) -> ET.Element:
                 nonlocal target_element, innermost_element
@@ -328,6 +342,7 @@ def _process_paragraph_runs(p_element: ET.Element, paragraph: Paragraph, image_m
                 innermost_element = el
                 return el
 
+            # Innermost: formatting elements
             if "bold" in formatting_tuple:
                 _nest("b")
             if "italic" in formatting_tuple:
@@ -385,18 +400,19 @@ def _process_paragraph_runs(p_element: ET.Element, paragraph: Paragraph, image_m
         if run.font.superscript or (vert_align and vert_align[0] == "superscript"):
             run_format.append("superscript")
 
-        # colour extraction (simplified)
-        run_color: Optional[str] = None
+        # colour extraction (separated text and highlight colors)
+        text_color: Optional[str] = None
+        highlight_color: Optional[str] = None
         try:
             font_color = run.font.color  # type: ignore[attr-defined]
             if font_color:
                 # 1) explicit RGB ------------------------------------------------
                 if font_color.rgb:
-                    run_color = f"#{str(font_color.rgb).lower()}"
+                    text_color = f"#{str(font_color.rgb).lower()}"
                 # 2) theme (no tint/shade) -------------------------------------
                 elif getattr(font_color, "theme_color", None) and not (getattr(font_color, "tint", None) or getattr(font_color, "shade", None)):
                     theme_name = font_color.theme_color.name.lower()  # type: ignore[attr-defined]
-                    run_color = f"theme-{theme_name}"
+                    text_color = f"theme-{theme_name}"
                 # 3) theme + tint/shade ----------------------------------------
                 elif getattr(font_color, "theme_color", None):
                     theme_name = font_color.theme_color.name.lower()  # type: ignore[attr-defined]
@@ -415,15 +431,15 @@ def _process_paragraph_runs(p_element: ET.Element, paragraph: Paragraph, image_m
                             r, g, b = (_lerp(v, 255, tint) for v in (r, g, b))
                         elif shade:
                             r, g, b = (_lerp(v, 0, shade) for v in (r, g, b))
-                        run_color = f"#{r:02x}{g:02x}{b:02x}"
+                        text_color = f"#{r:02x}{g:02x}{b:02x}"
             # 4) highlight (background) ----------------------------------------
             hl = run.font.highlight_color  # type: ignore[attr-defined]
-            if not run_color and hl is not None and hl != WD_COLOR_INDEX.AUTO:
-                run_color = f"background-{hl.name.lower()}"
+            if hl is not None and hl != WD_COLOR_INDEX.AUTO:
+                highlight_color = f"background-{hl.name.lower()}"
         except Exception:
             pass
 
-        fmt_tuple: Tuple[Tuple[str, ...], Optional[str]] = (tuple(run_format), run_color)
+        fmt_tuple: Tuple[Tuple[str, ...], Optional[str], Optional[str]] = (tuple(run_format), text_color, highlight_color)
         if current_formatting == fmt_tuple:
             current_group.append(run_text)
         else:

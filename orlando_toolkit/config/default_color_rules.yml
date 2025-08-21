@@ -113,4 +113,41 @@ tolerance:
   color-magenta:
     hue: [301, 340]
     sat_min: 50
-    val_min: 50 
+    val_min: 50
+
+# --------------------------------------------------------------------------
+# CSS Styles for Preview
+# Maps DITA outputclass names to actual CSS styles for HTML preview
+# --------------------------------------------------------------------------
+
+css_styles:
+  # Background/highlight colors
+  'background-color-yellow': 'background-color:#fff2cc;'
+  'background-color-green': 'background-color:#e2f4e2;'
+  'background-color-cyan': 'background-color:#d5e8f7;'
+  'background-color-light-red': 'background-color:#ffd6d6;'
+  'background-color-blue': 'background-color:#cfe2f3;'
+  'background-color-dark-blue': 'background-color:#9fc5e8;'
+  'background-color-amber': 'background-color:#fce5cd;'
+  'background-color-violet': 'background-color:#e1d5e7;'
+  'background-color-magenta': 'background-color:#f4cccc;'
+  'background-color-light-gray': 'background-color:#f3f3f3;'
+  'background-color-dark-gray': 'background-color:#cccccc;'
+  'background-color-white': 'background-color:#ffffff;'
+  'background-color-black': 'background-color:#000000;color:#ffffff;'
+  # Text colors
+  'color-red': 'color:#c00000;'
+  'color-light-red': 'color:#ff9999;'
+  'color-brown': 'color:#7f6000;'
+  'color-light-brown': 'color:#c69c6d;'
+  'color-green': 'color:#00b050;'
+  'color-light-green': 'color:#92d050;'
+  'color-blue': 'color:#0070c0;'
+  'color-dark-blue': 'color:#002060;'
+  'color-cyan': 'color:#00b0f0;'
+  'color-amber': 'color:#ffc000;'
+  'color-yellow': 'color:#ffff00;'
+  'color-light-yellow': 'color:#fff2cc;'
+  'color-purple': 'color:#7030a0;'
+  'color-magenta': 'color:#ff00ff;'
+  'color-violet': 'color:#8e7cc3;' 
