@@ -51,21 +51,29 @@ index_zero_pad: 0
 
 ### style_detection.yml
 
-Controls document structure analysis behavior:
+Structural analysis control:
 
 ```yaml
-# Enable enhanced style detection algorithm
-use_enhanced_style_detection: true
+# Enables structural inference (adding missing title styles based on content patterns)
+enable_structural_style_inference: true
 
-# Use structural analysis to improve heading detection
+# Upward compatibility (old keys still read if present)
+use_enhanced_style_detection: true
 use_structural_analysis: true
 
-# Minimum number of following paragraphs to consider when analyzing structure
+# Minimum number of paragraphs required for a style to
 min_following_paragraphs: 3
 
-# Enable generic heading pattern matching (e.g., "HEADING 5 GM")
+# Enables generic detection by name (e.g., “HEADING 5
 generic_heading_match: true
 ```
+
+Priority and merging of strategies:
+- Word base (outline, inheritance, built-in styles, numbering) → primary source
+- Structural inference (if enabled) → complete only (does not overwrite)
+- Packaged STYLE_MAP → complete only (does not overwrite)
+- Generic heading match → complete only (does not overwrite)
+- User overrides (`metadata.style_heading_map`) → highest priority (may overwrite)
 
 ### logging.yml
 

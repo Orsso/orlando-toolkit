@@ -2,11 +2,8 @@
 # Controls behavior of style analysis during document conversion
 # Users can override these settings in ~/.orlando_toolkit/style_detection.yml
 
-# Enable enhanced style detection algorithm
-use_enhanced_style_detection: true
-
-# Use structural analysis to improve heading detection
-use_structural_analysis: true
+# Enable structural style inference (adds missing heading styles based on content patterns)
+enable_structural_style_inference: true
 
 # Minimum number of following paragraphs to consider when analyzing structure
 min_following_paragraphs: 3

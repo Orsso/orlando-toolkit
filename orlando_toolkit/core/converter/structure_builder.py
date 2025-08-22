@@ -239,7 +239,6 @@ def generate_dita_from_structure(
     all_images_map_rid: dict,
     parent_element: ET.Element,
     heading_counters: list,
-    parent_elements: dict
 ) -> None:
     """Generate DITA topics and map structure from hierarchical document structure.
     
@@ -260,8 +259,7 @@ def generate_dita_from_structure(
         Parent element in ditamap for topicref creation
     heading_counters
         Heading counters for TOC indexing
-    parent_elements
-        Parent elements mapping for hierarchy
+    (no parent-elements mapping needed)
     """
     for node in nodes:
         level = node.level
@@ -303,51 +301,40 @@ def generate_dita_from_structure(
             if node.style_name:
                 topichead.set("data-style", node.style_name)
             
-            # Note: No topic file created for sections
-            parent_elements[level] = topichead
-            
-            # If section has effective content, create a content module child for it
-            if _has_effective_content(node.content_blocks):
-                module_file = f"topic_{uuid.uuid4().hex[:10]}.dita"
-                module_id = module_file.replace(".dita", "")
-                
-                module_concept, module_conbody = create_dita_concept(
-                    node.text,  # Same title as section
-                    module_id,
-                    metadata.get("revision_date", datetime.now().strftime("%Y-%m-%d")),
-                )
-                
-                # Add content to module
-                _add_content_to_topic(
-                    module_conbody,
-                    node.content_blocks,
-                    all_images_map_rid,
-                    table_context={"toc_index": toc_index, "title": node.text},
-                )
-                
-                # Create module topicref as child of section topichead
+            # If section has content, create a content module child for it (single-pass)
+            module_file = f"topic_{uuid.uuid4().hex[:10]}.dita"
+            module_id = module_file.replace(".dita", "")
+            module_concept, module_conbody = create_dita_concept(
+                node.text,
+                module_id,
+                metadata.get("revision_date", datetime.now().strftime("%Y-%m-%d")),
+            )
+            added_any = _add_content_to_topic(
+                module_conbody,
+                node.content_blocks,
+                all_images_map_rid,
+                table_context={"toc_index": toc_index, "title": node.text},
+            )
+            if added_any:
                 module_topicref = ET.SubElement(
                     topichead,
                     "topicref",
                     {"href": f"topics/{module_file}", "locktitle": "yes"},
                 )
-                # Ensure structural metadata for correct merge/filter behavior
                 try:
                     module_topicref.set("data-level", str(level + 1))
                     module_topicref.set("data-style", f"Heading {level + 1}")
                 except Exception:
                     pass
-                
                 tm = ET.SubElement(module_topicref, "topicmeta")
                 nt = ET.SubElement(tm, "navtitle")
                 nt.text = node.text
-                
                 context.topics[module_file] = module_concept
             
             # Process children recursively
             generate_dita_from_structure(
                 node.children, context, metadata, all_images_map_rid,
-                topichead, heading_counters, parent_elements
+                topichead, heading_counters
             )
             
         else:  # node.role == "module"
@@ -392,12 +379,10 @@ def generate_dita_from_structure(
             
             # Store in context
             context.topics[file_name] = module_concept
-            parent_elements[level] = topicref
-            
             # Process children recursively (modules can have children too)
             generate_dita_from_structure(
                 node.children, context, metadata, all_images_map_rid,
-                topicref, heading_counters, parent_elements
+                topicref, heading_counters
             )
 
 
@@ -407,7 +392,7 @@ def _add_content_to_topic(
     all_images_map_rid: dict,
     *,
     table_context: dict | None = None,
-) -> None:
+) -> bool:
     """Add content blocks to a topic's conbody element.
     
     Parameters
@@ -424,35 +409,38 @@ def _add_content_to_topic(
     _table_counter = 0
     _tb_logger = logging.getLogger("orlando_toolkit.core.generators.dita_builder")
     
+    added_any = False
     for block in content_blocks:
         if isinstance(block, Table):
             current_list = None
             current_sl = None
             _table_counter += 1
-            try:
-                ctx_idx = table_context.get("toc_index") if isinstance(table_context, dict) else None
-                ctx_title = table_context.get("title") if isinstance(table_context, dict) else None
-            except Exception:
-                ctx_idx = None
-                ctx_title = None
-            loc_label = f"[{ctx_idx}] {ctx_title}" if ctx_idx and ctx_title else "[unknown]"
-            try:
-                declared_cols = len(getattr(block, "columns", []))
-                declared_rows = len(getattr(block, "rows", []))
-            except Exception:
-                declared_cols = 0
-                declared_rows = 0
-            _tb_logger.debug(
-                "Converting table #%d at %s (rows=%s, cols=%s)",
-                _table_counter,
-                loc_label,
-                declared_rows,
-                declared_cols,
-            )
+            if _tb_logger.isEnabledFor(logging.DEBUG):
+                try:
+                    ctx_idx = table_context.get("toc_index") if isinstance(table_context, dict) else None
+                    ctx_title = table_context.get("title") if isinstance(table_context, dict) else None
+                except Exception:
+                    ctx_idx = None
+                    ctx_title = None
+                loc_label = f"[{ctx_idx}] {ctx_title}" if ctx_idx and ctx_title else "[unknown]"
+                try:
+                    declared_cols = len(getattr(block, "columns", []))
+                    declared_rows = len(getattr(block, "rows", []))
+                except Exception:
+                    declared_cols = 0
+                    declared_rows = 0
+                _tb_logger.debug(
+                    "Converting table #%d at %s (rows=%s, cols=%s)",
+                    _table_counter,
+                    loc_label,
+                    declared_rows,
+                    declared_cols,
+                )
             
             p_for_table = ET.SubElement(conbody, "p", id=generate_dita_id())
             dita_table = create_dita_table(block, all_images_map_rid)
             p_for_table.append(dita_table)
+            added_any = True
             
         elif isinstance(block, Paragraph):
             # Check if it's a list item
@@ -474,6 +462,7 @@ def _add_content_to_topic(
                         img_filename = os.path.basename(all_images_map_rid[r_ids[0]])
                         ET.SubElement(sli, "image", href=f"../media/{img_filename}", id=generate_dita_id())
                         break
+                added_any = True
             elif is_list_item:
                 current_sl = None
                 list_style = "ul"
@@ -482,6 +471,7 @@ def _add_content_to_topic(
                 li = ET.SubElement(current_list, "li", id=generate_dita_id())
                 p_in_li = ET.SubElement(li, "p", id=generate_dita_id())
                 process_paragraph_content_and_images(p_in_li, block, all_images_map_rid, None)
+                added_any = True
             else:
                 current_list = None
                 current_sl = None
@@ -490,3 +480,5 @@ def _add_content_to_topic(
                 p_el = ET.SubElement(conbody, "p", id=generate_dita_id())
                 apply_paragraph_formatting(p_el, block)
                 process_paragraph_content_and_images(p_el, block, all_images_map_rid, conbody) 
+                added_any = True
+    return added_any
