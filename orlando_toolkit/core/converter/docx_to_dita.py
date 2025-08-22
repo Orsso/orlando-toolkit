@@ -108,7 +108,6 @@ def convert_docx_to_dita(file_path: str, metadata: Dict[str, Any]) -> DitaContex
         structural_ms = 0
 
         if enable_structural:
-            logger.info("Analyzing document structure...")
             st_t0 = time.perf_counter()
             try:
                 structural_styles = _analyze_structural_patterns(doc, mfp_int)
@@ -123,7 +122,7 @@ def convert_docx_to_dita(file_path: str, metadata: Dict[str, Any]) -> DitaContex
             structural_added = len(style_heading_map) - before
             structural_ms = int((time.perf_counter() - st_t0) * 1000)
         else:
-            logger.info("Analyzing document structure...")
+            pass
 
         # Apply legacy and user overrides with clear priority order
         logger.debug(f"Base style map: {len(base_map)} styles")
