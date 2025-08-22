@@ -147,6 +147,23 @@ class ContextMenuHandler:
         if added_primary:
             menu.add_separator()
 
+        # Optional: Add Section (custom zero-arg command)
+        custom_add_section_command = None
+        can_add_section = False
+        try:
+            if isinstance(context, dict):
+                custom_add_section_command = context.get("on_add_section_command")
+                can_add_section = bool(context.get("force_can_add_section", False))
+        except Exception:
+            custom_add_section_command = None
+            can_add_section = False
+        if custom_add_section_command is not None:
+            menu.add_command(
+                label="➕ Add section…",
+                state=(tk.NORMAL if can_add_section else tk.DISABLED),
+                command=lambda: self._execute_simple_command(custom_add_section_command),
+            )
+
         # Merge
         custom_merge_command = None
         try:

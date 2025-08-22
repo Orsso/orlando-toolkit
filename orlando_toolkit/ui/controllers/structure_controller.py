@@ -421,6 +421,22 @@ class StructureController:
         except Exception:
             return OperationResult(success=False, message="Section merge failed")
 
+    def handle_add_section_after(self, index_path: List[int], title: str) -> OperationResult:
+        """Insert a new section below the structural node at index_path.
+
+        Delegates to editing_service.insert_section_after_index_path with undo snapshots.
+        """
+        if not isinstance(index_path, list) or not index_path:
+            return OperationResult(success=False, message="No reference selected to insert after")
+        if not isinstance(title, str) or not title.strip():
+            return OperationResult(success=False, message="Empty title is not allowed")
+        try:
+            return self._recorded_edit(
+                lambda: self.editing_service.insert_section_after_index_path(self.context, index_path, title)
+            )
+        except Exception:
+            return OperationResult(success=False, message="Failed to add section")
+
     def handle_rename_section(self, index_path: List[int], new_title: str) -> OperationResult:
         """Rename a section (topichead) title at index_path.
 

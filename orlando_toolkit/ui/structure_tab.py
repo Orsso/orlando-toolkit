@@ -1130,6 +1130,28 @@ class StructureTab(ttk.Frame):
             except Exception:
                 pass
 
+            # - Add Section: available when clicking a single structural item (topic or section)
+            try:
+                # Compute a reference index_path for the item under cursor when available
+                item_id = None
+                try:
+                    item_id = info.get("item_id") if isinstance(info, dict) else None
+                except Exception:
+                    item_id = None
+                index_path_for_add = []
+                if isinstance(item_id, str) and item_id:
+                    try:
+                        index_path_for_add = self._tree.get_index_path_for_item_id(item_id)  # type: ignore[attr-defined]
+                    except Exception:
+                        index_path_for_add = []
+                # Enable Add Section only when a single structural item is under cursor
+                can_add = bool(index_path_for_add)
+                if can_add:
+                    ctx["on_add_section_command"] = (lambda p=index_path_for_add: self._ctx_add_section_below(p))
+                    ctx["force_can_add_section"] = True
+            except Exception:
+                pass
+
             # Build Send-to destinations submenu entries
             try:
                 ctrl = self._controller
@@ -1413,6 +1435,68 @@ class StructureTab(ttk.Frame):
             res = self._controller.handle_merge_section(index_path)  # type: ignore[attr-defined]
             if not getattr(res, "success", False):
                 return
+            self._refresh_tree()
+        except Exception:
+            pass
+
+    def _ctx_add_section_below(self, index_path: List[int]) -> None:
+        try:
+            if not isinstance(index_path, list) or not index_path:
+                return
+            # Prompt for section name
+            try:
+                from orlando_toolkit.ui.dialogs.rename_dialog import RenameDialog
+                title = RenameDialog.ask_string(self, "Add section", "Section title:", initialvalue="")
+            except Exception:
+                from tkinter import simpledialog
+                title = simpledialog.askstring("Add section", "Section title:", parent=self)
+            if not title:
+                return
+            ctrl = self._controller
+            if ctrl is None:
+                return
+            res = ctrl.handle_add_section_after(index_path, title)  # type: ignore[attr-defined]
+            if not getattr(res, "success", False):
+                return
+            # Depth expansion policy: if new section level exceeds current depth, prompt to expand
+            try:
+                new_level = None
+                try:
+                    details = getattr(res, "details", None)
+                    if isinstance(details, dict):
+                        new_level = details.get("new_level")
+                except Exception:
+                    new_level = None
+                if isinstance(new_level, int):
+                    current_depth = int(getattr(ctrl, "max_depth", 999))
+                    # Prompt when creating at or beyond the current max depth, since immediate contents would be hidden
+                    if new_level >= current_depth:
+                        target_depth = int(new_level) + 1
+                        # Session flag: auto expand without prompting
+                        auto = bool(getattr(self, "_auto_expand_on_section_creation", False))
+                        if auto:
+                            try:
+                                if hasattr(self, "_depth_var"):
+                                    self._depth_var.set(int(target_depth))
+                                self._on_depth_changed()
+                            except Exception:
+                                pass
+                        else:
+                            try:
+                                from orlando_toolkit.ui.dialogs.expand_depth_prompt import ExpandDepthPrompt
+                                prompt = ExpandDepthPrompt(self, new_level=int(new_level), current_depth=int(current_depth), target_depth=int(target_depth))
+                                expand, dont_ask = prompt.show()
+                                if expand:
+                                    if hasattr(self, "_depth_var"):
+                                        self._depth_var.set(int(target_depth))
+                                    self._on_depth_changed()
+                                if dont_ask:
+                                    setattr(self, "_auto_expand_on_section_creation", True)
+                            except Exception:
+                                # Fallback: do nothing on prompt failure
+                                pass
+            except Exception:
+                pass
             self._refresh_tree()
         except Exception:
             pass

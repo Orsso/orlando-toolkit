@@ -33,7 +33,6 @@ from typing import Any, Dict, List, Optional, Literal
 from lxml import etree as ET  # type: ignore
 
 from orlando_toolkit.core.models import DitaContext
-from orlando_toolkit.core import merge
 
 
 __all__ = ["OperationResult", "StructureEditingService"]
@@ -581,9 +580,15 @@ class StructureEditingService:
             # Get current node info
             current_node, current_parent, current_index_in_parent = linear_view[current_index]
             
-            # Case 1: Moving within same parent (simple sibling movement)
+            # Case 1: Moving within same parent
             if current_parent is target_parent:
-                # Use existing sibling movement logic
+                # If the previous item is a section, enter it as last child
+                if getattr(target_node, "tag", None) == "topichead":
+                    self._reparent_node(node, current_parent, target_node, 10**9)
+                    target_level = self._calculate_target_level(node, target_node)
+                    self._apply_level_adaptation(node, target_level)
+                    return True
+                # Otherwise perform simple sibling movement
                 res = self._move_sibling(context, current_parent, node, delta=-1)
                 return bool(res.success)
             
@@ -998,6 +1003,89 @@ class StructureEditingService:
         context.topics = {fn: el for fn, el in context.topics.items() if fn in hrefs}
 
     # ----------------------- Section operations -----------------------
+
+    def insert_section_after_index_path(self, context: DitaContext, index_path: List[int], title: str) -> OperationResult:
+        """Insert a new section (topichead) directly below the structural node at index_path.
+
+        The new section is created as a sibling under the same parent. It sets
+        topicmeta/navtitle to the provided title and applies level/style
+        attributes consistent with other structural operations.
+        """
+        logger.info("Edit: insert_section_after_index_path index_path=%s", str(index_path))
+        root = getattr(context, "ditamap_root", None)
+        if root is None:
+            return OperationResult(False, "No ditamap available in context.")
+        cleaned = " ".join((title or "").split())
+        if not cleaned:
+            return OperationResult(False, "Empty title is not allowed")
+        try:
+            # Locate the reference node and its parent using structural indexing
+            ref_node = self._locate_node_by_index_path(context, index_path)
+            if ref_node is None or getattr(ref_node, "tag", None) not in ("topicref", "topichead"):
+                return OperationResult(False, "Reference node not found for insertion.", {"index_path": list(index_path or [])})
+
+            parent = ref_node.getparent() or root
+
+            # Compute insertion raw index in parent's children to place after the ref structural sibling
+            # Build structural and raw children lists once
+            raw_children = list(parent)
+            structural_children = [el for el in raw_children if getattr(el, "tag", None) in ("topicref", "topichead")]
+            try:
+                sidx_after = structural_children.index(ref_node) + 1
+            except ValueError:
+                # Fallback: append at end of structural list
+                sidx_after = len(structural_children)
+
+            if sidx_after >= len(structural_children):
+                # Insert after last structural child -> before first non-structural that follows, or append
+                if structural_children:
+                    last_struct = structural_children[-1]
+                    insert_at = raw_children.index(last_struct) + 1
+                else:
+                    insert_at = len(raw_children)
+            else:
+                # Insert before the next structural child in raw list
+                next_struct = structural_children[sidx_after]
+                insert_at = raw_children.index(next_struct)
+
+            # Create the new section node
+            new_section = ET.Element("topichead")
+            # Ensure navtitle
+            topicmeta = ET.SubElement(new_section, "topicmeta")
+            navtitle = ET.SubElement(topicmeta, "navtitle")
+            navtitle.text = cleaned
+
+            # Insert into parent at computed raw index
+            try:
+                parent.insert(insert_at, new_section)
+            except Exception:
+                parent.append(new_section)
+
+            # Apply level/style for the new section
+            target_level = self._calculate_target_level(new_section, parent)
+            self._apply_level_adaptation(new_section, target_level)
+
+            # Persist baseline so future merges start from current structure
+            self._invalidate_original_structure(context)
+
+            # New structural path is the same parent path with last index + 1
+            new_path = list(index_path or [])
+            if new_path:
+                new_path[-1] = new_path[-1] + 1
+            else:
+                # If inserted at root before any selection (edge), compute index from tree
+                try:
+                    structural_children = [el for el in list(parent) if getattr(el, "tag", None) in ("topicref", "topichead")]
+                    new_path = [structural_children.index(new_section)]
+                except Exception:
+                    new_path = []
+
+            result = OperationResult(True, "Section inserted.", {"new_index_path": new_path, "new_level": int(target_level) if isinstance(target_level, int) else target_level})
+            logger.info("Edit OK: insert_section_after_index_path at new_path=%s", str(new_path))
+            return result
+        except Exception as e:
+            logger.error("Edit FAIL: insert_section_after_index_path error=%s", e, exc_info=True)
+            return OperationResult(False, "Failed to insert section.", {"error": str(e)})
 
     def convert_section_to_topic(self, context: DitaContext, index_path: List[int]) -> OperationResult:
         """Convert a section (topichead) located by index_path into a topic that hosts its subtree.
