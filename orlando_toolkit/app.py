@@ -24,6 +24,8 @@ from orlando_toolkit.core.services import ConversionService
 from orlando_toolkit.ui.metadata_tab import MetadataTab
 from orlando_toolkit.ui.image_tab import ImageTab
 from orlando_toolkit.ui.widgets.metadata_form import MetadataForm
+from orlando_toolkit.version import get_app_version
+from orlando_toolkit.ui.dialogs.about_dialog import show_about_dialog
 
 logger = logging.getLogger(__name__)
 
@@ -107,9 +109,12 @@ class OrlandoToolkit:
 
         # Discreet version label anchored to the bottom-right of the landing area
         try:
+            version_text = get_app_version()
             if self.version_label is None or not self.version_label.winfo_exists():
-                self.version_label = ttk.Label(self.home_frame, text="v1.1", font=("Arial", 9), foreground="#888888")
+                self.version_label = ttk.Label(self.home_frame, text=version_text, font=("Arial", 9), foreground="#888888")
                 self.version_label.place(relx=1.0, rely=1.0, x=-8, y=-6, anchor="se")
+            else:
+                self.version_label.configure(text=version_text)
         except Exception:
             pass
 
@@ -258,8 +263,16 @@ class OrlandoToolkit:
         self.main_actions_frame = ttk.Frame(self.root)
         self.main_actions_frame.pack(fill="x", padx=10, pady=10)
 
-        ttk.Button(self.main_actions_frame, text="← Back to Home", command=self.back_to_home).pack(side="left")
-        ttk.Button(self.main_actions_frame, text="Generate DITA Package", style="Accent.TButton", command=self.generate_package).pack(side="right")
+        left_actions = ttk.Frame(self.main_actions_frame)
+        left_actions.pack(side="left")
+        ttk.Button(left_actions, text="← Back to Home", command=self.back_to_home).pack(side="left")
+        about_link = ttk.Label(left_actions, text="About", cursor="hand2", foreground="#888888")
+        about_link.pack(side="left", padx=(10, 0), pady=(3, 0))
+        about_link.bind("<Button-1>", lambda e: show_about_dialog(self.root))
+
+        right_actions = ttk.Frame(self.main_actions_frame)
+        right_actions.pack(side="right")
+        ttk.Button(right_actions, text="Generate DITA Package", style="Accent.TButton", command=self.generate_package).pack(side="right")
 
         # Default to Structure view
         try:
