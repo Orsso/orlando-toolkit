@@ -47,9 +47,11 @@ def populate_tree(tree: object, context: object, max_depth: int = 999) -> None:
             traversed = False
 
         if traversed:
-            # Expand and update markers
+            # Apply smart default expansion only on first load
             try:
-                tree.expand_all()
+                if not hasattr(tree, '_has_been_populated'):
+                    tree.expand_all()  # Full expansion on first document load
+                    tree._has_been_populated = True
                 tree._tree.update_idletasks()
             except Exception:
                 pass
@@ -111,9 +113,11 @@ def populate_tree(tree: object, context: object, max_depth: int = 999) -> None:
     except Exception:
         pass
 
-    # Expand, realize geometry, and update markers
+    # Apply smart default expansion only on first load (fallback mode)
     try:
-        tree.expand_all()
+        if not hasattr(tree, '_has_been_populated'):
+            tree.expand_all()  # Full expansion on first document load
+            tree._has_been_populated = True
         tree._tree.update_idletasks()
         try:
             tree.after(0, tree._tree.update_idletasks)

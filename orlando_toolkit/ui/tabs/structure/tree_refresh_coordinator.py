@@ -89,23 +89,15 @@ class TreeRefreshCoordinator:
         except Exception:
             pass
 
-        # Restore expansion state
+        # Restore expansion state directly 
         try:
-            if expanded_refs or expanded_sections:
-                try:
-                    tree.collapse_all()
-                except Exception:
-                    pass
-                try:
-                    if expanded_sections and hasattr(tree, "restore_expanded_sections"):
-                        tree.restore_expanded_sections(expanded_sections)  # type: ignore[attr-defined]
-                except Exception:
-                    pass
-                try:
-                    if expanded_refs:
-                        tree.restore_expanded_items(expanded_refs)
-                except Exception:
-                    pass
+            if expanded_sections and hasattr(tree, "restore_expanded_sections"):
+                tree.restore_expanded_sections(expanded_sections)  # type: ignore[attr-defined]
+        except Exception:
+            pass
+        try:
+            if expanded_refs:
+                tree.restore_expanded_items(expanded_refs)
         except Exception:
             pass
 

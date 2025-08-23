@@ -355,6 +355,47 @@ class StructureController:
             # Non-raising for routine errors: return an unsuccessful result.
             return OperationResult(success=False, message="Move operation failed")
 
+    def handle_multi_move_operation(
+        self, direction: Literal["up", "down"], selected_refs: List[str]
+    ) -> OperationResult:
+        """Handle move operation for multiple consecutive topics.
+        
+        This method validates that the selected topics are consecutive siblings
+        and then delegates to the editing service to move them as a group while
+        preserving their relative order.
+        
+        Parameters
+        ----------
+        direction : Literal["up", "down"]
+            The direction to move the group of topics.
+        selected_refs : List[str]
+            List of topic references that should be moved together.
+            
+        Returns
+        -------
+        OperationResult
+            Success/failure result with appropriate message.
+        """
+        # Validate input
+        if not selected_refs or len(selected_refs) < 2:
+            return OperationResult(
+                success=False, 
+                message="Select at least two consecutive topics to move together"
+            )
+        
+        # Validate that topics are consecutive (this will be delegated to service)
+        try:
+            return self._recorded_edit(
+                lambda: self.editing_service.move_consecutive_topics(
+                    self.context, selected_refs, direction
+                )
+            )
+        except Exception:
+            return OperationResult(
+                success=False, 
+                message="Multi-topic move operation failed"
+            )
+
     def handle_rename(self, topic_ref: str, new_title: str) -> OperationResult:
         """Rename a topic via the editing service wrapped with undo snapshots."""
         if not isinstance(topic_ref, str) or not topic_ref:

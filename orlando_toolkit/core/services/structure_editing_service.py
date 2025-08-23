@@ -128,6 +128,118 @@ class StructureEditingService:
             return res
         return OperationResult(False, f"Unsupported move direction '{direction}'.", {"allowed": ["up", "down"]})
 
+    def move_consecutive_topics(
+        self,
+        context,
+        topic_refs: List[str],
+        direction: Literal["up", "down"]
+    ) -> OperationResult:
+        """Move multiple consecutive topics as a group while preserving their relative order.
+        
+        This method validates that the topics are consecutive siblings, then moves them
+        by applying the existing single-topic intelligent movement logic to each topic
+        in the correct order to maintain group cohesion.
+        
+        Parameters
+        ----------
+        context : DitaContext
+            The DITA context containing the document structure.
+        topic_refs : List[str]
+            List of topic references (hrefs) that should be moved together.
+            These must be consecutive sibling topics.
+        direction : Literal["up", "down"]
+            Direction to move the group of topics.
+            
+        Returns
+        -------
+        OperationResult
+            Result indicating success/failure with appropriate message.
+        """
+        logger.info("Edit: move_consecutive_topics direction=%s count=%d", direction, len(topic_refs or []))
+        
+        # Validate input
+        if not topic_refs or len(topic_refs) < 2:
+            return OperationResult(
+                False, 
+                "At least two topics must be selected for group movement.",
+                {"topic_count": len(topic_refs or [])}
+            )
+        
+        # Resolve all topic nodes
+        nodes = []
+        for ref in topic_refs:
+            node = self._find_topic_ref(context, ref)
+            if node is None:
+                logger.warning("Edit FAIL: move_consecutive_topics topic_not_found topic=%s", ref)
+                return OperationResult(
+                    False, 
+                    f"Topic not found: {ref}",
+                    {"missing_topic": ref}
+                )
+            nodes.append(node)
+        
+        # Validate that all nodes are consecutive siblings
+        if not self._are_nodes_consecutive_siblings(nodes):
+            return OperationResult(
+                False,
+                "Selected topics must be consecutive siblings (no gaps, same parent).",
+                {"topic_refs": topic_refs}
+            )
+        
+        # Use existing single-topic intelligent movement logic
+        # The key insight: move topics individually in the correct order to maintain group cohesion
+        if direction == "up":
+            # For UP movement, move topics from first to last
+            # This maintains their relative order and group positioning
+            topics_to_move = nodes
+        else:  # direction == "down"
+            # For DOWN movement, move topics from last to first
+            # This preserves relative positions as each topic moves to its new location
+            topics_to_move = list(reversed(nodes))
+        
+        success_count = 0
+        for node in topics_to_move:
+            if direction == "up":
+                success = self._move_up_intelligent(context, node)
+            else:
+                success = self._move_down_intelligent(context, node)
+            
+            if success:
+                success_count += 1
+            else:
+                # If any topic can't move, stop the operation
+                # This prevents partial moves that could break document structure
+                break
+        
+        if success_count == len(nodes):
+            # All topics moved successfully
+            self._invalidate_original_structure(context)
+            result = OperationResult(
+                True,
+                f"Moved {len(nodes)} topics {direction} as a group.",
+                {"topic_count": len(nodes), "direction": direction}
+            )
+            logger.info("Edit OK: move_consecutive_topics direction=%s count=%d", direction, len(nodes))
+            return result
+        elif success_count > 0:
+            # Partial success - some topics moved
+            self._invalidate_original_structure(context)
+            result = OperationResult(
+                True,
+                f"Moved {success_count} of {len(nodes)} topics {direction}. Some topics reached boundary.",
+                {"topic_count": success_count, "total_count": len(nodes), "direction": direction}
+            )
+            logger.info("Edit PARTIAL: move_consecutive_topics direction=%s moved=%d total=%d", direction, success_count, len(nodes))
+            return result
+        else:
+            # No topics could be moved
+            logger.info("Edit noop: move_consecutive_topics direction=%s boundary count=%d", direction, len(nodes))
+            return OperationResult(
+                False,
+                f"Cannot move {direction} (at boundary).",
+                {"direction": direction, "topic_count": len(nodes)}
+            )
+
     def merge_topics(self, context, source_ids: List[str], target_id: str) -> OperationResult:
         """Manually merge selected topics into the first selected target.
 
@@ -1001,6 +1113,60 @@ class StructureEditingService:
         }
         # Keep only referenced topics
         context.topics = {fn: el for fn, el in context.topics.items() if fn in hrefs}
+
+    def _are_nodes_consecutive_siblings(self, nodes: List) -> bool:
+        """Check if nodes are consecutive siblings with no gaps.
+        
+        Parameters
+        ----------
+        nodes : List
+            List of XML nodes to check for consecutiveness.
+            
+        Returns
+        -------
+        bool
+            True if all nodes are consecutive siblings, False otherwise.
+        """
+        try:
+            if len(nodes) < 2:
+                return False
+            
+            # All nodes must have the same parent
+            parent = nodes[0].getparent()
+            if parent is None:
+                return False
+            
+            for node in nodes[1:]:
+                if node.getparent() != parent:
+                    return False
+            
+            # Get all siblings and find positions
+            siblings = [child for child in parent if child.tag in ("topicref", "topichead")]
+            indices = []
+            
+            for node in nodes:
+                try:
+                    idx = siblings.index(node)
+                    indices.append(idx)
+                except ValueError:
+                    return False
+            
+            # Sort indices and check for consecutiveness
+            indices.sort()
+            for i in range(1, len(indices)):
+                if indices[i] != indices[i-1] + 1:
+                    return False
+            
+            return True
+        except Exception:
+            return False
+    
+    # REMOVED: Complex group movement helper methods that violated DRY principles.
+    # The simplified move_consecutive_topics method now reuses existing single-topic
+    # intelligent movement logic (_move_up_intelligent, _move_down_intelligent) which
+    # already handles all the complex cases including level adaptation, section boundary
+    # crossing, and boundary checking. This follows YAGNI and DRY principles.
+
 
     # ----------------------- Section operations -----------------------
 

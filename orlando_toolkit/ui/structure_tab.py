@@ -780,16 +780,56 @@ class StructureTab(ttk.Frame):
     # ---------------------------------------------------------------------------------
 
     def _on_toolbar_move_clicked(self, direction: str) -> None:
-        """Handle move operations from the toolbar and refresh tree."""
+        """Handle move operations from the toolbar and refresh tree.
+        
+        This method now supports both single-topic and multi-topic movement.
+        For multi-topic movement, it validates that topics are consecutive
+        and uses the appropriate controller method.
+        """
         ctrl = self._controller
         if ctrl is None:
             return
         try:
-            result = ctrl.handle_move_operation(direction)  # returns OperationResult
-            if getattr(result, "success", False):
-                # After successful move, refresh tree and keep selection
-                self._refresh_tree()
+            # Get current selection
+            selected_refs = getattr(ctrl, "selected_items", []) or []
+            
+            # Handle based on selection size and type
+            if len(selected_refs) <= 1:
+                # Single or no selection - use existing logic
+                result = ctrl.handle_move_operation(direction)  # returns OperationResult
+            elif len(selected_refs) >= 2 and direction in ["up", "down"]:
+                # Multi-selection for UP/DOWN - check if consecutive and handle accordingly
+                if hasattr(self._tree, "are_refs_successive_topics"):
+                    if self._tree.are_refs_successive_topics(selected_refs):
+                        # Use multi-topic move for consecutive topics
+                        result = ctrl.handle_multi_move_operation(direction, selected_refs)
+                    else:
+                        # Not consecutive - show error message and return
+                        result = type('OperationResult', (), {
+                            'success': False, 
+                            'message': 'Selected topics must be consecutive siblings to move together'
+                        })()
+                else:
+                    # Fallback to single topic move if validation method not available
+                    result = ctrl.handle_move_operation(direction)
             else:
+                # Multi-selection for promote/demote - use single topic logic for now
+                result = ctrl.handle_move_operation(direction)
+                
+            if getattr(result, "success", False):
+                # After successful move, refresh tree and maintain selection
+                self._refresh_tree()
+                # Try to maintain selection after refresh
+                try:
+                    if hasattr(self._tree, "update_selection") and selected_refs:
+                        ordered_refs = selected_refs
+                        if len(selected_refs) >= 2 and hasattr(self._tree, "get_ordered_consecutive_refs"):
+                            ordered_refs = self._tree.get_ordered_consecutive_refs(selected_refs) or selected_refs
+                        self._tree.update_selection(ordered_refs)
+                except Exception:
+                    pass
+            else:
+                # Operation failed - optionally show error message in status area
                 # No popup/I-O; presentation only. Keep UI stable.
                 pass
         except Exception:
@@ -1490,13 +1530,50 @@ class StructureTab(ttk.Frame):
     # Removed: no button binds to this; keep preview refresh via mode/selection changes
 
     def _on_shortcut_move(self, direction: str) -> str:
+        """Handle keyboard shortcut move operations (Alt+Up/Down).
+        
+        This method now supports both single-topic and multi-topic movement,
+        similar to the toolbar handler.
+        """
         ctrl = self._controller
         if ctrl is None:
             return "break"
         try:
-            result = ctrl.handle_move_operation(direction)  # OperationResult
+            # Get current selection
+            selected_refs = getattr(ctrl, "selected_items", []) or []
+            
+            # Handle based on selection size and type  
+            if len(selected_refs) <= 1:
+                # Single or no selection - use existing logic
+                result = ctrl.handle_move_operation(direction)  # OperationResult
+            elif len(selected_refs) >= 2 and direction in ["up", "down"]:
+                # Multi-selection for UP/DOWN - check if consecutive and handle accordingly
+                if hasattr(self._tree, "are_refs_successive_topics"):
+                    if self._tree.are_refs_successive_topics(selected_refs):
+                        # Use multi-topic move for consecutive topics
+                        result = ctrl.handle_multi_move_operation(direction, selected_refs)
+                    else:
+                        # Not consecutive - use single topic logic as fallback
+                        result = ctrl.handle_move_operation(direction)
+                else:
+                    # Fallback to single topic move if validation method not available
+                    result = ctrl.handle_move_operation(direction)
+            else:
+                # Multi-selection for promote/demote - use single topic logic for now
+                result = ctrl.handle_move_operation(direction)
+            
             if getattr(result, "success", False):
+                # After successful move, refresh tree and maintain selection
                 self._refresh_tree()
+                # Try to maintain selection after refresh
+                try:
+                    if hasattr(self._tree, "update_selection") and selected_refs:
+                        ordered_refs = selected_refs
+                        if len(selected_refs) >= 2 and hasattr(self._tree, "get_ordered_consecutive_refs"):
+                            ordered_refs = self._tree.get_ordered_consecutive_refs(selected_refs) or selected_refs
+                        self._tree.update_selection(ordered_refs)
+                except Exception:
+                    pass
         except Exception:
             pass
         return "break"

@@ -141,6 +141,9 @@ class StructureTreeWidget(ttk.Frame):
         self._ditamap_root: Optional[object] = None
         # Precomputed section numbers for current ditamap_root
         self._section_number_map: Dict[object, str] = {}
+        
+        # Session-only expansion state tracking (no persistence between app sessions)
+        self._has_been_populated: bool = False
 
         # Event bindings
         self._tree.bind("<<TreeviewSelect>>", self._on_select_event, add="+")
@@ -895,6 +898,8 @@ class StructureTreeWidget(ttk.Frame):
         self._id_to_style.clear()
         self._ditamap_root = None
         self._section_number_map = {}
+        # Reset population flag for next document load
+        self._has_been_populated = False
 
     # Internal helpers (UI/presentation only)
 
@@ -1467,6 +1472,41 @@ class StructureTreeWidget(ttk.Frame):
             return True
         except Exception:
             return False
+
+    def get_ordered_consecutive_refs(self, refs: List[str]) -> List[str]:
+        """Return refs ordered by their position in the tree, if they are consecutive.
+        
+        Returns empty list if refs are not consecutive or invalid.
+        Used to preserve the original order when moving multiple topics.
+        """
+        try:
+            if not self.are_refs_successive_topics(refs):
+                return []
+            
+            # Get item IDs and their indices
+            item_data = []
+            parent = None
+            for ref in refs:
+                iid = self._ref_to_id.get(ref)
+                if not iid:
+                    return []
+                current_parent = self._tree.parent(iid)
+                if parent is None:
+                    parent = current_parent
+                elif parent != current_parent:
+                    return []
+                item_data.append((ref, iid))
+            
+            if parent is None:
+                return []
+            
+            # Sort by tree position to preserve original order
+            siblings = list(self._tree.get_children(parent))
+            item_data.sort(key=lambda x: siblings.index(x[1]))
+            
+            return [ref for ref, _ in item_data]
+        except Exception:
+            return []
 
     def get_index_path_for_item_id(self, item_id: str) -> List[int]:
         """Return a stable index path for the given item among structural siblings.
