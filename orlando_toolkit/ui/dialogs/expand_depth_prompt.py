@@ -19,6 +19,7 @@ class ExpandDepthPrompt(tk.Toplevel):
         self.grab_set()
 
         self._expand = False
+        self._cancelled = False
         self._dont_ask = tk.BooleanVar(value=False)
 
         # Content
@@ -44,14 +45,14 @@ class ExpandDepthPrompt(tk.Toplevel):
         # Buttons
         btn_expand = ttk.Button(frm, text="Expand to level {td}".format(td=int(target_depth)), command=self._on_expand)
         btn_keep = ttk.Button(frm, text="Keep current depth", command=self._on_keep)
-        btn_cancel = ttk.Button(frm, text="Cancel", command=self._on_keep)
+        btn_cancel = ttk.Button(frm, text="Cancel", command=self._on_cancel)
         btn_expand.grid(row=2, column=0, sticky="w", pady=(10, 0))
         btn_keep.grid(row=2, column=1, sticky="w", padx=(8, 0), pady=(10, 0))
         btn_cancel.grid(row=2, column=2, sticky="w", padx=(8, 0), pady=(10, 0))
 
         # Enter/Escape bindings
         self.bind("<Return>", lambda _e: self._on_expand())
-        self.bind("<Escape>", lambda _e: self._on_keep())
+        self.bind("<Escape>", lambda _e: self._on_cancel())
 
         # Center relative to parent
         try:
@@ -76,8 +77,13 @@ class ExpandDepthPrompt(tk.Toplevel):
         self._expand = False
         self.destroy()
 
-    def show(self) -> Tuple[bool, bool]:
+    def _on_cancel(self) -> None:
+        self._expand = False
+        self._cancelled = True
+        self.destroy()
+
+    def show(self) -> Tuple[bool, bool, bool]:
         self.wait_window(self)
-        return (bool(self._expand), bool(self._dont_ask.get()))
+        return (bool(self._expand), bool(self._dont_ask.get()), bool(self._cancelled))
 
 

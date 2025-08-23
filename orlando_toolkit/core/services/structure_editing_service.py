@@ -1087,6 +1087,67 @@ class StructureEditingService:
             logger.error("Edit FAIL: insert_section_after_index_path error=%s", e, exc_info=True)
             return OperationResult(False, "Failed to insert section.", {"error": str(e)})
 
+    def insert_section_as_first_child(self, context: DitaContext, index_path: List[int], title: str) -> OperationResult:
+        """Insert a new section (topichead) as the first structural child of the section at index_path.
+
+        Returns unsuccessful OperationResult when index_path does not locate a section (topichead).
+        """
+        logger.info("Edit: insert_section_as_first_child index_path=%s", str(index_path))
+        root = getattr(context, "ditamap_root", None)
+        if root is None:
+            return OperationResult(False, "No ditamap available in context.")
+        cleaned = " ".join((title or "").split())
+        if not cleaned:
+            return OperationResult(False, "Empty title is not allowed")
+        try:
+            # Locate the section node by index_path
+            parent_section = self._locate_node_by_index_path(context, index_path)
+            if parent_section is None or getattr(parent_section, "tag", None) != "topichead":
+                return OperationResult(False, "Target section not found for insertion.", {"index_path": list(index_path or [])})
+
+            # Determine raw insertion index corresponding to 'first structural child'
+            raw_children = list(parent_section)
+            structural_children = [el for el in raw_children if getattr(el, "tag", None) in ("topicref", "topichead")]
+            if structural_children:
+                first_struct = structural_children[0]
+                insert_at = raw_children.index(first_struct)
+            else:
+                insert_at = len(raw_children)
+
+            # Create new section node with navtitle
+            new_section = ET.Element("topichead")
+            topicmeta = ET.SubElement(new_section, "topicmeta")
+            navtitle = ET.SubElement(topicmeta, "navtitle")
+            navtitle.text = cleaned
+
+            # Insert at computed position
+            try:
+                parent_section.insert(insert_at, new_section)
+            except Exception:
+                parent_section.append(new_section)
+
+            # Apply level/style for the new section (child of section)
+            target_level = self._calculate_target_level(new_section, parent_section)
+            self._apply_level_adaptation(new_section, target_level)
+
+            # Persist baseline so future merges start from current structure
+            self._invalidate_original_structure(context)
+
+            # Compute new structural path: same as parent path with child index 0
+            try:
+                structural_children_after = [el for el in list(parent_section) if getattr(el, "tag", None) in ("topicref", "topichead")]
+                new_index = structural_children_after.index(new_section) if new_section in structural_children_after else 0
+            except Exception:
+                new_index = 0
+            new_path = list(index_path or []) + [new_index]
+
+            result = OperationResult(True, "Section inserted as first child.", {"new_index_path": new_path, "new_level": int(target_level) if isinstance(target_level, int) else target_level})
+            logger.info("Edit OK: insert_section_as_first_child at new_path=%s", str(new_path))
+            return result
+        except Exception as e:
+            logger.error("Edit FAIL: insert_section_as_first_child error=%s", e, exc_info=True)
+            return OperationResult(False, "Failed to insert section as first child.", {"error": str(e)})
+
     def convert_section_to_topic(self, context: DitaContext, index_path: List[int]) -> OperationResult:
         """Convert a section (topichead) located by index_path into a topic that hosts its subtree.
 

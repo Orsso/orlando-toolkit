@@ -19,7 +19,7 @@ from .structure_tab import StructureTab  # noqa: F401
 from .controllers.structure_controller import StructureController  # noqa: F401
 
 # Widgets
-from .widgets.structure_tree import StructureTreeWidget  # noqa: F401
+from .widgets.structure_tree_widget import StructureTreeWidget  # noqa: F401
 from .widgets.search_widget import SearchWidget  # noqa: F401
 from .widgets.toolbar_widget import ToolbarWidget  # noqa: F401
 

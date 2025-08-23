@@ -437,6 +437,19 @@ class StructureController:
         except Exception:
             return OperationResult(success=False, message="Failed to add section")
 
+    def handle_add_section_inside(self, index_path: List[int], title: str) -> OperationResult:
+        """Insert a new section as first child of the section at index_path (undo-wrapped)."""
+        if not isinstance(index_path, list) or not index_path:
+            return OperationResult(success=False, message="No section selected to insert into")
+        if not isinstance(title, str) or not title.strip():
+            return OperationResult(success=False, message="Empty title is not allowed")
+        try:
+            return self._recorded_edit(
+                lambda: self.editing_service.insert_section_as_first_child(self.context, index_path, title)
+            )
+        except Exception:
+            return OperationResult(success=False, message="Failed to add section inside")
+
     def handle_rename_section(self, index_path: List[int], new_title: str) -> OperationResult:
         """Rename a section (topichead) title at index_path.
 
@@ -881,30 +894,30 @@ class StructureController:
         """
         colors: Dict[str, str] = {}
         try:
-            # Use the collision-free color manager; assign unique colors only to visible styles
-            from orlando_toolkit.ui.widgets.style_legend import _color_manager
-            visible_styles = [s for s, v in self.style_visibility.items() if v]
-            if visible_styles:
-                assigned = _color_manager.assign_unique(visible_styles)
-                # Include only the visible ones
-                colors.update(assigned)
+            from orlando_toolkit.ui.common.style_colors import _color_manager, STYLE_COLORS
         except Exception:
-            # Safe fallback with deterministic mapping over a 5-color palette
-            try:
-                from orlando_toolkit.ui.widgets.style_legend import STYLE_COLORS
-            except Exception:
-                STYLE_COLORS = ["#FF1744", "#00C853", "#FF9100", "#9C27B0", "#FF00A8"]
-            visible_styles = [s for s, v in self.style_visibility.items() if v]
-            used = set()
-            for s in visible_styles:
-                idx = hash(s) % len(STYLE_COLORS)
-                # find next free color
-                for _ in range(len(STYLE_COLORS)):
-                    if idx not in used:
-                        used.add(idx)
-                        colors[s] = STYLE_COLORS[idx]
-                        break
-                    idx = (idx + 1) % len(STYLE_COLORS)
+            _color_manager = None  # type: ignore[assignment]
+            STYLE_COLORS = ["#FF1744", "#00C853", "#FF9100", "#9C27B0", "#FF00A8"]
+
+        visible_styles = [s for s, v in self.style_visibility.items() if v]
+        try:
+            if _color_manager is not None and visible_styles:
+                assigned = _color_manager.assign_unique(visible_styles)
+                colors.update(assigned)
+                return colors
+        except Exception:
+            pass
+
+        # Fallback deterministic mapping
+        used = set()
+        for s in visible_styles:
+            idx = hash(s) % len(STYLE_COLORS)
+            for _ in range(len(STYLE_COLORS)):
+                if idx not in used:
+                    used.add(idx)
+                    colors[s] = STYLE_COLORS[idx]
+                    break
+                idx = (idx + 1) % len(STYLE_COLORS)
         return colors
 
     # --- Internal helper to locate nodes by index_path ---

@@ -4,9 +4,12 @@ import tkinter as tk
 from tkinter import ttk
 from tkinter import font as tkfont
 from typing import List, Optional, Callable, Dict, Tuple, Any
+from orlando_toolkit.ui.widgets.structure_tree import population as _pop
 
 from orlando_toolkit.core.models import DitaContext
 from orlando_toolkit.ui.widgets.scroll_marker_bar import ScrollMarkerBar
+from orlando_toolkit.ui.widgets.structure_tree import markers as _markers
+from orlando_toolkit.ui.widgets.structure_tree import marker_bar_adapter as _bar
 
 
 class StructureTreeWidget(ttk.Frame):
@@ -95,7 +98,7 @@ class StructureTreeWidget(ttk.Frame):
         self._tree.grid(row=0, column=0, sticky="nsew")
         # Marker bar placed to the left of the scrollbar (non-stretching)
         try:
-            self._marker_bar = ScrollMarkerBar(self, width=16, on_jump=self._on_marker_jump, on_set_viewport=self._on_marker_set_viewport)
+            self._marker_bar = ScrollMarkerBar(self, width=16, on_jump=lambda n: _bar.on_marker_jump(self, n), on_set_viewport=lambda f: _bar.on_marker_set_viewport(self, f))
             self._marker_bar.grid(row=0, column=1, sticky="ns")
         except Exception:
             self._marker_bar = None  # type: ignore[assignment]
@@ -149,9 +152,9 @@ class StructureTreeWidget(ttk.Frame):
             self._tree.bind("<<TreeviewOpen>>", lambda e: self._on_section_toggle(e, True), add="+")
             self._tree.bind("<<TreeviewClose>>", lambda e: self._on_section_toggle(e, False), add="+")
             # On vertical scroll via mouse wheel or touchpad, avoid recomputing markers repeatedly.
-            self._tree.bind("<MouseWheel>", lambda _e: self._throttle_marker_viewport_update(), add="+")
-            self._tree.bind("<Button-4>", lambda _e: self._throttle_marker_viewport_update(), add="+")  # Linux scroll up
-            self._tree.bind("<Button-5>", lambda _e: self._throttle_marker_viewport_update(), add="+")  # Linux scroll down
+            self._tree.bind("<MouseWheel>", lambda _e: _bar.throttle_marker_viewport_update(self), add="+")
+            self._tree.bind("<Button-4>", lambda _e: _bar.throttle_marker_viewport_update(self), add="+")  # Linux scroll up
+            self._tree.bind("<Button-5>", lambda _e: _bar.throttle_marker_viewport_update(self), add="+")  # Linux scroll down
         except Exception:
             pass
 
@@ -200,8 +203,12 @@ class StructureTreeWidget(ttk.Frame):
                 # Place style circle near right edge but fully inside image and away from text
                 right_cx = marker_w - 5
                 if draw_search:
-                    # Use the main arrow drawing method (DRY principle)
-                    self._draw_arrow_on_image(img, left_cx, cy, arrow_size, s_color)
+                    # Use shared graphics helper
+                    try:
+                        from orlando_toolkit.ui.common.graphics import draw_arrow_on_image
+                        draw_arrow_on_image(img, left_cx, cy, arrow_size, s_color)
+                    except Exception:
+                        pass
                 if draw_filter:
                     _draw_circle(img, cx=right_cx, cy=cy, r=radius, color=f_color)
                 return img
@@ -267,6 +274,16 @@ class StructureTreeWidget(ttk.Frame):
         except Exception:
             pass
 
+        # Provide a helper for helpers: create an empty marker image with current dimensions
+        def _create_empty_marker(width: int, height: int) -> tk.PhotoImage:
+            try:
+                return tk.PhotoImage(width=width, height=height)
+            except Exception:
+                # Fallback to default marker size
+                return tk.PhotoImage(width=getattr(self, "_marker_w", 16), height=getattr(self, "_marker_h", 16))
+        # Bind as instance method so helper modules can call widget._create_empty_marker
+        self._create_empty_marker = _create_empty_marker  # type: ignore[attr-defined]
+
     # Public API
 
     def set_style_exclusions(self, exclusions: Dict[str, bool]) -> None:
@@ -281,204 +298,8 @@ class StructureTreeWidget(ttk.Frame):
             self._style_exclusions = {}
 
     def populate_tree(self, context: DitaContext, max_depth: int = 999) -> None:
-        """Rebuild the entire tree from the given DITA context.
-
-        The population is conservative and presentation-focused. It attempts to
-        render a ditamap-like hierarchy when available, and otherwise falls back
-        to a minimal structure that best-effort represents the context content.
-
-        Parameters
-        ----------
-        context : DitaContext
-            The DITA context providing structural information.
-        max_depth : int, optional
-            Maximum depth to populate, by default 999.
-
-        Notes
-        -----
-        - This method clears the existing tree and mappings.
-        - Unknown or missing structural data does not raise; the method inserts
-          minimal placeholder nodes where appropriate.
-        """
-        self.clear()
-
-        # Strategy:
-        # 1) Try to find a map-like root and traverse its children if available.
-        # 2) Otherwise, add a single "Root" and list known topics (best-effort).
-        #
-        # Since this module must not contain business logic and must be resilient
-        # to incomplete structures, we introspect context in a guarded, minimal way.
-
-        # Heuristics for context structure without importing services:
-        # We look for attributes that may plausibly exist, and if not present,
-        # fall back safely.
-
-        # Prefer lxml ditamap_root when available
-        ditamap_root = self._safe_getattr(context, "ditamap_root")
-        map_root = None
-        if ditamap_root is not None:
-            map_root = ditamap_root
-        else:
-            _mr = self._safe_getattr(context, "map_root")
-            if _mr is not None:
-                map_root = _mr
-            else:
-                map_root = self._safe_getattr(context, "structure")
-
-        # If a ditamap-like root exists, insert its immediate children directly at the Treeview root.
-        if ditamap_root is not None and map_root is not None:
-            # Store ditamap_root reference for section number calculation
-            self._ditamap_root = ditamap_root
-            # Precompute section numbers once per populate to avoid O(N^2)
-            try:
-                from orlando_toolkit.core.utils import calculate_section_numbers  # local import to avoid cycles
-                self._section_number_map = calculate_section_numbers(ditamap_root) or {}
-            except Exception:
-                self._section_number_map = {}
-            # No synthetic visible root label; top-level items are the map children.
-            traversed = False
-            try:
-                # Collect only direct topicref/topichead children of map_root, then traverse each
-                children = []
-                try:
-                    if hasattr(map_root, "iterchildren"):
-                        for child in map_root.iterchildren():
-                            try:
-                                child_tag = str(getattr(child, "tag", "") or "")
-                            except Exception:
-                                child_tag = ""
-                            if child_tag.endswith("topicref") or child_tag.endswith("topichead") or child_tag in {"topicref", "topichead"}:
-                                children.append(child)
-                    elif hasattr(map_root, "getchildren"):
-                        for child in map_root.getchildren():  # type: ignore[attr-defined]
-                            try:
-                                child_tag = str(getattr(child, "tag", "") or "")
-                            except Exception:
-                                child_tag = ""
-                            if child_tag.endswith("topicref") or child_tag.endswith("topichead") or child_tag in {"topicref", "topichead"}:
-                                children.append(child)
-                    else:
-                        try:
-                            if hasattr(map_root, "findall"):
-                                children.extend(list(map_root.findall("./topicref")))
-                                children.extend(list(map_root.findall("./topichead")))
-                        except Exception:
-                            pass
-                except Exception:
-                    children = []
-
-                for child in children:
-                    try:
-                        # Parent is "" (Treeview root). Depth starts at 1 for these top-level nodes.
-                        self._traverse_and_insert(child, parent_id="", depth=1, max_depth=max_depth)
-                    except Exception:
-                        continue
-                traversed = True
-            except Exception:
-                traversed = False
-
-            if traversed:
-                # Expand all items by default for ditamap branch too
-                try:
-                    self.expand_all()
-                    self._tree.update_idletasks()
-                except Exception:
-                    pass
-                # Update marker bar for initial positions
-                try:
-                    self._update_marker_bar_positions()
-                except Exception:
-                    pass
-                return  # done; no fallback root row
-            # If traversal failed unexpectedly, fall back to flat topics listing under Treeview root.
-
-        # No ditamap_root: use existing fallback path (flat list) under Treeview root.
-        # Reset precomputed section numbers as there is no structured map.
-        self._section_number_map = {}
-        root_label = self._safe_getattr(context, "title") or "Root"
-        root_id = self._insert_item("", root_label, topic_ref=self._safe_getattr(context, "root_ref"))
-        self._tree.item(root_id, open=True)
-
-        # Fallback: list known topics best-effort under root with valid hrefs
-        topics = self._safe_getattr(context, "topics") or self._safe_getattr(context, "topic_refs") or {}
-        try:
-            if isinstance(topics, dict):
-                # topics: Dict[id_or_filename, Element]
-                count = 0
-                for key, element in topics.items():
-                    if count >= 10000:
-                        break
-                    # Label from element's <title> if available
-                    label = None
-                    try:
-                        if element is not None and hasattr(element, "find"):
-                            title_el = element.find("title")
-                            if title_el is not None:
-                                text_val = getattr(title_el, "text", None)
-                                if isinstance(text_val, str) and text_val.strip():
-                                    label = text_val.strip()
-                    except Exception:
-                        label = None
-                    if not label:
-                        label = str(key)
-                    # Keep ref equal to the dict key to align with tests expecting raw ids like "A", "B", "C".
-                    ref = str(key)
-                    self._insert_item(root_id, label, topic_ref=ref)
-                    count += 1
-            else:
-                # If not a dict, reuse existing generic best-effort but ensure refs look like hrefs if possible
-                count = 0
-                iterable = topics
-                try:
-                    iterable = list(iterable)
-                except Exception:
-                    iterable = []
-                for item in iterable:
-                    if count >= 10000:
-                        break
-                    label, ref = self._extract_label_and_ref(item)
-                    # Force href-like if looks like a filename without prefix
-                    if isinstance(ref, str) and ref and not ref.startswith("topics/") and ref.endswith(".dita"):
-                        ref = f"topics/{ref}"
-                    self._insert_item(root_id, label, topic_ref=ref)
-                    count += 1
-        except Exception:
-            # Keep only the root on failure
-            pass
-
-        # Expand all items by default and ensure geometry is realized so bbox is available
-        try:
-            self.expand_all()
-            # Force a couple of idle updates to ensure layout is complete
-            self._tree.update_idletasks()
-            try:
-                # Some environments require an additional tiny delay to compute bboxes
-                self.after(0, self._tree.update_idletasks)
-            except Exception:
-                pass
-        except Exception:
-            pass
-
-        # Best-effort: touch visibility for all rows so bbox() becomes available in headless tests
-        try:
-            for iid in self._iter_all_item_ids():
-                try:
-                    self._tree.see(iid)
-                except Exception:
-                    continue
-            # Final idle flush after forcing visibility
-            try:
-                self._tree.update_idletasks()
-            except Exception:
-                pass
-        except Exception:
-            pass
-
-        # After population, update marker bar positions
-        try:
-            self._update_marker_bar_positions()
-        except Exception:
-            pass
+        """Delegate population to module function (keeps widget lean)."""
+        _pop.populate_tree(self, context, max_depth=max_depth)
 
     def update_selection(self, item_refs: List[str]) -> None:
         """Update the selection to the provided topic_ref values.
@@ -605,7 +426,8 @@ class StructureTreeWidget(ttk.Frame):
                 pass
             # Update marker bar
             try:
-                self._update_marker_bar_positions()
+                from orlando_toolkit.ui.widgets.structure_tree import marker_bar_adapter as _bar
+                _bar.update_marker_bar_positions(self)
             except Exception:
                 pass
         except Exception:
@@ -627,7 +449,8 @@ class StructureTreeWidget(ttk.Frame):
                 pass
             # Update marker bar
             try:
-                self._update_marker_bar_positions()
+                from orlando_toolkit.ui.widgets.structure_tree import marker_bar_adapter as _bar
+                _bar.update_marker_bar_positions(self)
             except Exception:
                 pass
         except Exception:
@@ -660,7 +483,8 @@ class StructureTreeWidget(ttk.Frame):
                 pass
             # Update marker bar
             try:
-                self._update_marker_bar_positions()
+                from orlando_toolkit.ui.widgets.structure_tree import marker_bar_adapter as _bar
+                _bar.update_marker_bar_positions(self)
             except Exception:
                 pass
         except Exception:
@@ -684,7 +508,8 @@ class StructureTreeWidget(ttk.Frame):
                     continue
             # Update marker bar
             try:
-                self._update_marker_bar_positions()
+                from orlando_toolkit.ui.widgets.structure_tree import marker_bar_adapter as _bar
+                _bar.update_marker_bar_positions(self)
             except Exception:
                 pass
         except Exception:
@@ -710,7 +535,8 @@ class StructureTreeWidget(ttk.Frame):
                     continue
             # Update marker bar
             try:
-                self._update_marker_bar_positions()
+                from orlando_toolkit.ui.widgets.structure_tree import marker_bar_adapter as _bar
+                _bar.update_marker_bar_positions(self)
             except Exception:
                 pass
         except Exception:
@@ -739,366 +565,38 @@ class StructureTreeWidget(ttk.Frame):
             pass
 
     def _update_selection_tags(self) -> None:
-        """Apply or remove the 'selected-row' tag and ensure highlight tags remain on top.
-
-        - Adds 'selected-row' for all selected items (bold + larger font) without altering
-          search/filter tags.
-        - Reorders tags so that 'search-match'/'filter-match' come AFTER 'selected-row' when present,
-          keeping the yellow highlight visible on selected items.
-        """
+        """Apply or remove the 'selected-row' tag and ensure highlight tags remain on top."""
         try:
-            selected_ids = set(self._tree.selection())
-            for item_id in self._iter_all_item_ids():
-                try:
-                    tags = list(self._tree.item(item_id, "tags") or ())
-                    has_selected = "selected-row" in tags
-                    if item_id in selected_ids:
-                        if not has_selected and ("section" not in tags):
-                            tags.append("selected-row")
-                        # Reorder so highlight tags are last
-                        has_search = "search-match" in tags
-                        has_filter = "filter-match" in tags
-                        # Remove instances
-                        if has_search:
-                            tags = [t for t in tags if t != "search-match"]
-                        if has_filter:
-                            tags = [t for t in tags if t != "filter-match"]
-                        # Ensure selected-row exists, then append highlights at the end
-                        if ("selected-row" not in tags) and ("section" not in tags):
-                            tags.append("selected-row")
-                        # If selected and highlighted, add special tag to increase contrast
-                        if has_search or has_filter:
-                            if "selected-highlight" not in tags:
-                                tags.append("selected-highlight")
-                        else:
-                            # Remove selected-highlight if no highlight now
-                            tags = [t for t in tags if t != "selected-highlight"]
-                        if has_search:
-                            tags.append("search-match")
-                        if has_filter:
-                            tags.append("filter-match")
-                        self._tree.item(item_id, tags=tuple(tags))
-                        # Keep marker synced
-                        self._apply_marker_image(item_id)
-                    else:
-                        if has_selected:
-                            # Remove only the selection tag, preserving any highlight tags
-                            tags = [t for t in tags if t not in ("selected-row", "selected-highlight")]
-                            self._tree.item(item_id, tags=tuple(tags))
-                        self._apply_marker_image(item_id)
-                except Exception:
-                    continue
+            from orlando_toolkit.ui.widgets.structure_tree.selection import apply_selection_tags
+            apply_selection_tags(self)
         except Exception:
             pass
 
     def _apply_marker_image(self, item_id: str) -> None:
-        """Apply marker image(s) based on tags and style visibility.
-
-        Supports:
-        - Search marker (blue) on the left if search-match tag
-        - Style marker(s) on the right if item's style is visible
-        - Stacked style markers for collapsed sections showing child styles
-        """
-        try:
-            tags = tuple(self._tree.item(item_id, "tags") or ())
-            has_search = ("search-match" in tags)
-            is_section = ("section" in tags)
-            
-            # Regular items (non-sections) can have style markers
-            style_name = self._id_to_style.get(item_id, "")
-            has_style_marker = (not is_section and style_name and 
-                               self._style_visibility.get(style_name, False))
-            
-            # For collapsed sections, collect child styles for stacking
-            child_style_colors = []
-            if is_section:
-                is_open = bool(self._tree.item(item_id, "open"))
-                if not is_open:
-                    # Section is collapsed - collect child styles for stacking
-                    child_styles = self._collect_child_styles(item_id)
-                    child_style_colors = [
-                        self._style_colors.get(style, "#F57C00") 
-                        for style in child_styles
-                    ]
-            
-            # Determine which marker to use
-            if child_style_colors:
-                # Collapsed section with child styles - use stacked marker
-                marker_img = self._create_stacked_marker(child_style_colors, has_search)
-                self._tree.item(item_id, image=marker_img)
-            elif has_search and has_style_marker:
-                # Regular item with both search and style markers
-                style_color = self._style_colors.get(style_name, "#F57C00")
-                marker_img = self._get_combined_marker(True, style_color)
-                self._tree.item(item_id, image=marker_img)
-            elif has_search:
-                # Only search marker
-                if getattr(self, "_marker_search", None) is not None:
-                    self._tree.item(item_id, image=self._marker_search)
-                else:
-                    self._tree.item(item_id, image=self._marker_none)
-            elif has_style_marker:
-                # Only style marker
-                style_color = self._style_colors.get(style_name, "#F57C00")
-                marker_img = self._get_combined_marker(False, style_color)
-                self._tree.item(item_id, image=marker_img)
-            else:
-                # No marker - use transparent placeholder to maintain layout consistency
-                self._tree.item(item_id, image=self._marker_none)
-        except Exception:
-            pass
+        _markers.apply_marker_image(self, item_id)
             
     def _get_combined_marker(self, has_search: bool, style_color: str) -> tk.PhotoImage:
-        """Create or retrieve a combined search+style marker image."""
-        # Cache key based on search presence and style color
-        cache_key = f"search_{has_search}_style_{style_color}"
-        
-        if cache_key not in self._style_markers:
-            # Create a new marker image using consistent dimensions
-            marker_w, marker_h = self._marker_w, self._marker_h
-            img = tk.PhotoImage(width=marker_w, height=marker_h)
-            
-            # Circle parameters - larger for better visibility
-            # Slightly smaller radius and keep style circle fully inside image to avoid clipping
-            radius = 4
-            cy = marker_h // 2
-            left_cx = 4    # Left: search arrow position (moved left for spacing)
-            # Right: style marker position with padding from edge
-            right_cx = marker_w - 5
-            
-            # Draw the search arrow (blue) when present
-            if has_search:
-                self._draw_arrow_on_image(img, left_cx, cy, 10, "#0098e4")
-            
-            # Draw the style marker when a color is provided
-            if style_color and style_color != "":
-                self._draw_circle_on_image(img, right_cx, cy, radius, style_color)
-                
-            self._style_markers[cache_key] = img
-            
-        return self._style_markers[cache_key]
+        return _markers.get_combined_marker(self, has_search, style_color)
         
     def _draw_circle_on_image(self, img: tk.PhotoImage, cx: int, cy: int, radius: int, color: str) -> None:
-        """Draw a filled circle on a PhotoImage."""
-        try:
-            r2 = radius * radius
-            for y in range(max(0, cy - radius), min(img.height(), cy + radius + 1)):
-                dy = y - cy
-                for x in range(max(0, cx - radius), min(img.width(), cx + radius + 1)):
-                    dx = x - cx
-                    if dx * dx + dy * dy <= r2:
-                        img.put(color, (x, y))
-        except Exception:
-            pass
+        # Delegate to shared graphics via markers helpers
+        _ = img  # keep signature; not used here as we defer to _markers implementations when needed
+        _ = cx; _ = cy; _ = radius; _ = color
+        # No-op; retained for compatibility
 
     def _draw_arrow_on_image(self, img: tk.PhotoImage, cx: int, cy: int, size: int, color: str) -> None:
-        """Draw a thick, highly visible right-pointing arrow on a PhotoImage for search markers."""
-        try:
-            # Create a thick, bold arrow for maximum visibility
-            arrow_width = size
-            arrow_height = size
-            
-            # Draw arrow body (thick horizontal rectangle)
-            body_width = arrow_width - 4  # Leave space for head
-            body_thickness = 3  # Make body thick (3 pixels high)
-            
-            # Draw thick horizontal body
-            for y_offset in range(-body_thickness // 2, body_thickness // 2 + 1):
-                for x in range(cx - body_width // 2, cx + body_width // 2):
-                    y_pos = cy + y_offset
-                    if 0 <= x < img.width() and 0 <= y_pos < img.height():
-                        img.put(color, (x, y_pos))
-            
-            # Draw large, thick arrow head (triangle pointing right)
-            head_size = arrow_height // 2 + 1  # Larger head
-            head_start_x = cx + body_width // 2 - 2  # Start head slightly inside body
-            
-            # Draw filled triangle head
-            for i in range(head_size):
-                # Calculate triangle edges
-                x_pos = head_start_x + i
-                y_range = head_size - i
-                
-                # Draw vertical line of triangle at this x position
-                for y_offset in range(-y_range, y_range + 1):
-                    y_pos = cy + y_offset
-                    if 0 <= x_pos < img.width() and 0 <= y_pos < img.height():
-                        img.put(color, (x_pos, y_pos))
-                        
-            # Add white border for better contrast
-            self._draw_arrow_border(img, cx, cy, size, "#FFFFFF")
-                        
-        except Exception:
-            pass
+        _ = img; _ = cx; _ = cy; _ = size; _ = color
+        # No-op; retained for compatibility
     
     def _draw_arrow_border(self, img: tk.PhotoImage, cx: int, cy: int, size: int, border_color: str) -> None:
-        """Draw a white border around the arrow for better visibility."""
-        try:
-            arrow_width = size
-            body_width = arrow_width - 4
-            body_thickness = 3
-            head_size = arrow_width // 2 + 1
-            head_start_x = cx + body_width // 2 - 2
-            
-            # Draw border around body (top and bottom edges)
-            border_y_top = cy - body_thickness // 2 - 1
-            border_y_bottom = cy + body_thickness // 2 + 1
-            
-            for x in range(cx - body_width // 2 - 1, cx + body_width // 2 + 1):
-                if 0 <= x < img.width():
-                    if 0 <= border_y_top < img.height():
-                        img.put(border_color, (x, border_y_top))
-                    if 0 <= border_y_bottom < img.height():
-                        img.put(border_color, (x, border_y_bottom))
-            
-            # Draw border around arrow head
-            for i in range(head_size + 1):
-                x_pos = head_start_x + i
-                y_range = head_size - i + 1
-                
-                # Top and bottom border pixels
-                y_top_border = cy - y_range
-                y_bottom_border = cy + y_range
-                
-                if 0 <= x_pos < img.width():
-                    if 0 <= y_top_border < img.height():
-                        img.put(border_color, (x_pos, y_top_border))
-                    if 0 <= y_bottom_border < img.height():
-                        img.put(border_color, (x_pos, y_bottom_border))
-                        
-        except Exception:
-            pass
+        _ = img; _ = cx; _ = cy; _ = size; _ = border_color
+        # No-op; retained for compatibility
 
     def _collect_child_styles(self, item_id: str) -> List[str]:
-        """Collect all unique style names from children of the given item.
-        
-        Parameters
-        ----------
-        item_id : str
-            The tree item ID to collect child styles from
-            
-        Returns
-        -------
-        List[str]
-            List of unique style names found in children
-        """
-        child_styles = set()
-        try:
-            def walk_children(parent_id: str) -> None:
-                for child_id in self._tree.get_children(parent_id):
-                    # Get style for this child
-                    child_style = self._id_to_style.get(child_id)
-                    if child_style and self._style_visibility.get(child_style, False):
-                        child_styles.add(child_style)
-                    # Recursively walk grandchildren
-                    walk_children(child_id)
-            
-            walk_children(item_id)
-        except Exception:
-            pass
-        
-        return list(child_styles)
+        return _markers.collect_child_styles(self, item_id)
 
     def _create_stacked_marker(self, style_colors: List[str], has_search: bool = False) -> tk.PhotoImage:
-        """Create a stacked marker showing multiple style colors.
-        
-        Parameters
-        ----------
-        style_colors : List[str]
-            List of hex color codes to stack
-        has_search : bool
-            Whether to include search marker (blue arrow on left)
-            
-        Returns
-        -------
-        tk.PhotoImage
-            Combined marker image with stacked style indicators
-        """
-        # Create cache key for this combination
-        colors_key = "_".join(sorted(style_colors))
-        cache_key = f"stacked_search_{has_search}_colors_{colors_key}"
-        
-        if cache_key not in self._style_markers:
-            marker_w, marker_h = self._marker_w, self._marker_h
-            img = tk.PhotoImage(width=marker_w, height=marker_h)
-            
-            # Draw search arrow on the left if needed
-            if has_search:
-                search_cx, search_cy = 4, marker_h // 2
-                self._draw_arrow_on_image(img, search_cx, search_cy, 10, "#0098e4")
-            
-            # Draw stacked style markers optimized for up to 5 styles
-            if style_colors:
-                num_colors = min(len(style_colors), 5)  # Support up to 5 styles
-                
-                if num_colors == 1:
-                    # Single marker - larger and centered on right
-                    cx, cy = marker_w - 5, marker_h // 2  # Right with padding
-                    radius = 4
-                    self._draw_circle_on_image(img, cx, cy, radius + 1, "#FFFFFF")
-                    self._draw_circle_on_image(img, cx, cy, radius, style_colors[0])
-                    
-                elif num_colors == 2:
-                    # Two markers - stacked vertically with good spacing
-                    cx = marker_w - 5  # Right with padding
-                    cy1, cy2 = marker_h // 2 - 3, marker_h // 2 + 3
-                    radius = 4
-                    
-                    for i, (cy, color) in enumerate([(cy1, style_colors[0]), (cy2, style_colors[1])]):
-                        self._draw_circle_on_image(img, cx, cy, radius + 1, "#FFFFFF")
-                        self._draw_circle_on_image(img, cx, cy, radius, color)
-                        
-                elif num_colors == 3:
-                    # Triangle arrangement for maximum visibility
-                    base_cx, base_cy = marker_w - 5, marker_h // 2  # Right with padding
-                    radius = 3
-                    positions = [(base_cx, base_cy - 4), (base_cx - 3, base_cy + 2), (base_cx + 3, base_cy + 2)]
-                    
-                    for i, ((cx, cy), color) in enumerate(zip(positions, style_colors[:3])):
-                        self._draw_circle_on_image(img, cx, cy, radius + 1, "#FFFFFF")
-                        self._draw_circle_on_image(img, cx, cy, radius, color)
-                        
-                elif num_colors == 4:
-                    # Diamond/cross arrangement - 4 points around center
-                    base_cx, base_cy = marker_w - 5, marker_h // 2  # Right with padding
-                    radius = 3
-                    offset = 3
-                    positions = [
-                        (base_cx, base_cy - offset),      # Top
-                        (base_cx - offset, base_cy),      # Left
-                        (base_cx + offset, base_cy),      # Right  
-                        (base_cx, base_cy + offset)       # Bottom
-                    ]
-                    
-                    for i, ((cx, cy), color) in enumerate(zip(positions, style_colors[:4])):
-                        self._draw_circle_on_image(img, cx, cy, radius + 1, "#FFFFFF")
-                        self._draw_circle_on_image(img, cx, cy, radius, color)
-                        
-                else:  # 5 markers - pentagon arrangement
-                    # Pentagon arrangement with center marker
-                    base_cx, base_cy = marker_w - 5, marker_h // 2  # Right with padding
-                    radius = 2  # Smaller for 5 markers
-                    
-                    # Center marker
-                    self._draw_circle_on_image(img, base_cx, base_cy, radius + 1, "#FFFFFF")
-                    self._draw_circle_on_image(img, base_cx, base_cy, radius, style_colors[0])
-                    
-                    # 4 surrounding markers in diamond pattern
-                    offset = 4
-                    positions = [
-                        (base_cx, base_cy - offset),      # Top
-                        (base_cx - offset, base_cy),      # Left
-                        (base_cx + offset, base_cy),      # Right
-                        (base_cx, base_cy + offset)       # Bottom
-                    ]
-                    
-                    for i, ((cx, cy), color) in enumerate(zip(positions, style_colors[1:5])):
-                        self._draw_circle_on_image(img, cx, cy, radius + 1, "#FFFFFF")
-                        self._draw_circle_on_image(img, cx, cy, radius, color)
-            
-            self._style_markers[cache_key] = img
-        
-        return self._style_markers[cache_key]
+        return _markers.create_stacked_marker(self, style_colors, has_search)
 
     def _refresh_section_markers(self, item_ids: Optional[List[str]] = None) -> None:
         """Centralized method to refresh markers for sections when their state changes.
@@ -1636,6 +1134,13 @@ class StructureTreeWidget(ttk.Frame):
         except Exception:
             return None
 
+    def is_item_open(self, item_id: str) -> bool:
+        """Return True if the given item is expanded/open in the tree."""
+        try:
+            return bool(self._tree.item(item_id, "open"))
+        except Exception:
+            return False
+
     def _calculate_section_number(self, node: object) -> str:
         """Calculate the section number for a topicref/topichead node.
         
@@ -2018,114 +1523,16 @@ class StructureTreeWidget(ttk.Frame):
             pass
 
     def _iter_visible_item_ids(self) -> List[str]:
-        """Return visible item ids in order respecting open state."""
-        order: List[str] = []
-        try:
-            def walk(parent: str) -> None:
-                for iid in self._tree.get_children(parent):
-                    order.append(iid)
-                    try:
-                        is_open = bool(self._tree.item(iid, "open"))
-                    except Exception:
-                        is_open = False
-                    if is_open:
-                        walk(iid)
-            walk("")
-        except Exception:
-            return []
-        return order
+        return _bar.iter_visible_item_ids(self)
 
     def _update_marker_bar_positions(self) -> None:
-        """Compute normalized tick positions for search/filter tags and update the marker bar."""
-        try:
-            bar = getattr(self, "_marker_bar", None)
-            if bar is None:
-                return
-            visible = self._iter_visible_item_ids()
-            total = len(visible)
-            if total <= 0:
-                bar.set_markers([], [])  # type: ignore[union-attr]
-                if hasattr(bar, 'set_style_markers'):
-                    bar.set_style_markers({})  # type: ignore[union-attr]
-                return
-            search_pos: List[float] = []
-            filter_pos: List[float] = []
-            style_positions: dict[str, List[float]] = {}  # style_name -> positions
-            
-            for idx, iid in enumerate(visible):
-                try:
-                    tags = tuple(self._tree.item(iid, "tags") or ())
-                except Exception:
-                    tags = ()
-                
-                normalized_pos = (idx + 0.5) / total
-                
-                if "search-match" in tags:
-                    search_pos.append(normalized_pos)
-                if "filter-match" in tags:
-                    filter_pos.append(normalized_pos)
-                
-                # Check for style markers based on visibility
-                style_name = self._id_to_style.get(iid, "")
-                if (style_name and 
-                    self._style_visibility.get(style_name, False)):
-                    if style_name not in style_positions:
-                        style_positions[style_name] = []
-                    style_positions[style_name].append(normalized_pos)
-            
-            # Update traditional markers
-            bar.set_markers(search_pos, filter_pos)  # type: ignore[union-attr]
-            
-            # Update style markers with colors
-            if hasattr(bar, 'set_style_markers'):
-                style_markers = {}
-                for style_name, positions in style_positions.items():
-                    color = self._style_colors.get(style_name, "#F57C00")  # fallback orange
-                    style_markers[style_name] = (positions, color)
-                bar.set_style_markers(style_markers)  # type: ignore[union-attr]
-        except Exception:
-            pass
+        _bar.update_marker_bar_positions(self)
 
     def _on_marker_jump(self, norm: float) -> None:
-        """Jump tree viewport to the approximate position indicated by norm [0..1]."""
-        try:
-            visible = self._iter_visible_item_ids()
-            total = len(visible)
-            if total <= 0:
-                return
-            # Target row index centers around the clicked position
-            idx = int(round(norm * (total - 1)))
-            idx = max(0, min(total - 1, idx))
-            target_id = visible[idx]
-            try:
-                self._tree.see(target_id)
-            except Exception:
-                pass
-            # Center the target row
-            try:
-                self._tree.update_idletasks()
-                bbox = self._tree.bbox(target_id)
-                if bbox:
-                    x, y, w, h = bbox
-                    if h > 0:
-                        widget_h = max(1, int(self._tree.winfo_height()))
-                        delta_px = (y + h // 2) - (widget_h // 2)
-                        rows = int(round(delta_px / float(h)))
-                        if rows != 0:
-                            self._tree.yview_scroll(rows, "units")
-            except Exception:
-                pass
-        except Exception:
-            pass
+        _bar.on_marker_jump(self, norm)
 
     def _on_marker_set_viewport(self, first: float) -> None:
-        """Set tree viewport top (normalized) to align with marker bar drag."""
-        try:
-            # Tk expects 0..1 fractions; yview_moveto sets the top fraction
-            frac = max(0.0, min(1.0, float(first)))
-            self._tree.yview_moveto(frac)
-        except Exception:
-            pass
+        _bar.on_marker_set_viewport(self, first)
 
     # --------------------------- Selection indicator ---------------------------
     def _update_selection_indicator(self) -> None:
