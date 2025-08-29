@@ -11,10 +11,14 @@ import logging
 import shutil
 import tempfile
 from pathlib import Path
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 
 from orlando_toolkit.core.models import DitaContext
 from orlando_toolkit.core.utils import slugify
+from orlando_toolkit.core.plugins.registry import ServiceRegistry
+from orlando_toolkit.core.plugins.interfaces import DocumentHandler
+from orlando_toolkit.core.plugins.models import FileFormat
+from orlando_toolkit.core.plugins.exceptions import UnsupportedFormatError
 
 # Core conversion operations
 from orlando_toolkit.core.converter import (
@@ -33,20 +37,157 @@ __all__ = ["ConversionService"]
 class ConversionService:
     """Business-logic façade with zero GUI / Tkinter dependencies."""
 
-    def __init__(self) -> None:
-        # Potential configuration injection point (not used yet)
+    def __init__(self, service_registry: Optional[ServiceRegistry] = None) -> None:
+        # Service registry for plugin-provided handlers
+        self.service_registry = service_registry
         self.logger = logger
+        
+        # Track whether we're in legacy DOCX-only mode
+        self._legacy_mode = service_registry is None
 
     # ---------------------------------------------------------------------
     # PUBLIC API
     # ---------------------------------------------------------------------
-    def convert(self, docx_path: str | Path, metadata: Dict[str, Any]) -> DitaContext:
-        """Convert the Word document at *docx_path* to an in-memory DitaContext."""
-        docx_path = str(docx_path)
+    def convert(self, file_path: str | Path, metadata: Dict[str, Any]) -> DitaContext:
+        """Convert any supported document to an in-memory DitaContext.
+        
+        This method finds a compatible DocumentHandler plugin for the file format
+        and delegates conversion to that handler. Falls back to legacy DOCX
+        conversion if no service registry is configured.
+        
+        Args:
+            file_path: Path to the document to convert
+            metadata: Conversion metadata and configuration
+            
+        Returns:
+            DitaContext containing the converted DITA archive
+            
+        Raises:
+            UnsupportedFormatError: If no plugin can handle the file format
+            Exception: If conversion fails for other reasons
+        """
+        file_path = Path(file_path)
         self.logger.info("Convert: parsing document")
-        self.logger.debug("Converting DOCX -> DITA: %s", docx_path)
-        context = convert_docx_to_dita(docx_path, dict(metadata))
-        return context
+        self.logger.debug("Converting document -> DITA: %s", file_path)
+        
+        # Validate file exists
+        if not file_path.exists():
+            raise FileNotFoundError(f"Input file not found: {file_path}")
+        
+        if not file_path.is_file():
+            raise ValueError(f"Path is not a file: {file_path}")
+        
+        # Plugin-aware conversion
+        if self.service_registry is not None:
+            # Try to find a compatible handler from plugins
+            handler = self.service_registry.find_handler_for_file(file_path)
+            if handler:
+                try:
+                    plugin_id = self._get_plugin_id_for_handler(handler)
+                    self.logger.debug("Using plugin handler from %s for conversion: %s", 
+                                    plugin_id, handler.__class__.__name__)
+                    
+                    # Call plugin handler with error boundary
+                    context = handler.convert_to_dita(file_path, metadata)
+                    
+                    if not isinstance(context, DitaContext):
+                        raise ValueError(f"Plugin handler returned invalid type: {type(context)}")
+                    
+                    self.logger.info("Conversion successful using plugin: %s", plugin_id)
+                    return context
+                    
+                except Exception as e:
+                    plugin_id = self._get_plugin_id_for_handler(handler)
+                    self.logger.error("Plugin handler from %s failed: %s", plugin_id, e)
+                    # Re-raise with plugin context preserved
+                    raise RuntimeError(f"Conversion failed in plugin {plugin_id}: {e}") from e
+            
+            # No handler found - collect available formats for error
+            supported_formats = self.get_supported_formats()
+            extensions = [fmt.extension for fmt in supported_formats]
+            raise UnsupportedFormatError(str(file_path), extensions)
+        
+        # Legacy DOCX-only mode (backward compatibility)
+        else:
+            self.logger.debug("Running in legacy DOCX-only mode (no plugin registry)")
+            # Check if it's a DOCX file
+            if file_path.suffix.lower() not in ['.docx']:
+                raise UnsupportedFormatError(str(file_path), ['.docx'])
+            
+            # Use the legacy DOCX conversion
+            try:
+                docx_path = str(file_path)
+                context = convert_docx_to_dita(docx_path, dict(metadata))
+                self.logger.info("Legacy DOCX conversion successful")
+                return context
+            except Exception as e:
+                self.logger.error("Legacy DOCX conversion failed: %s", e)
+                raise RuntimeError(f"DOCX conversion failed: {e}") from e
+
+    def get_supported_formats(self) -> List[FileFormat]:
+        """Get all supported file formats from loaded plugins.
+        
+        Returns:
+            List of FileFormat objects describing supported formats
+        """
+        if self.service_registry is not None:
+            # Get formats from service registry which aggregates from all handlers
+            format_dicts = self.service_registry.get_supported_formats()
+            
+            # Convert dict format to FileFormat objects
+            formats = []
+            for fmt_dict in format_dicts:
+                try:
+                    file_format = FileFormat.from_extension(
+                        extension=fmt_dict['extension'],
+                        plugin_id=fmt_dict['plugin_id'],
+                        description=fmt_dict.get('description', f"Handled by {fmt_dict['plugin_id']}")
+                    )
+                    formats.append(file_format)
+                except Exception as e:
+                    self.logger.warning("Failed to create FileFormat from registry data %s: %s",
+                                      fmt_dict, e)
+                    continue
+            
+            return formats
+        else:
+            # Legacy mode - only DOCX
+            return [FileFormat.from_extension('.docx', 'built-in', 'Microsoft Word Document')]
+
+    def get_supported_extensions(self) -> List[str]:
+        """Get list of supported file extensions.
+        
+        Returns:
+            List of file extensions (with dots) that can be converted
+        """
+        formats = self.get_supported_formats()
+        return [fmt.extension for fmt in formats]
+
+    def can_handle_file(self, file_path: str | Path) -> bool:
+        """Check if the service can handle a specific file.
+        
+        Args:
+            file_path: Path to the file to check
+            
+        Returns:
+            True if file can be converted, False otherwise
+        """
+        file_path = Path(file_path)
+        
+        if self.service_registry is not None:
+            # Check if any plugin handler can handle this file
+            handler = self.service_registry.find_handler_for_file(file_path)
+            return handler is not None
+        else:
+            # Legacy mode - only DOCX
+            return file_path.suffix.lower() == '.docx'
+
+    def _get_plugin_id_for_handler(self, handler: DocumentHandler) -> str:
+        """Get plugin ID for a handler instance."""
+        if self.service_registry is not None:
+            # Try to get plugin ID from service registry internal method
+            return getattr(self.service_registry, '_get_plugin_for_handler', lambda x: 'unknown')(handler)
+        return 'built-in'
 
     def prepare_package(self, context: DitaContext) -> DitaContext:
         """Apply final renaming of topics and images inside *context*."""

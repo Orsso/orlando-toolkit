@@ -20,7 +20,14 @@ import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 
 from orlando_toolkit.core.models import DitaContext
+from orlando_toolkit.core.models.ui_config import (
+    SplashLayoutConfig, ButtonConfig, SplashButtonConfig, IconConfig, 
+    DEFAULT_SPLASH_LAYOUT, DEFAULT_ICONS
+)
 from orlando_toolkit.core.services import ConversionService
+from orlando_toolkit.core.plugins.manager import PluginManager
+from orlando_toolkit.core.plugins.loader import PluginLoader
+from orlando_toolkit.core.plugins.registry import ServiceRegistry, get_all_official_plugins, get_official_plugin_info
 from orlando_toolkit.ui.metadata_tab import MetadataTab
 from orlando_toolkit.ui.image_tab import ImageTab
 from orlando_toolkit.ui.widgets.metadata_form import MetadataForm
@@ -39,6 +46,15 @@ class OrlandoToolkit:
         self.root = root
         self.dita_context: Optional[DitaContext] = None
         self.service = ConversionService()
+        
+        # Plugin system integration
+        self.service_registry = ServiceRegistry()
+        self.plugin_loader = PluginLoader(self.service_registry)
+        self.plugin_manager = PluginManager(self.plugin_loader)
+        
+        # UI configuration
+        self.splash_layout = DEFAULT_SPLASH_LAYOUT
+        self.icon_cache: dict[str, tk.PhotoImage] = {}
 
         # --- Widget references -----------------------------------------
         self.home_frame: Optional[ttk.Frame] = None
@@ -64,35 +80,68 @@ class OrlandoToolkit:
     # ------------------------------------------------------------------
 
     def create_home_screen(self) -> None:
-        """Create the initial landing screen with logo and load button."""
+        """Create redesigned splash screen with squared buttons and icons."""
+        # Adjust window size for new layout
+        self.root.geometry(f"{self.splash_layout.window_size[0]}x{self.splash_layout.window_size[1]}")
+        
         self.home_frame = ttk.Frame(self.root)
         self.home_frame.pack(expand=True, fill="both", padx=20, pady=20)
 
         self.home_center = ttk.Frame(self.home_frame)
         self.home_center.place(relx=0.5, rely=0.5, anchor="center")
 
-        # Logo -----------------------------------------------------------
+        # Smaller logo to accommodate more buttons
         try:
             logo_path = Path(__file__).resolve().parent.parent / "assets" / "app_icon.png"
             if logo_path.exists():
                 logo_img = tk.PhotoImage(file=logo_path)
+                # Scale logo to smaller size (120px height instead of 180px)
+                try:
+                    h = logo_img.height()
+                    target_h = self.splash_layout.logo_max_height
+                    if h > target_h:
+                        factor = max(2, int(round(h / float(target_h))))
+                        logo_img = logo_img.subsample(factor, factor)
+                except Exception:
+                    pass
                 logo_lbl = ttk.Label(self.home_center, image=logo_img)
                 logo_lbl.image = logo_img  # keep reference
                 logo_lbl.pack(pady=(0, 20))
         except Exception as exc:
             logger.warning("Could not load logo: %s", exc)
 
-        ttk.Label(self.home_center, text="Orlando Toolkit", font=("Trebuchet MS", 26, "bold"), foreground="#0098e4").pack(pady=20)
-        ttk.Label(self.home_center, text="DOCX to DITA converter", font=("Arial", 12), foreground="gray").pack(pady=(0, 10))
+        # Title (keep existing but updated subtitle)
+        ttk.Label(self.home_center, text="Orlando Toolkit", 
+                 font=("Trebuchet MS", 24, "bold"), foreground="#0098e4").pack(pady=15)
+        ttk.Label(self.home_center, text="DITA Reader and Structure Editor", 
+                 font=("Arial", 12), foreground="gray").pack(pady=(0, 10))
+        
+        # Button grid container
+        button_frame = ttk.Frame(self.home_center)
+        button_frame.pack(pady=20)
+        
+        # Core functionality buttons (squared)
+        self.create_squared_button(
+            button_frame, 
+            text="Open DITA\nProject", 
+            icon="dita-icon.png",
+            command=self.open_dita_project,
+            row=0, column=0
+        )
+        
+        # Plugin management button (squared)
+        self.create_squared_button(
+            button_frame,
+            text="Manage\nPlugins",
+            icon="plugin-icon.png", 
+            command=self.show_plugin_management,
+            row=0, column=1
+        )
+        
+        # Dynamic plugin buttons (squared, added by active pipeline plugins)
+        self.create_plugin_buttons(button_frame, start_row=1)
 
-        self.load_button = ttk.Button(self.home_center, text="Load Document (.docx)", style="Accent.TButton", command=self.start_conversion_workflow)
-        self.load_button.pack(pady=20, ipadx=20, ipady=10)
-        # Fix the button width to avoid resizing when text changes
-        try:
-            self.load_button.config(width=len(self.load_button.cget("text")))
-        except Exception:
-            pass
-
+        # Status label for feedback
         self.status_label = ttk.Label(self.home_center, text="", font=("Arial", 10))
         self.status_label.pack(pady=10)
 
@@ -119,7 +168,330 @@ class OrlandoToolkit:
             pass
 
     # ------------------------------------------------------------------
-    # Conversion workflow
+    # Plugin Integration and Squared Button System
+    # ------------------------------------------------------------------
+    
+    def create_squared_button(self, parent: ttk.Frame, text: str, icon: str, 
+                             command: Optional[callable], row: int, column: int,
+                             tooltip: Optional[str] = None) -> ttk.Button:
+        """Create a squared button with icon and text.
+        
+        Args:
+            parent: Parent widget
+            text: Button text (can contain newlines)
+            icon: Icon filename
+            command: Command to execute when clicked
+            row: Grid row position
+            column: Grid column position
+            tooltip: Optional tooltip text
+            
+        Returns:
+            Created button widget
+        """
+        button_size = self.splash_layout.button_size
+        padding = self.splash_layout.button_padding
+        
+        # Create button frame
+        btn_frame = ttk.Frame(parent)
+        btn_frame.grid(row=row, column=column, padx=padding[0], pady=padding[1])
+        
+        # Try to load icon
+        icon_image = self._load_icon(icon)
+        
+        # Create button with icon and text
+        btn = ttk.Button(
+            btn_frame,
+            text=text,
+            image=icon_image,
+            compound="top",  # Icon above text
+            command=command,
+            width=15  # Character width for consistent sizing
+        )
+        btn.pack()
+        
+        # Store image reference to prevent garbage collection
+        if icon_image:
+            btn.image = icon_image
+            
+        # Add tooltip if provided
+        if tooltip:
+            self._add_tooltip(btn, tooltip)
+            
+        return btn
+    
+    def create_plugin_buttons(self, parent: ttk.Frame, start_row: int) -> None:
+        """Create squared buttons for active pipeline plugins.
+        
+        Args:
+            parent: Parent widget for buttons
+            start_row: Starting row for plugin buttons
+        """
+        try:
+            # Discover and load plugins
+            self.plugin_loader.discover_plugins()
+            active_plugins = self.get_active_pipeline_plugins()
+            
+            col = 0
+            row = start_row
+            buttons_per_row = self.splash_layout.buttons_per_row
+            
+            for plugin_id in active_plugins:
+                if col >= buttons_per_row:  # Max buttons per row
+                    col = 0
+                    row += 1
+                
+                try:
+                    plugin_config = self._get_plugin_button_config(plugin_id)
+                    self.create_squared_button(
+                        parent,
+                        text=plugin_config.text,
+                        icon=plugin_config.icon,
+                        command=lambda p_id=plugin_id: self.launch_plugin_workflow(p_id),
+                        row=row, column=col,
+                        tooltip=plugin_config.tooltip
+                    )
+                    col += 1
+                except Exception as e:
+                    logger.warning("Failed to create button for plugin %s: %s", plugin_id, e)
+                    continue
+                    
+        except Exception as e:
+            logger.error("Failed to create plugin buttons: %s", e)
+    
+    def get_active_pipeline_plugins(self) -> list[str]:
+        """Get list of active pipeline plugin IDs.
+        
+        Returns:
+            List of active pipeline plugin identifiers
+        """
+        try:
+            # For now, return official plugins that are "installed" (simulated)
+            # In real implementation, this would check actual plugin status
+            official_plugins = get_all_official_plugins()
+            active = []
+            
+            for plugin_id, plugin_info in official_plugins.items():
+                if plugin_info.get("category") == "pipeline":
+                    # Simulate that DOCX plugin is always "active" for demonstration
+                    if plugin_id == "docx-converter":
+                        active.append(plugin_id)
+            
+            return active
+        except Exception as e:
+            logger.error("Failed to get active plugins: %s", e)
+            return []
+    
+    def _get_plugin_button_config(self, plugin_id: str) -> SplashButtonConfig:
+        """Get button configuration for a plugin.
+        
+        Args:
+            plugin_id: Plugin identifier
+            
+        Returns:
+            Button configuration for the plugin
+        """
+        # Try to get from official registry first
+        official_data = get_official_plugin_info(plugin_id)
+        if official_data:
+            return SplashButtonConfig.from_official_plugin(
+                plugin_id, official_data, 
+                command=lambda: self.launch_plugin_workflow(plugin_id)
+            )
+        
+        # Try to get from loaded plugin metadata
+        try:
+            plugin_info = self.plugin_loader.get_plugin_info(plugin_id)
+            if plugin_info and plugin_info.metadata:
+                metadata_dict = plugin_info.metadata.__dict__
+                return SplashButtonConfig.from_plugin_metadata(
+                    plugin_id, metadata_dict,
+                    command=lambda: self.launch_plugin_workflow(plugin_id)
+                )
+        except Exception as e:
+            logger.warning("Failed to get plugin metadata for %s: %s", plugin_id, e)
+        
+        # Fallback configuration
+        return SplashButtonConfig(
+            text="Import",
+            icon="default-plugin-icon.png",
+            tooltip=f"Import content using {plugin_id}",
+            plugin_id=plugin_id,
+            command=lambda: self.launch_plugin_workflow(plugin_id)
+        )
+    
+    def _load_icon(self, icon_name: str) -> Optional[tk.PhotoImage]:
+        """Load an icon with fallback handling.
+        
+        Args:
+            icon_name: Icon filename
+            
+        Returns:
+            PhotoImage instance or None if loading fails
+        """
+        # Check cache first
+        if icon_name in self.icon_cache:
+            return self.icon_cache[icon_name]
+        
+        try:
+            # Try to load from assets/icons directory
+            icon_path = Path(__file__).resolve().parent.parent / "assets" / "icons" / icon_name
+            
+            if icon_path.exists():
+                icon_image = tk.PhotoImage(file=icon_path)
+                # Scale icon to fit in button (48x48)
+                try:
+                    icon_config = DEFAULT_ICONS.get(icon_name, IconConfig(icon_name))
+                    target_size = icon_config.size
+                    
+                    # Simple subsample scaling if image is too large
+                    w, h = icon_image.width(), icon_image.height()
+                    if w > target_size[0] * 2 or h > target_size[1] * 2:
+                        factor = max(2, max(w // target_size[0], h // target_size[1]))
+                        icon_image = icon_image.subsample(factor, factor)
+                except Exception:
+                    pass  # Use original size if scaling fails
+                
+                self.icon_cache[icon_name] = icon_image
+                return icon_image
+            else:
+                logger.debug("Icon file not found: %s", icon_path)
+                
+        except Exception as e:
+            logger.warning("Failed to load icon %s: %s", icon_name, e)
+        
+        return None
+    
+    def _add_tooltip(self, widget: tk.Widget, text: str) -> None:
+        """Add tooltip to a widget.
+        
+        Args:
+            widget: Widget to add tooltip to
+            text: Tooltip text
+        """
+        # Simple tooltip implementation
+        def on_enter(event):
+            try:
+                # Create tooltip window
+                tooltip = tk.Toplevel()
+                tooltip.wm_overrideredirect(True)
+                tooltip.wm_geometry(f"+{event.x_root+10}+{event.y_root+10}")
+                label = ttk.Label(tooltip, text=text, background="lightyellow", 
+                                relief="solid", borderwidth=1)
+                label.pack()
+                widget.tooltip = tooltip
+            except Exception:
+                pass
+        
+        def on_leave(event):
+            try:
+                if hasattr(widget, 'tooltip'):
+                    widget.tooltip.destroy()
+                    delattr(widget, 'tooltip')
+            except Exception:
+                pass
+        
+        widget.bind("<Enter>", on_enter)
+        widget.bind("<Leave>", on_leave)
+    
+    def _refresh_splash_screen(self) -> None:
+        """Refresh the splash screen to reflect plugin changes."""
+        try:
+            # Destroy current home frame
+            if self.home_frame:
+                self.home_frame.destroy()
+            
+            # Recreate splash screen
+            self.create_home_screen()
+            
+            logger.info("Splash screen refreshed")
+            
+        except Exception as e:
+            logger.error("Failed to refresh splash screen: %s", e)
+    
+    # ------------------------------------------------------------------
+    # Plugin Management and Workflow Integration
+    # ------------------------------------------------------------------
+    
+    def show_plugin_management(self) -> None:
+        """Show plugin management dialog."""
+        try:
+            from orlando_toolkit.ui.dialogs.plugin_manager_dialog import PluginManagerDialog
+            
+            dialog = PluginManagerDialog(self.root, self.plugin_manager)
+            result = dialog.show_modal()
+            
+            # Handle dialog result
+            if result:
+                self._logger.info("Plugin management dialog closed with result: %s", result)
+                
+                # Refresh plugin buttons if plugins were modified
+                if result.get("action") in ["install", "uninstall", "import"]:
+                    self._refresh_splash_screen()
+        
+        except Exception as e:
+            self._logger.error("Failed to show plugin management dialog: %s", e)
+            messagebox.showerror(
+                "Plugin Management Error",
+                f"Failed to open plugin management:\n\n{e}"
+            )
+    
+    def open_dita_project(self) -> None:
+        """Open existing DITA project from ZIP archive."""
+        filepath = filedialog.askopenfilename(
+            title="Select a DITA Project Archive", 
+            filetypes=(("ZIP Archives", "*.zip"), ("All files", "*.*"))
+        )
+        if not filepath:
+            return
+        
+        # Placeholder for DITA import functionality (Task 7)
+        messagebox.showinfo(
+            "DITA Project Import", 
+            f"DITA project import functionality will be implemented in Task 7.\n\n"
+            f"Selected file: {Path(filepath).name}\n\n"
+            f"This will allow you to:\n"
+            f"• Import zipped DITA archives\n"
+            f"• Load existing DITA projects\n"
+            f"• Edit structure without conversion"
+        )
+    
+    def launch_plugin_workflow(self, plugin_id: str) -> None:
+        """Launch workflow for a specific plugin.
+        
+        Args:
+            plugin_id: ID of plugin to launch
+        """
+        try:
+            logger.info("Launching plugin workflow for: %s", plugin_id)
+            
+            # For demonstration, show DOCX conversion workflow for docx-converter
+            if plugin_id == "docx-converter":
+                self.start_conversion_workflow()
+                return
+            
+            # For other plugins, show placeholder
+            official_info = get_official_plugin_info(plugin_id)
+            plugin_name = official_info.get("description", plugin_id) if official_info else plugin_id
+            
+            messagebox.showinfo(
+                "Plugin Workflow", 
+                f"Plugin workflow for {plugin_name} would start here.\n\n"
+                f"Plugin ID: {plugin_id}\n\n"
+                f"This would typically:\n"
+                f"• Open file dialog for supported formats\n"
+                f"• Convert files to DITA format\n"
+                f"• Create new DITA project archive"
+            )
+            
+        except Exception as e:
+            logger.error("Failed to launch plugin workflow for %s: %s", plugin_id, e)
+            messagebox.showerror(
+                "Plugin Error", 
+                f"Failed to launch plugin {plugin_id}:\n\n{e}"
+            )
+
+    # ------------------------------------------------------------------
+    # Conversion workflow (Legacy DOCX support)
     # ------------------------------------------------------------------
 
     def start_conversion_workflow(self) -> None:
