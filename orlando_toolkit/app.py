@@ -25,7 +25,7 @@ from orlando_toolkit.core.models.ui_config import (
     DEFAULT_SPLASH_LAYOUT, DEFAULT_ICONS
 )
 from orlando_toolkit.core.context import AppContext, set_app_context
-from orlando_toolkit.core.services import ConversionService, StructureEditingService, UndoService, PreviewService
+from orlando_toolkit.core.services import ConversionService, StructureEditingService, UndoService, PreviewService, ProgressService
 from orlando_toolkit.core.plugins.manager import PluginManager
 from orlando_toolkit.core.plugins.loader import PluginLoader
 from orlando_toolkit.core.plugins.registry import ServiceRegistry
@@ -82,13 +82,15 @@ class OrlandoToolkit:
         self.structure_editing_service = StructureEditingService(app_context=self.app_context)
         self.undo_service = UndoService()
         self.preview_service = PreviewService()
+        self.progress_service = ProgressService()
         
         # Update AppContext with services
         self.app_context.update_services(
             conversion_service=self.service,
             structure_editing_service=self.structure_editing_service,
             undo_service=self.undo_service,
-            preview_service=self.preview_service
+            preview_service=self.preview_service,
+            progress_service=self.progress_service
         )
         
         # UI configuration
@@ -330,14 +332,10 @@ class OrlandoToolkit:
         self.status_label = ttk.Label(self.home_center, text="", font=("Segoe UI", 10))
         self.status_label.pack(pady=(20, 5))
 
-        # Attach logging→GUI bridge the first time the home screen is built
-        if not hasattr(self, "_log_to_status"):
-            self._log_to_status = _TkStatusHandler(self.status_label)
-            fmt = logging.Formatter("%(message)s")
-            self._log_to_status.setFormatter(fmt)
-            # Attach to converter & service hierarchies only
-            logging.getLogger("orlando_toolkit.core").addHandler(self._log_to_status)
-            logging.getLogger("orlando_toolkit.core").setLevel(logging.INFO)
+        # Initialize unified progress callback system
+        if not hasattr(self, "_progress_callback_initialized"):
+            self._progress_callback = self.progress_service.create_ui_callback(self.status_label, self.root)
+            self._progress_callback_initialized = True
 
         self.progress_bar = ttk.Progressbar(self.home_center, mode="indeterminate")
 
@@ -841,13 +839,8 @@ class OrlandoToolkit:
             )
 
     def _create_progress_callback(self) -> callable:
-        """Create thread-safe progress callback for plugin updates."""
-        def progress_callback(message: str) -> None:
-            """Update status label with plugin progress message."""
-            if self.status_label and self.status_label.winfo_exists():
-                # Schedule UI update on main thread
-                self.root.after(0, lambda: self.status_label.config(text=message))
-        return progress_callback
+        """Create thread-safe progress callback for all processing types."""
+        return self._progress_callback
 
     def run_plugin_processing_thread(self, plugin_handler, filepath: str, metadata: dict, plugin_id: str) -> None:
         """Run plugin processing in background thread (like regular DITA opening).
@@ -1041,7 +1034,7 @@ class OrlandoToolkit:
             
             logger.info("Starting %s for: %s", operation, filepath)
             
-            ctx = self.service.convert(filepath, metadata)
+            ctx = self.service.convert(filepath, metadata, self._progress_callback)
             # Treat a None result as a failure
             if ctx is None:
                 logger.error("%s returned no result for file: %s", operation, filepath)
@@ -1516,23 +1509,4 @@ class OrlandoToolkit:
             self.image_tab.update_image_names()
 
 
-# ----------------------------------------------------------------------
-# Utility: bridge Python logging to a Tkinter label for user feedback.
-# ----------------------------------------------------------------------
-
-
-class _TkStatusHandler(logging.Handler):
-    """Logging handler that pushes log messages to a Tkinter label."""
-
-    def __init__(self, target_label: ttk.Label, *, level=logging.INFO):
-        super().__init__(level=level)
-        self._label = target_label
-
-    def emit(self, record: logging.LogRecord) -> None:  # noqa: D401
-        # Show only INFO messages in the inline UI status; ignore DEBUG/WARNING/ERROR
-        if record.levelno != logging.INFO:
-            return
-        # Use .after to ensure thread-safe update from background threads.
-        msg = self.format(record)
-        if self._label.winfo_exists():
-            self._label.after(0, lambda m=msg: self._label.config(text=m)) 
+ 

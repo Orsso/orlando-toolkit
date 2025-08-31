@@ -10,12 +10,14 @@ from .conversion_service import ConversionService  # noqa: F401
 from .structure_editing_service import StructureEditingService  # noqa: F401
 from .undo_service import UndoService  # noqa: F401
 from .preview_service import PreviewService  # noqa: F401
+from .progress_service import ProgressService  # noqa: F401
 
 __all__: list[str] = [
     "ConversionService",
     "StructureEditingService", 
     "UndoService",
     "PreviewService",
+    "ProgressService",
 ]
 
 

@@ -13,7 +13,7 @@ from typing import Optional, Dict, Any, TYPE_CHECKING
 if TYPE_CHECKING:
     from .plugins.registry import ServiceRegistry
     from .plugins.manager import PluginManager
-    from .services import ConversionService, StructureEditingService, UndoService, PreviewService
+    from .services import ConversionService, StructureEditingService, UndoService, PreviewService, ProgressService
     from .models import DitaContext
 
 logger = logging.getLogger(__name__)
@@ -44,6 +44,7 @@ class AppContext:
         structure_editing_service: Optional[StructureEditingService] = None,
         undo_service: Optional[UndoService] = None,
         preview_service: Optional[PreviewService] = None,
+        progress_service: Optional[ProgressService] = None,
         ui_registry: Optional[Any] = None,
         app_instance: Optional[Any] = None
     ) -> None:
@@ -63,6 +64,7 @@ class AppContext:
         self._structure_editing_service = structure_editing_service
         self._undo_service = undo_service
         self._preview_service = preview_service
+        self._progress_service = progress_service
         self.ui_registry = ui_registry
         self._app_instance = app_instance
         
@@ -136,6 +138,14 @@ class AppContext:
             PreviewService instance or None if not available
         """
         return self._preview_service
+    
+    def get_progress_service(self) -> Optional[ProgressService]:
+        """Get the progress callback service.
+        
+        Returns:
+            ProgressService instance or None if not available
+        """
+        return self._progress_service
     
     # -------------------------------------------------------------------------
     # Plugin Data Management
@@ -244,7 +254,8 @@ class AppContext:
         conversion_service: Optional[ConversionService] = None,
         structure_editing_service: Optional[StructureEditingService] = None,
         undo_service: Optional[UndoService] = None,
-        preview_service: Optional[PreviewService] = None
+        preview_service: Optional[PreviewService] = None,
+        progress_service: Optional[ProgressService] = None
     ) -> None:
         """Update core services (for service factories).
         
@@ -253,6 +264,7 @@ class AppContext:
             structure_editing_service: Updated structure editing service
             undo_service: Updated undo service
             preview_service: Updated preview service
+            progress_service: Updated progress service
         """
         if conversion_service is not None:
             self._conversion_service = conversion_service
@@ -269,6 +281,10 @@ class AppContext:
         if preview_service is not None:
             self._preview_service = preview_service
             self._logger.debug("Updated preview service")
+        
+        if progress_service is not None:
+            self._progress_service = progress_service
+            self._logger.debug("Updated progress service")
     
     # -------------------------------------------------------------------------
     # Plugin Integration Helpers

@@ -12,7 +12,7 @@ import os
 import tempfile
 import zipfile
 from pathlib import Path
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional, List, Callable
 from lxml import etree as ET
 
 from orlando_toolkit.core.models import DitaContext
@@ -80,12 +80,14 @@ class DitaPackageImporter:
         except (zipfile.BadZipFile, OSError):
             return False
     
-    def import_package(self, file_path: Path, metadata: Optional[Dict[str, Any]] = None) -> DitaContext:
+    def import_package(self, file_path: Path, metadata: Optional[Dict[str, Any]] = None,
+                       progress_callback: Optional[Callable[[str], None]] = None) -> DitaContext:
         """Import a zipped DITA package into a DitaContext.
         
         Args:
             file_path: Path to the ZIP file containing the DITA package
             metadata: Optional metadata to merge with imported data
+            progress_callback: Optional callback for progress updates
             
         Returns:
             DitaContext containing the imported DITA archive
@@ -96,7 +98,9 @@ class DitaPackageImporter:
         if not self.can_import(file_path):
             raise DitaImportError(f"File is not a valid DITA package: {file_path}", file_path)
         
-        self.logger.info("Importing DITA package: %s", file_path)
+        if progress_callback:
+            progress_callback(f"Importing DITA package: {file_path.name}")
+        self.logger.debug("Importing DITA package: %s", file_path)
         
         try:
             with tempfile.TemporaryDirectory(prefix="otk_dita_import_") as temp_dir:
@@ -111,7 +115,9 @@ class DitaPackageImporter:
                 context.metadata["source_type"] = "dita_package"
                 context.metadata["import_timestamp"] = self._get_current_timestamp()
                 
-                self.logger.info("Successfully imported DITA package with %d topics and %d images",
+                if progress_callback:
+                    progress_callback(f"Successfully imported DITA package with {len(context.topics)} topics and {len(context.images)} images")
+                self.logger.debug("Successfully imported DITA package with %d topics and %d images",
                                len(context.topics), len(context.images))
                 
                 return context

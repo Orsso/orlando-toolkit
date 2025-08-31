@@ -11,7 +11,7 @@ import logging
 import shutil
 import tempfile
 from pathlib import Path
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional, List, Callable
 
 from orlando_toolkit.core.models import DitaContext
 from orlando_toolkit.core.utils import slugify
@@ -53,7 +53,8 @@ class ConversionService:
     # ---------------------------------------------------------------------
     # PUBLIC API
     # ---------------------------------------------------------------------
-    def convert(self, file_path: str | Path, metadata: Dict[str, Any]) -> DitaContext:
+    def convert(self, file_path: str | Path, metadata: Dict[str, Any], 
+                progress_callback: Optional[Callable[[str], None]] = None) -> DitaContext:
         """Convert any supported document to an in-memory DitaContext.
         
         This method finds a compatible DocumentHandler plugin for the file format
@@ -63,6 +64,7 @@ class ConversionService:
         Args:
             file_path: Path to the document to convert
             metadata: Conversion metadata and configuration
+            progress_callback: Optional callback for progress updates
             
         Returns:
             DitaContext containing the converted DITA archive
@@ -72,7 +74,8 @@ class ConversionService:
             Exception: If conversion fails for other reasons
         """
         file_path = Path(file_path)
-        self.logger.info("Convert: parsing document")
+        if progress_callback:
+            progress_callback("Parsing document...")
         self.logger.debug("Converting document -> DITA: %s", file_path)
         
         # Validate file exists
@@ -86,8 +89,9 @@ class ConversionService:
         if self.dita_importer.can_import(file_path):
             try:
                 self.logger.debug("Using DITA package importer for file: %s", file_path)
-                context = self.dita_importer.import_package(file_path, metadata)
-                self.logger.info("DITA package import successful")
+                context = self.dita_importer.import_package(file_path, metadata, progress_callback)
+                if progress_callback:
+                    progress_callback("DITA package import successful")
                 return context
             except Exception as e:
                 self.logger.error("DITA package import failed: %s", e)
@@ -114,7 +118,8 @@ class ConversionService:
                         context.plugin_data = {}
                     context.plugin_data['_source_plugin'] = plugin_id
                     
-                    self.logger.info("Conversion successful using plugin: %s", plugin_id)
+                    if progress_callback:
+                        progress_callback(f"Conversion successful using plugin: {plugin_id}")
                     return context
                     
                 except Exception as e:
