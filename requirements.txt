@@ -5,3 +5,4 @@ lxml
 sv-ttk 
 pyyaml
 tkinterweb>=3.13
+requests  # Required for GitHub plugin fetcher
