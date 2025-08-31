@@ -88,8 +88,15 @@ class RightPanelCoordinator:
             except Exception as e:
                 logger.debug(f"Plugin support not available: {e}")
         
-        if self._ui_registry:
-            self._refresh_plugin_panel_factories()
+        # Defer factory refresh to avoid init overhead - will be loaded when first needed
+        self._factories_loaded = False
+    
+    def _ensure_plugin_factories_loaded(self) -> None:
+        """Ensure plugin panel factories are loaded (lazy initialization)."""
+        if self._factories_loaded:
+            return
+        self._refresh_plugin_panel_factories()
+        self._factories_loaded = True
     
     def _refresh_plugin_panel_factories(self) -> None:
         """Refresh available plugin panel factories."""
@@ -123,6 +130,8 @@ class RightPanelCoordinator:
         """
         if not self._ui_registry:
             return None
+        
+        self._ensure_plugin_factories_loaded()
         
         try:
             factory = self._plugin_panel_factories.get(panel_type)
@@ -203,6 +212,7 @@ class RightPanelCoordinator:
         Returns:
             True if panel type is provided by a plugin
         """
+        self._ensure_plugin_factories_loaded()
         return panel_type in self._plugin_panel_factories
     
     # ------------------------------------------------------------------

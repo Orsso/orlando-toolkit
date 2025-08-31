@@ -31,6 +31,7 @@ from typing import Callable, Literal, Optional, cast
 import tkinter as tk
 from tkinter import ttk
 from tkinter.scrolledtext import ScrolledText
+from orlando_toolkit.ui.widgets.universal_spinner import UniversalSpinner
 
 # HTML rendering support (tkinterweb)
 try:
@@ -180,22 +181,8 @@ class PreviewPanel(ttk.Frame):
             # For ScrolledText, make it read-only but selectable
             self._text.configure(state="disabled")
 
-        # Loading overlay (indeterminate progress) — hidden by default
-        try:
-            self._loading_frame = ttk.Frame(self)
-            self._loading_frame.grid(row=1, column=0, sticky="nsew", padx=4, pady=(0, 4))
-            self._loading_frame.columnconfigure(0, weight=1)
-            self._loading_frame.rowconfigure(0, weight=1)
-
-            inner = ttk.Frame(self._loading_frame)
-            inner.grid(row=0, column=0)
-            self._loading_prog = ttk.Progressbar(inner, mode="indeterminate", length=160, maximum=100)
-            self._loading_prog.grid(row=0, column=0, pady=8)
-            # Hidden initially
-            self._loading_frame.grid_remove()
-        except Exception:
-            self._loading_frame = None  # type: ignore[assignment]
-            self._loading_prog = None  # type: ignore[assignment]
+        # Loading spinner (covers entire preview area)
+        self._loading_spinner = UniversalSpinner(self, "Loading preview...")
 
     # Public API
 
@@ -233,30 +220,15 @@ class PreviewPanel(ttk.Frame):
                         self._text.configure(state="disabled")
                 except Exception:
                     pass
-                # Show overlay, hide content
+                # Show loading spinner, hide content
                 try:
                     self._text.grid_remove()
                 except Exception:
                     pass
-                try:
-                    if getattr(self, "_loading_frame", None) is not None:
-                        self._loading_frame.grid()
-                    if getattr(self, "_loading_prog", None) is not None:
-                        self._loading_prog.start(10)
-                except Exception:
-                    pass
+                self._loading_spinner.start()
             else:
-                # Hide overlay, show content
-                try:
-                    if getattr(self, "_loading_prog", None) is not None:
-                        self._loading_prog.stop()
-                except Exception:
-                    pass
-                try:
-                    if getattr(self, "_loading_frame", None) is not None:
-                        self._loading_frame.grid_remove()
-                except Exception:
-                    pass
+                # Hide loading spinner, show content
+                self._loading_spinner.stop()
                 try:
                     self._text.grid()
                 except Exception:

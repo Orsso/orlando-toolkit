@@ -63,6 +63,7 @@ from orlando_toolkit.ui.tabs.structure.depth_control import DepthControlCoordina
 from orlando_toolkit.ui.tabs.structure.search_coordinator import SearchCoordinator
 from orlando_toolkit.ui.tabs.structure.context_actions import ContextActions
 from orlando_toolkit.ui.tabs.structure.tree_refresh_coordinator import TreeRefreshCoordinator
+from orlando_toolkit.ui.widgets.universal_spinner import UniversalSpinner
 
 
 __all__ = ["StructureTab"]
@@ -138,21 +139,21 @@ class StructureTab(ttk.Frame):
         self.columnconfigure(0, weight=1)
         self.rowconfigure(2, weight=1)
 
-        # Toolbar row hosts move buttons and, to its right, the style legend
+        # Create control rows with batched configuration
+        search_row = ttk.Frame(self)
         toolbar_row = ttk.Frame(self)
-        toolbar_row.grid(row=1, column=0, sticky="ew", padx=8, pady=(0, 6))
-        # Do not stretch the toolbar; leave room for optional neighbors if needed
+        
+        # Configure grid layout in batch
+        search_row.columnconfigure(3, weight=1)  # Spacer column
         toolbar_row.columnconfigure(0, weight=0)
         toolbar_row.columnconfigure(1, weight=1)
+        
+        # Position both rows
+        search_row.grid(row=0, column=0, sticky="ew", padx=8, pady=(8, 4))
+        toolbar_row.grid(row=1, column=0, sticky="ew", padx=8, pady=(0, 6))
 
         self._toolbar = ToolbarWidget(toolbar_row, on_move=self._on_toolbar_move_clicked)
         self._toolbar.grid(row=0, column=0, sticky="w")
-
-        # Search row layout (search | spacer | depth controls | legend | toggles)
-        search_row = ttk.Frame(self)
-        search_row.grid(row=0, column=0, sticky="ew", padx=8, pady=(8, 4))
-        # Column 3 is a flexible spacer to push right controls
-        search_row.columnconfigure(3, weight=1)
 
         # Search widget: make it noticeably narrower via explicit entry width
         self._search = SearchWidget(
@@ -209,17 +210,8 @@ class StructureTab(ttk.Frame):
             # Non-fatal if depth control cannot be created
             pass
         
-        # Depth coordinator (after widgets exist)
-        try:
-            self._depth_coordinator = DepthControlCoordinator(
-                get_depth_value=lambda: int(self._depth_var.get()),
-                set_depth_value=lambda v: self._depth_var.set(int(v)),
-                controller_getter=lambda: self._controller,
-                on_refresh_tree=self._refresh_tree,
-                is_busy=lambda: bool(getattr(self, "_busy", False)),
-            )
-        except Exception:
-            self._depth_coordinator = None  # type: ignore[assignment]
+        # Depth coordinator - lazy loaded when first needed
+        self._depth_coordinator = None  # type: ignore[assignment]
 
         # Style legend: placed to the right of the toolbar buttons
         self._style_legend = StyleLegend(toolbar_row)
@@ -253,18 +245,20 @@ class StructureTab(ttk.Frame):
         self._paned = ttk.PanedWindow(self, orient="horizontal")
         self._paned.grid(row=2, column=0, sticky="nsew", padx=8, pady=(0, 8))
 
+        # Create and configure panes in batch
         left = ttk.Frame(self._paned)
-        left.columnconfigure(0, weight=1)
-        left.rowconfigure(0, weight=1)
-
         right = ttk.Frame(self._paned)
-        right.columnconfigure(0, weight=1)
-        right.rowconfigure(0, weight=1)
-
-        # Equal weights; we will set the sash explicitly to 50/50 by default
+        
+        # Batch configure both panes
+        for pane in (left, right):
+            pane.columnconfigure(0, weight=1)
+            pane.rowconfigure(0, weight=1)
+        
+        # Add panes with 50/50 weights
         self._paned.add(left, weight=1)
         self._paned.add(right, weight=1)
-        # Prevent zero-width panes by setting a reasonable minimum size for the preview pane
+        
+        # Set minimum size for right pane
         try:
             self._paned.paneconfigure(right, minsize=150)
         except Exception:
@@ -302,21 +296,8 @@ class StructureTab(ttk.Frame):
             on_context_menu=self._on_tree_context_menu,
         )
         self._tree.grid(row=0, column=0, sticky="nsew")
-        # Busy overlay anchored to the top of the list, spans full width without affecting layout
-        try:
-            self._structure_busy_overlay = ttk.Frame(left)
-            self._structure_busy_overlay.place(relx=0.0, rely=0.0, relwidth=1.0, y=0)
-            self._structure_busy_prog = ttk.Progressbar(self._structure_busy_overlay, mode="indeterminate", maximum=100)
-            self._structure_busy_prog.pack(fill="x")
-            try:
-                self._structure_busy_overlay.lift()
-            except Exception:
-                pass
-            # Hidden by default, so no layout shift occurs
-            self._structure_busy_overlay.place_forget()
-        except Exception:
-            self._structure_busy_overlay = None  # type: ignore[assignment]
-            self._structure_busy_prog = None  # type: ignore[assignment]
+        # Loading spinner (replaces hourglass cursor with elegant animation)
+        self._loading_spinner = UniversalSpinner(left, "Refreshing structure...")
 
         # Preview panel on the right
         from orlando_toolkit.ui.widgets.preview_panel import PreviewPanel  # local import to avoid cycles
@@ -466,13 +447,11 @@ class StructureTab(ttk.Frame):
             )
         except Exception:
             self._tree_refresh = None  # type: ignore[assignment]
-        self._refresh_tree()
-        # Set initial sash position via coordinator
-        try:
-            if getattr(self, "_paned_coordinator", None) is not None:
-                self.after(0, self._paned_coordinator.restore_sash)  # type: ignore[attr-defined]
-        except Exception:
-            pass
+        
+        # Defer tree refresh to avoid blocking UI with large documents
+        self._needs_tree_refresh = True
+        # Defer sash restoration until after all widgets are fully initialized  
+        self._needs_sash_restore = True
             
         # Initialize empty legend
         try:
@@ -482,6 +461,9 @@ class StructureTab(ttk.Frame):
 
         # Background execution helpers state
         self._busy: bool = False
+        
+        # Perform deferred initialization after widget creation is complete
+        self.after(50, self._perform_deferred_initialization)
 
     # ---------------------------------------------------------------------------------
     # Public API shims to preserve external expectations (conservative, presentation-only)
@@ -502,15 +484,17 @@ class StructureTab(ttk.Frame):
         preview_service = PreviewService()
         self._controller = StructureController(context, editing_service, undo_service, preview_service)
         self._sync_depth_control()
-        self._refresh_tree()
-        self._update_plugin_ui_visibility()
+        # Defer tree refresh to avoid blocking with large documents
+        self.after(100, self._perform_deferred_tree_refresh)
+        # Plugin UI visibility will be updated in deferred initialization
 
     def attach_controller(self, controller: StructureController) -> None:
         """Attach an externally created controller and refresh the UI."""
         self._controller = controller
         self._sync_depth_control()
-        self._refresh_tree()
-        self._update_plugin_ui_visibility()
+        # Defer tree refresh to avoid blocking with large documents
+        self.after(100, self._perform_deferred_tree_refresh)
+        # Plugin UI visibility will be updated in deferred initialization
 
     # Expose the controller's context for callers (e.g., export pipeline)
     @property
@@ -573,6 +557,70 @@ class StructureTab(ttk.Frame):
     # ---------------------------------------------------------------------------------
     # Internal helpers
     # ---------------------------------------------------------------------------------
+    
+    def _perform_deferred_initialization(self) -> None:
+        """Perform heavy initialization tasks after widget creation."""
+        try:
+            # Update plugin UI visibility (heavy operation)
+            self._update_plugin_ui_visibility()
+            
+            # Defer tree refresh to allow UI to render first
+            if getattr(self, "_needs_tree_refresh", False):
+                self._needs_tree_refresh = False
+                # Schedule tree refresh after UI is responsive
+                self.after(200, self._perform_deferred_tree_refresh)
+            
+            # Schedule sash restoration after plugin UI is settled
+            if getattr(self, "_needs_sash_restore", False):
+                self.after(100, self._perform_deferred_sash_restore)
+        except Exception:
+            pass
+    
+    def _perform_deferred_sash_restore(self) -> None:
+        """Perform sash restoration after all widgets are initialized and geometry is stable."""
+        try:
+            if getattr(self, "_paned_coordinator", None) is not None:
+                self._paned_coordinator.restore_sash()  # type: ignore[attr-defined]
+            self._needs_sash_restore = False
+        except Exception:
+            pass
+    
+    def _perform_deferred_tree_refresh(self) -> None:
+        """Perform tree refresh after UI is fully rendered and responsive."""
+        try:
+            # Show spinner animation instead of hourglass cursor
+            self._set_busy(True)
+            
+            # Use a small delay to let spinner appear before heavy operation
+            self.after(50, self._execute_tree_refresh)
+        except Exception:
+            pass
+    
+    def _execute_tree_refresh(self) -> None:
+        """Execute the actual tree refresh and hide spinner when done."""
+        try:
+            self._refresh_tree()
+        except Exception:
+            pass
+        finally:
+            # Hide spinner animation
+            self._set_busy(False)
+    
+    def _ensure_depth_coordinator(self) -> None:
+        """Lazy load depth coordinator when first needed."""
+        if self._depth_coordinator is not None:
+            return
+        try:
+            if hasattr(self, "_depth_var"):
+                self._depth_coordinator = DepthControlCoordinator(
+                    get_depth_value=lambda: int(self._depth_var.get()),
+                    set_depth_value=lambda v: self._depth_var.set(int(v)),
+                    controller_getter=lambda: self._controller,
+                    on_refresh_tree=self._refresh_tree,
+                    is_busy=lambda: bool(getattr(self, "_busy", False)),
+                )
+        except Exception:
+            self._depth_coordinator = None  # type: ignore[assignment]
 
     def _update_plugin_ui_visibility(self) -> None:
         """Update visibility of plugin-specific UI elements based on document source plugin capabilities."""
@@ -677,37 +725,15 @@ class StructureTab(ttk.Frame):
     # ---------------------------------------------------------------------------------
 
     def _set_busy(self, busy: bool) -> None:
-        """Set a simple busy flag and toggle a non-intrusive progress overlay atop the structure list."""
+        """Set busy flag and show elegant spinner animation (replaces hourglass cursor)."""
         try:
             self._busy = bool(busy)
-            # Disable toolbar buttons while busy
-            try:
-                self._toolbar.enable_buttons(False)
-            except Exception:
-                pass
-            # Toggle the overlay progress bar placed over the list (no layout shifts)
-            try:
-                overlay = getattr(self, "_structure_busy_overlay", None)
-                prog = getattr(self, "_structure_busy_prog", None)
-                if overlay is not None and prog is not None:
-                    if self._busy:
-                        try:
-                            overlay.place(relx=0.0, rely=0.0, relwidth=1.0, y=0)
-                            try:
-                                overlay.lift()
-                            except Exception:
-                                pass
-                            prog.start(10)
-                        except Exception:
-                            pass
-                    else:
-                        try:
-                            prog.stop()
-                            overlay.place_forget()
-                        except Exception:
-                            pass
-            except Exception:
-                pass
+            # Use UniversalSpinner widget (automatically handles disabling)
+            if hasattr(self, '_loading_spinner'):
+                if self._busy:
+                    self._loading_spinner.start()
+                else:
+                    self._loading_spinner.stop()
         except Exception:
             pass
 
@@ -765,6 +791,9 @@ class StructureTab(ttk.Frame):
             return
         if getattr(self, "_busy", False):
             return
+        
+        # Ensure depth coordinator is loaded
+        self._ensure_depth_coordinator()
 
         try:
             val = int(self._depth_var.get())

@@ -10,6 +10,7 @@ from typing import Optional, Dict, Any, List
 from pathlib import Path
 from PIL import Image, ImageTk
 from orlando_toolkit.core.plugins.manager import PluginManager
+from orlando_toolkit.ui.widgets.universal_spinner import UniversalSpinner
 
 logger = logging.getLogger(__name__)
 
@@ -28,8 +29,7 @@ class SimplePluginManagerDialog:
         self.status_var = tk.StringVar(value="Ready")
         self.plugin_cards: List[Any] = []
         self.is_busy = False
-        self.loading_overlay = None
-        self.spinner_after_id = None
+        self.loading_spinner: Optional[UniversalSpinner] = None
         
     def show_modal(self) -> Optional[Dict[str, Any]]:
         """Show the plugin manager dialog as modal window."""
@@ -430,29 +430,14 @@ class SimplePluginManagerDialog:
         if not self.is_busy:
             self.is_busy = True
             self._set_ui_enabled(False)
-            self._show_loading_overlay(operation, target)
+            self._show_loading_spinner(operation, target)
             threading.Thread(target=self._execute_operation, args=(operation, target), daemon=True).start()
     
-    def _show_loading_overlay(self, operation: str, target: str) -> None:
-        """Show a loading overlay on the plugin area."""
+    def _show_loading_spinner(self, operation: str, target: str) -> None:
+        """Show loading spinner with operation-specific message."""
         try:
             if hasattr(self, 'canvas') and self.canvas:
-                # Create overlay frame on the main canvas, not scrollable_frame
-                self.loading_overlay = tk.Frame(self.canvas, bg='white', relief='solid', bd=1)
-                self.loading_overlay.place(x=0, y=0, relwidth=1, relheight=1)
-                
-                # Create centered content frame with background
-                content_frame = ttk.LabelFrame(self.loading_overlay, text="", padding=30)
-                content_frame.place(relx=0.5, rely=0.5, anchor="center")
-                
-                # Spinner
-                self.spinner_state = 0
-                spinner_chars = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
-                self.spinner_label = ttk.Label(content_frame, text=spinner_chars[0], 
-                                             font=("Arial", 24), foreground="#0078d4")
-                self.spinner_label.pack(pady=(0, 15))
-                
-                # Operation message
+                # Create or reuse spinner with custom message
                 operation_text = {
                     "add": "Fetching Plugin",
                     "install_fetched": "Installing Plugin", 
@@ -461,36 +446,25 @@ class SimplePluginManagerDialog:
                     "remove": "Removing Plugin"
                 }.get(operation, f"{operation.title()}ing Plugin")
                 
-                ttk.Label(content_frame, text=operation_text, font=("Arial", 12, "bold")).pack()
-                ttk.Label(content_frame, text="Please wait...", font=("Arial", 10), foreground="gray").pack()
+                # Create spinner only once to prevent overlapping  
+                if not self.loading_spinner:
+                    self.loading_spinner = UniversalSpinner(self.canvas, operation_text)
+                else:
+                    # Update existing spinner message
+                    self.loading_spinner.update_message(operation_text)
                 
-                self._start_spinner_animation()
+                self.loading_spinner.start()
         except Exception as e:
-            self._logger.error("Failed to show loading overlay: %s", e)
+            self._logger.error("Failed to show loading spinner: %s", e)
     
-    def _start_spinner_animation(self) -> None:
-        """Start the spinner animation."""
+    def _hide_loading_spinner(self) -> None:
+        """Hide the loading spinner."""
         try:
-            if hasattr(self, 'spinner_label') and self.spinner_label and self.spinner_label.winfo_exists():
-                self.spinner_state = (self.spinner_state + 1) % 10
-                spinner_chars = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
-                self.spinner_label.configure(text=spinner_chars[self.spinner_state])
-                self.spinner_after_id = self.dialog.after(150, self._start_spinner_animation)
-        except Exception:
-            pass
-    
-    def _hide_loading_overlay(self) -> None:
-        """Hide the loading overlay."""
-        try:
-            if self.spinner_after_id:
-                self.dialog.after_cancel(self.spinner_after_id)
-                self.spinner_after_id = None
-            
-            if self.loading_overlay and self.loading_overlay.winfo_exists():
-                self.loading_overlay.destroy()
-                self.loading_overlay = None
+            if self.loading_spinner:
+                self.loading_spinner.stop()
+                # Keep the spinner instance for reuse instead of setting to None
         except Exception as e:
-            self._logger.error("Failed to hide loading overlay: %s", e)
+            self._logger.error("Failed to hide loading spinner: %s", e)
     
     def _execute_operation(self, operation: str, target: str) -> None:
         """Execute plugin operation in background thread."""
@@ -527,7 +501,7 @@ class SimplePluginManagerDialog:
         """Handle operation completion on main thread."""
         self.is_busy = False
         self._set_ui_enabled(True)
-        self._hide_loading_overlay()
+        self._hide_loading_spinner()
         
         # Check success for both dictionary and object results
         is_success = False

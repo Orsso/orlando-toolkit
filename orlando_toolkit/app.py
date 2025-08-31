@@ -32,6 +32,7 @@ from orlando_toolkit.core.plugins.registry import ServiceRegistry
 from orlando_toolkit.core.plugins.ui_registry import UIRegistry
 from orlando_toolkit.ui.metadata_tab import MetadataTab
 from orlando_toolkit.ui.image_tab import ImageTab
+from orlando_toolkit.ui.widgets.loading_spinner import LoadingSpinner
 from orlando_toolkit.ui.widgets.metadata_form import MetadataForm
 from orlando_toolkit.version import get_app_version
 from orlando_toolkit.ui.dialogs.about_dialog import show_about_dialog
@@ -99,7 +100,7 @@ class OrlandoToolkit:
 
         # --- Widget references -----------------------------------------
         self.home_frame: Optional[ttk.Frame] = None
-        self.progress_bar: Optional[ttk.Progressbar] = None
+        self.loading_spinner: Optional[LoadingSpinner] = None
         self.status_label: Optional[ttk.Label] = None
         self.load_button: Optional[ttk.Button] = None
         self.notebook: Optional[ttk.Notebook] = None
@@ -107,10 +108,12 @@ class OrlandoToolkit:
         self.image_tab: Optional[ImageTab] = None
         self.structure_tab = None  # will be StructureTab
         self.main_actions_frame: Optional[ttk.Frame] = None
-        self.generation_progress: Optional[ttk.Progressbar] = None
+        # generation_progress removed - using main loading spinner
         # Inline metadata editor shown on the post-conversion summary screen
         self.inline_metadata: Optional[MetadataForm] = None
         self.home_center: Optional[ttk.Frame] = None
+        self.buttons_container: Optional[ttk.Frame] = None
+        self.loading_container: Optional[ttk.Frame] = None
         self.version_label: Optional[ttk.Label] = None
 
         # Initialize plugin system and load any previously activated plugins
@@ -169,6 +172,10 @@ class OrlandoToolkit:
                  font=("Segoe UI", 26, "bold"), foreground="#202124").pack()
         ttk.Label(title_frame, text="DITA Reader and Structure Editor", 
                  font=("Segoe UI", 13), foreground="#5f6368").pack(pady=(8, 0))
+        
+        # Container for buttons that will be replaced during loading
+        self.buttons_container = ttk.Frame(self.home_center)
+        self.buttons_container.pack()
         
         # Main prominent "Open DITA" button - Google search box style
         self.create_main_open_dita_button()
@@ -237,7 +244,7 @@ class OrlandoToolkit:
     def create_main_open_dita_button(self) -> None:
         """Create the prominent main Open DITA button - Google search box style."""
         # Container for the main button with shadow effect
-        main_button_frame = ttk.Frame(self.home_center)
+        main_button_frame = ttk.Frame(self.buttons_container)
         main_button_frame.pack(pady=(0, self.splash_layout.main_to_plugin_spacing))
         
         # Main button using the app's accent style for proper blue appearance
@@ -260,7 +267,7 @@ class OrlandoToolkit:
                 return
                 
             # Container for plugin buttons with proper spacing from main button
-            plugin_frame = ttk.Frame(self.home_center)
+            plugin_frame = ttk.Frame(self.buttons_container)
             plugin_frame.pack(pady=(self.splash_layout.main_to_plugin_spacing//2, 10))
             
             # Create style for plugin buttons - smaller, subtle, Google-like
@@ -334,10 +341,63 @@ class OrlandoToolkit:
 
         # Initialize unified progress callback system
         if not hasattr(self, "_progress_callback_initialized"):
-            self._progress_callback = self.progress_service.create_ui_callback(self.status_label, self.root)
+            self._progress_callback = self._create_smart_progress_callback()
             self._progress_callback_initialized = True
 
-        self.progress_bar = ttk.Progressbar(self.home_center, mode="indeterminate")
+        # LoadingSpinner will be created on-demand
+
+    def _create_smart_progress_callback(self) -> callable:
+        """Create progress callback that updates LoadingSpinner when visible, status_label otherwise."""
+        def smart_progress_callback(message: str) -> None:
+            """Update either LoadingSpinner subtitle or status label based on visibility."""
+            try:
+                # If LoadingSpinner is visible, update its subtitle
+                if hasattr(self, 'loading_spinner') and self.loading_spinner and self.loading_spinner.is_visible():
+                    self.root.after(0, lambda: self.loading_spinner.update_subtitle_only(message))
+                # Otherwise update the status label
+                elif self.status_label and self.status_label.winfo_exists():
+                    self.root.after(0, lambda: self.status_label.config(text=message))
+            except Exception:
+                pass
+        return smart_progress_callback
+
+    def _show_loading_spinner(self, title: str = "Loading", subtitle: str = "Please wait...") -> None:
+        """Show loading spinner with custom message, replacing buttons but keeping logo/title."""
+        try:
+            # Hide the buttons container
+            if hasattr(self, 'buttons_container') and self.buttons_container:
+                self.buttons_container.pack_forget()
+            
+            # Create a new container in the same location as buttons for the spinner
+            if not hasattr(self, 'loading_container') or not self.loading_container:
+                self.loading_container = ttk.Frame(self.home_center)
+                self.loading_container.pack()
+            
+            # Create spinner targeting the loading container
+            if not self.loading_spinner:
+                self.loading_spinner = LoadingSpinner(self.loading_container, title=title, subtitle=subtitle)
+            if self.loading_spinner:
+                self.loading_spinner.update_message(title, subtitle)
+                self.loading_spinner.show()
+        except Exception:
+            pass
+
+    def _hide_loading_spinner(self) -> None:
+        """Hide loading spinner and restore buttons."""
+        try:
+            if self.loading_spinner:
+                self.loading_spinner.hide()
+            
+            # Remove the loading container
+            if hasattr(self, 'loading_container') and self.loading_container:
+                self.loading_container.destroy()
+                self.loading_container = None
+            
+            # Restore the buttons container
+            if hasattr(self, 'buttons_container') and self.buttons_container:
+                self.buttons_container.pack()
+        except Exception:
+            pass
 
     def create_version_label(self) -> None:
         """Create version label in bottom-right corner."""
@@ -366,8 +426,11 @@ class OrlandoToolkit:
         def _disable_widget_recursive(widget):
             """Recursively disable a widget and all its children."""
             try:
-                # Try to disable the widget itself
-                if hasattr(widget, 'config'):
+                # Skip labels with images (like logo) - they should remain visual-only
+                if isinstance(widget, ttk.Label) and hasattr(widget, 'image') and widget.image:
+                    pass  # Don't disable logo labels
+                # Try to disable interactive widgets only
+                elif hasattr(widget, 'config'):
                     try:
                         # Check if widget supports 'state' config option
                         current_state = widget.cget('state')
@@ -408,8 +471,11 @@ class OrlandoToolkit:
         def _enable_widget_recursive(widget):
             """Recursively enable a widget and all its children."""
             try:
-                # Try to enable the widget itself
-                if hasattr(widget, 'config'):
+                # Skip labels with images (like logo) - they were never disabled
+                if isinstance(widget, ttk.Label) and hasattr(widget, 'image') and widget.image:
+                    pass  # Don't change logo labels
+                # Try to enable interactive widgets only
+                elif hasattr(widget, 'config'):
                     try:
                         # Check if widget supports 'state' config option
                         widget.config(state='normal')
@@ -447,12 +513,7 @@ class OrlandoToolkit:
             filepath: Path to the file that failed processing
         """
         # Stop progress indicators
-        if self.progress_bar:
-            try:
-                self.progress_bar.stop()
-                self.progress_bar.pack_forget()
-            except Exception:
-                pass
+        self._hide_loading_spinner()
         
         # Reset status label
         if self.status_label:
@@ -727,10 +788,8 @@ class OrlandoToolkit:
         
         # Import DITA project using conversion service
         if self.status_label:
-            self.status_label.config(text="Loading DITA project…")
-        if self.progress_bar:
-            self.progress_bar.pack(fill="x", expand=True, padx=20, pady=(10, 0))
-            self.progress_bar.start()
+            self.status_label.config(text="")
+        self._show_loading_spinner("Opening DITA Project", "")
 
         # Comprehensively disable all UI elements during processing
         self._disable_all_ui_elements()
@@ -801,13 +860,9 @@ class OrlandoToolkit:
                 logger.info("Processing file %s with plugin %s", filepath, plugin_id)
                 
                 # Show loading UI like regular DITA opening
-                file_extension = Path(filepath).suffix.upper().lstrip('.')
-                plugin_display_name = plugin_metadata.display_name
                 if self.status_label:
-                    self.status_label.config(text=f"Loading {file_extension} with {plugin_display_name}…")
-                if self.progress_bar:
-                    self.progress_bar.pack(fill="x", expand=True, padx=20, pady=(10, 0))
-                    self.progress_bar.start()
+                    self.status_label.config(text="")
+                self._show_loading_spinner("Converting Document", "")
                 
                 # Comprehensively disable all UI elements during processing
                 self._disable_all_ui_elements()
@@ -1005,10 +1060,8 @@ class OrlandoToolkit:
             return
 
         if self.status_label:
-            self.status_label.config(text="Converting document…")
-        if self.progress_bar:
-            self.progress_bar.pack(fill="x", expand=True, padx=20, pady=(10, 0))
-            self.progress_bar.start()
+            self.status_label.config(text="")
+        self._show_loading_spinner("Converting Document", "")
 
         # Comprehensively disable all UI elements during processing
         self._disable_all_ui_elements()
@@ -1091,23 +1144,20 @@ class OrlandoToolkit:
         self.app_context._set_current_dita_context(context)
 
         # Stop and hide any in-flight progress UI
-        if self.progress_bar:
-            try:
-                self.progress_bar.stop()
-            except Exception:
-                pass
-            self.progress_bar.pack_forget()
+        self._hide_loading_spinner()
         if self.status_label:
             self.status_label.config(text="")
 
-        # Clear the content area and build the summary UI in-place keeping the same layout
-        if self.home_center and self.home_center.winfo_exists():
-            for child in self.home_center.winfo_children():
-                try:
-                    child.destroy()
-                except Exception:
-                    pass
-        else:
+        # Clear only the buttons area while preserving logo and title for consistency
+        if self.buttons_container and self.buttons_container.winfo_exists():
+            try:
+                self.buttons_container.destroy()
+                self.buttons_container = None
+            except Exception:
+                pass
+        
+        # Ensure home_center exists for post-conversion content
+        if not (self.home_center and self.home_center.winfo_exists()):
             # Recreate if needed
             self.home_frame = ttk.Frame(self.root)
             self.home_frame.pack(expand=True, fill="both", padx=20, pady=20)
@@ -1117,9 +1167,7 @@ class OrlandoToolkit:
         self.show_post_conversion_summary()
 
     def on_conversion_failure(self, error: Exception) -> None:
-        if self.progress_bar:
-            self.progress_bar.stop()
-            self.progress_bar.pack_forget()
+        self._hide_loading_spinner()
         if self.status_label:
             self.status_label.config(text="Conversion failed. Please try again.")
         
@@ -1195,32 +1243,8 @@ class OrlandoToolkit:
 
         # Keep the exact same window size as the initial landing screen for consistency
 
-        # Header: show a larger logo without extra titles for a cleaner summary
-        try:
-            logo_path = Path(__file__).resolve().parent.parent / "assets" / "app_icon.png"
-            if logo_path.exists():
-                logo_img = tk.PhotoImage(file=logo_path)
-                try:
-                    # Target around 180px height for better visibility on the summary screen
-                    h = logo_img.height()
-                    target_h = 180
-                    if h > 0:
-                        if h < target_h:
-                            scale = max(1, min(3, target_h // h))
-                            if scale > 1:
-                                logo_img = logo_img.zoom(scale, scale)
-                        elif h > int(target_h * 1.5):
-                            # Downscale large logos to keep layout compact
-                            factor = max(2, int(round(h / float(target_h))))
-                            logo_img = logo_img.subsample(factor, factor)
-                except Exception:
-                    pass
-                logo_lbl = ttk.Label(self.home_center, image=logo_img)
-                logo_lbl.image = logo_img
-                logo_lbl.pack(pady=(0, 12))
-        except Exception:
-            pass
-        # Remove textual headers on the summary view for a minimalist look
+        # Logo and title are preserved from the original home screen for consistency
+        # No need to recreate them - they should already be visible
 
         # Success summary with checkmark and separate lines
         summary = ttk.Frame(self.home_center)
@@ -1360,50 +1384,9 @@ class OrlandoToolkit:
         if not save_path:
             return
 
-        self.show_generation_progress()
+        self._show_loading_spinner("Generating Package", "")
         threading.Thread(target=self.run_generation_thread, args=(save_path,), daemon=True).start()
 
-    def _show_progress_dialog(self, title: str, message: str):
-        """Create and show a small modal-ish progress dialog. Returns (top, progressbar)."""
-        top = tk.Toplevel(self.root)
-        try:
-            top.title(title)
-        except Exception:
-            pass
-        try:
-            top.transient(self.root)
-        except Exception:
-            pass
-        try:
-            self.root.update_idletasks()
-            w, h = 300, 90
-            rx, ry = self.root.winfo_rootx(), self.root.winfo_rooty()
-            rw, rh = self.root.winfo_width(), self.root.winfo_height()
-            x = rx + (rw - w) // 2
-            y = ry + (rh - h) // 2
-            top.geometry(f"{w}x{h}+{x}+{y}")
-        except Exception:
-            pass
-        try:
-            ttk.Label(top, text=message).pack(pady=10)
-        except Exception:
-            pass
-        prog = ttk.Progressbar(top, mode="indeterminate")
-        try:
-            prog.pack(fill="x", padx=20, pady=10)
-        except Exception:
-            pass
-        try:
-            prog.start()
-        except Exception:
-            pass
-        return top, prog
-
-    def show_generation_progress(self):
-        # Reuse generic progress dialog builder
-        top, prog = self._show_progress_dialog("Generating package…", "Generating DITA package, please wait…")
-        self.generation_progress = prog
-        self._progress_dialog = top
 
     def _show_loading_overlay(self, message: str = "Loading…") -> None:
         """Show a simple full-window overlay with a large hourglass and message."""
@@ -1469,15 +1452,11 @@ class OrlandoToolkit:
             self.root.after(0, self.on_generation_failure, exc)
 
     def on_generation_success(self, save_path: str):
-        if self.generation_progress:
-            self.generation_progress.stop()
-            self._progress_dialog.destroy()
+        self._hide_loading_spinner()
         messagebox.showinfo("Success", f"Archive written to\n{save_path}")
 
     def on_generation_failure(self, error: Exception):
-        if self.generation_progress:
-            self.generation_progress.stop()
-            self._progress_dialog.destroy()
+        self._hide_loading_spinner()
         messagebox.showerror("Generation error", str(error))
 
     # ------------------------------------------------------------------

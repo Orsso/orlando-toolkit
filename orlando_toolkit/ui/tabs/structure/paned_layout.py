@@ -78,30 +78,41 @@ class PanedLayoutCoordinator:
             pass
 
     def restore_sash(self) -> None:
+        """Restore sash position with geometry-aware timing."""
         try:
             paned = self._paned
             paned.update_idletasks()
             width = paned.winfo_width()
+            
+            # If width not ready, schedule single retry after geometry settling
             if width <= 1:
-                self._after(50, self.restore_sash)
+                self._after(100, self._restore_sash_final)
                 return
+                
+            self._restore_sash_final()
+        except Exception:
+            pass
+    
+    def _restore_sash_final(self) -> None:
+        """Final sash restoration without retry loops."""
+        try:
+            paned = self._paned
+            width = paned.winfo_width()
+            
+            # If still not ready after delay, use fallback positioning
+            if width <= 1:
+                return
+                
             ratio = self._ratio_filter if self._kind == "filter" else self._ratio_preview
             if not isinstance(ratio, float) or ratio <= 0.05 or ratio >= 0.95:
                 ratio = 0.5
+                
             pos = int(width * ratio)
-            try:
-                paned.sashpos(0, pos)
-            except Exception:
-                self._after(50, lambda: self._safe_set_sash(pos))
+            paned.sashpos(0, pos)
         except Exception:
             pass
 
     # ------------------------------------------------------------- Internals
-    def _safe_set_sash(self, pos: int) -> None:
-        try:
-            self._paned.sashpos(0, pos)
-        except Exception:
-            pass
 
     # --------------- Accessors (optional for external reads/shims) ----------
     @property
