@@ -38,11 +38,20 @@ from orlando_toolkit.core.models import DitaContext
 from orlando_toolkit.core.services.structure_editing_service import StructureEditingService
 from orlando_toolkit.core.services.undo_service import UndoService
 from orlando_toolkit.core.services.preview_service import PreviewService
+
+# UI extension support
+try:
+    from orlando_toolkit.core.context import get_app_context
+    from orlando_toolkit.core.plugins.ui_registry import UIRegistry
+except ImportError:
+    # Graceful degradation if plugin system not available
+    def get_app_context():
+        return None
+    UIRegistry = None  # type: ignore
 from orlando_toolkit.ui.controllers.structure_controller import StructureController
 from orlando_toolkit.ui.widgets.structure_tree_widget import StructureTreeWidget
 from orlando_toolkit.ui.widgets.search_widget import SearchWidget
 from orlando_toolkit.ui.widgets.toolbar_widget import ToolbarWidget
-from orlando_toolkit.ui.widgets.heading_filter_panel import HeadingFilterPanel
 from orlando_toolkit.ui.widgets.style_legend import StyleLegend
 from orlando_toolkit.ui.dialogs.context_menu import ContextMenuHandler
 from orlando_toolkit.ui.tabs.structure.preview_coordinator import PreviewCoordinator
@@ -224,18 +233,9 @@ class StructureTab(ttk.Frame):
         self._preview_active: bool = True
         self._filter_active: bool = False
 
-        # Filters toggle: page pictogram
-        self._filter_toggle_btn = ttk.Button(
-            toggles,
-            text="📃",  # page icon for heading filters
-            command=self._on_filter_toggle_clicked,
-            width=3,
-        )
-        self._filter_toggle_btn.grid(row=0, column=0, padx=(0, 4))
-        try:
-            self._filter_toggle_btn.tooltip_text = "Heading filters"  # type: ignore[attr-defined]
-        except Exception:
-            pass
+        # Filters toggle: created dynamically by plugins with heading_filter capability
+        self._filter_toggle_btn = None
+        self._toggles_frame = toggles  # Keep reference to add buttons dynamically
 
         # Preview toggle: eye pictogram
         self._preview_toggle_btn = ttk.Button(
@@ -328,7 +328,7 @@ class StructureTab(ttk.Frame):
             on_breadcrumb_clicked=self._on_breadcrumb_clicked,
         )
         self._preview_panel.grid(row=0, column=0, sticky="nsew")
-        self._filter_panel: Optional[HeadingFilterPanel] = None
+        self._filter_panel: Optional[object] = None
 
         # Preview coordinator
         try:
@@ -354,13 +354,32 @@ class StructureTab(ttk.Frame):
         # Right panel coordinator (centralizes preview/filter/none switching)
         try:
             def _make_filter_panel():
-                return HeadingFilterPanel(
-                    self._preview_container,
-                    on_close=self._on_filter_close,
-                    on_apply=self._on_filter_apply,
-                    on_toggle_style=self._on_filter_toggle_style,
-                )
+                # Try to get filter panel from plugin UI registry first
+                try:
+                    app_context = get_app_context()
+                    if app_context and hasattr(app_context, 'ui_registry'):
+                        panel_factory = app_context.ui_registry.get_panel_factory('heading_filter')
+                        if panel_factory:
+                            return panel_factory(
+                                self._preview_container,
+                                on_close=self._on_filter_close,
+                                on_apply=self._on_filter_apply,
+                                on_toggle_style=self._on_filter_toggle_style,
+                            )
+                except Exception:
+                    pass
+                # Fallback to None - no filter panel available without plugin
+                return None
 
+            # Get UI registry for plugin panel support
+            ui_registry = None
+            try:
+                app_context = get_app_context()
+                if app_context and hasattr(app_context, 'ui_registry'):
+                    ui_registry = app_context.ui_registry
+            except Exception:
+                pass  # Graceful degradation
+            
             self._right_panel = RightPanelCoordinator(
                 set_toggle_states=self._set_toggle_states,
                 update_legend=self._update_style_legend,
@@ -370,6 +389,7 @@ class StructureTab(ttk.Frame):
                 preview_container=self._preview_container,
                 filter_coordinator=self._filter_coordinator,
                 tree=self._tree,
+                ui_registry=ui_registry,
             )
         except Exception:
             self._right_panel = None  # type: ignore[assignment]
@@ -483,12 +503,14 @@ class StructureTab(ttk.Frame):
         self._controller = StructureController(context, editing_service, undo_service, preview_service)
         self._sync_depth_control()
         self._refresh_tree()
+        self._update_plugin_ui_visibility()
 
     def attach_controller(self, controller: StructureController) -> None:
         """Attach an externally created controller and refresh the UI."""
         self._controller = controller
         self._sync_depth_control()
         self._refresh_tree()
+        self._update_plugin_ui_visibility()
 
     # Expose the controller's context for callers (e.g., export pipeline)
     @property
@@ -551,6 +573,50 @@ class StructureTab(ttk.Frame):
     # ---------------------------------------------------------------------------------
     # Internal helpers
     # ---------------------------------------------------------------------------------
+
+    def _update_plugin_ui_visibility(self) -> None:
+        """Update visibility of plugin-specific UI elements based on document source plugin capabilities."""
+        try:
+            import logging
+            logger = logging.getLogger(__name__)
+            
+            app_context = get_app_context()
+            if app_context:
+                # Check if document source plugin has heading filter capability
+                show_heading_filter = app_context.document_source_plugin_has_capability('heading_filter')
+                logger.info(f"Plugin UI visibility check: show_heading_filter={show_heading_filter}, current_button_exists={self._filter_toggle_btn is not None}")
+                
+                # Create or destroy heading filter button as needed
+                if show_heading_filter and not self._filter_toggle_btn:
+                    # Create the heading filter button
+                    logger.info("Creating heading filter button")
+                    self._filter_toggle_btn = ttk.Button(
+                        self._toggles_frame,
+                        text="📃",  # page icon for heading filters
+                        command=self._on_filter_toggle_clicked,
+                        width=3,
+                    )
+                    self._filter_toggle_btn.grid(row=0, column=0, padx=(0, 4))
+                    try:
+                        self._filter_toggle_btn.tooltip_text = "Heading filters"  # type: ignore[attr-defined]
+                    except Exception:
+                        pass
+                    
+                elif not show_heading_filter and self._filter_toggle_btn:
+                    # Remove the heading filter button
+                    logger.info("Removing heading filter button")
+                    if self._filter_active:
+                        self._on_filter_toggle_clicked()  # Close filter panel if open
+                    self._filter_toggle_btn.destroy()
+                    self._filter_toggle_btn = None
+            else:
+                logger.debug("No app context available for plugin UI visibility check")
+            
+        except Exception as e:
+            # Log error but don't crash the UI
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error(f"Error updating plugin UI visibility: {e}")
 
     def _refresh_tree(self) -> None:
         """Delegate to TreeRefreshCoordinator."""

@@ -30,7 +30,7 @@ VSVersionInfo(
       StringTable(
         u'040904B0',
         [StringStruct(u'CompanyName', u'Orso Developer'),
-        StringStruct(u'FileDescription', u'Orlando Toolkit - DOCX to DITA Converter'),
+        StringStruct(u'FileDescription', u'Orlando Toolkit - DITA document processor with extensible plugin architecture'),
         StringStruct(u'FileVersion', u'1.1.1.0'),
         StringStruct(u'InternalName', u'OrlandoToolkit'),
         StringStruct(u'LegalCopyright', u'Copyright (C) 2025 Orso Developer'),

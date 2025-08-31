@@ -53,12 +53,12 @@ def _load_xslt_template_with_colors() -> str:
 
 
 def _generate_color_mappings_xslt() -> str:
-    """Generate XSLT when clauses for color mappings from config only."""
+    """Generate XSLT when clauses for color mappings from preview styles config."""
     config_manager = ConfigManager()
-    color_rules = config_manager.get_color_rules() or {}
+    preview_styles = config_manager.get_preview_styles() or {}
     
-    # Get CSS styles from config
-    css_styles = color_rules.get("css_styles", {})
+    # Get CSS styles from preview styles config
+    css_styles = preview_styles.get("css_styles", {})
     
     # Generate XSLT when clauses directly from config
     xslt_lines = []

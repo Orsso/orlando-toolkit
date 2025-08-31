@@ -1,88 +1,70 @@
-from __future__ import annotations
+"""Package utilities for DITA archive creation and finalization.
 
-"""DOCX to DITA conversion logic.
+These utilities handle the final stages of DITA package preparation:
+- Saving DITA packages to disk
+- Renaming topics and images with consistent patterns  
+- Converting empty topics to structural elements
+- Updating references throughout the package
 
-This package contains the core conversion pipeline that transforms Word documents
-into Orlando-compliant DITA topics and ditamaps. The conversion follows a
-two-pass approach:
-
-1. Structure Analysis: Build hierarchical document representation
-2. Role Determination: Decide section vs module based on content
-3. DITA Generation: Create topics with correct Orlando semantics
-
-Key modules:
-- docx_to_dita: Main conversion entry point
-- structure_builder: Two-pass conversion implementation
-- helpers: Shared utilities for formatting and content processing
+This module contains format-agnostic utilities that were previously part of
+the DOCX-specific converter module but are needed for all plugin conversions.
 """
 
-from typing import Any, Dict
+from __future__ import annotations
+
 import os
 import uuid
 import logging
+from pathlib import Path
+from typing import Dict, Any
 
 from orlando_toolkit.core.models import DitaContext
+from orlando_toolkit.core.utils import save_xml_file, save_minified_xml_file, slugify
 from orlando_toolkit.config import ConfigManager
 
-# Core conversion implementation
-from .docx_to_dita import convert_docx_to_dita
-from .structure_builder import (
-    build_document_structure,
-    determine_node_roles,
-    generate_dita_from_structure
-)
+logger = logging.getLogger(__name__)
 
 __all__ = [
-    "convert_docx_to_dita",
-    "build_document_structure",
-    "determine_node_roles",
-    "generate_dita_from_structure",
     "save_dita_package",
-    "update_image_references_and_names",
+    "update_image_references_and_names", 
     "update_topic_references_and_names",
     "prune_empty_topics",
 ]
-
-logger = logging.getLogger(__name__)
 
 
 def save_dita_package(context: DitaContext, output_dir: str) -> None:
     """Write the DITA package folder structure to *output_dir*.
 
-    Behaviour reproduced from legacy implementation.  Uses helpers from
-    core.utils for XML output.
+    Creates the standard DITA package structure:
+    - DATA/topics/ - Contains all DITA topic files
+    - DATA/media/ - Contains all referenced images
+    - DATA/{manual_code}.ditamap - Main ditamap file
+
+    Args:
+        context: DitaContext containing the DITA content to save
+        output_dir: Directory path where the package should be written
     """
-    from pathlib import Path
-
-    from orlando_toolkit.core.utils import save_xml_file, save_minified_xml_file, slugify
-
     output_dir = str(output_dir)
     data_dir = os.path.join(output_dir, "DATA")
     topics_dir = os.path.join(data_dir, "topics")
     media_dir = os.path.join(data_dir, "media")
 
-    # Directory for assets – we deliberately *do not* embed the DTD files
-    # anymore, but we keep the variable in case relative paths are still used
-    # in DOCTYPE system identifiers.
+    # Create directory structure
     os.makedirs(topics_dir, exist_ok=True)
     os.makedirs(media_dir, exist_ok=True)
 
-    # Ensure manual_code
+    # Ensure manual_code exists
     if not context.metadata.get("manual_code"):
         context.metadata["manual_code"] = slugify(context.metadata.get("manual_title", "default"))
 
     manual_code = context.metadata.get("manual_code")
     ditamap_path = os.path.join(data_dir, f"{manual_code}.ditamap")
-    # The system identifier is reduced to a simple filename so that Orlando's
-    # own catalog (or any resolver in the target environment) can map the
-    # PUBLIC ID without relying on the embedded dtd folder.
+    
+    # Save ditamap with proper DOCTYPE
     doctype_str = '<!DOCTYPE map PUBLIC "-//OASIS//DTD DITA Map//EN" "map.dtd">'
     save_xml_file(context.ditamap_root, ditamap_path, doctype_str)
 
-    # Save topics (minified)
-    # The system identifier is reduced to a simple filename so that Orlando's
-    # own catalog (or any resolver in the target environment) can map the
-    # PUBLIC ID without relying on the embedded dtd folder.
+    # Save topics with proper DOCTYPE
     doctype_concept = '<!DOCTYPE concept PUBLIC "-//OASIS//DTD DITA Concept//EN" "concept.dtd">'
     for filename, topic_el in context.topics.items():
         save_minified_xml_file(topic_el, os.path.join(topics_dir, filename), doctype_concept)
@@ -95,8 +77,18 @@ def save_dita_package(context: DitaContext, output_dir: str) -> None:
 
 
 def update_image_references_and_names(context: DitaContext) -> DitaContext:
-    """Rename image files and update hrefs inside all topic XML trees."""
-    logger.info("Updating image names and references (core.converter)...")
+    """Rename image files and update hrefs inside all topic XML trees.
+    
+    Uses the image naming configuration to generate consistent filenames
+    based on section numbers and configured patterns.
+
+    Args:
+        context: DitaContext to update
+        
+    Returns:
+        Updated DitaContext with renamed images and updated references
+    """
+    logger.info("Updating image names and references...")
 
     # Get image naming configuration
     image_naming_config = {}
@@ -117,7 +109,7 @@ def update_image_references_and_names(context: DitaContext) -> DitaContext:
     index_start = image_naming_config.get("index_start")
     index_zero_pad = image_naming_config.get("index_zero_pad")
 
-    # Validate basic types to avoid raising
+    # Validate basic types
     try:
         index_start = int(index_start)
         index_zero_pad = int(index_zero_pad)
@@ -139,7 +131,7 @@ def update_image_references_and_names(context: DitaContext) -> DitaContext:
 
         section_images.setdefault(section_number, []).append(image_filename)
 
-    # Generate new filenames with per-section numbering using configurable pattern
+    # Generate new filenames with per-section numbering
     rename_map: dict[str, str] = {}
     for section_number, images_in_section in section_images.items():
         for i, image_filename in enumerate(images_in_section):
@@ -190,11 +182,17 @@ def update_topic_references_and_names(context: DitaContext) -> DitaContext:
     """Generate human-readable, stable filenames for topics and update hrefs.
 
     Strategy:
-    - Base name on section number + slugified title/navtitle: "topic_<num>_<slug>.dita".
-    - Ensure uniqueness by suffixing "-2", "-3", ... when needed.
-    - Update both the ditamap @href and the topics dict keys.
+    - Base name on section number + slugified title/navtitle: "topic_<num>_<slug>.dita"
+    - Ensure uniqueness by suffixing "-2", "-3", ... when needed
+    - Update both the ditamap @href and the topics dict keys
+
+    Args:
+        context: DitaContext to update
+        
+    Returns:
+        Updated DitaContext with renamed topics and updated references
     """
-    logger.info("Updating topic filenames and references (core.converter)...")
+    logger.info("Updating topic filenames and references...")
 
     if context.ditamap_root is None:
         return context
@@ -306,17 +304,19 @@ def update_topic_references_and_names(context: DitaContext) -> DitaContext:
     return context
 
 
-def prune_empty_topics(context: "DitaContext") -> "DitaContext":
+def prune_empty_topics(context: DitaContext) -> DitaContext:
     """Remove topicrefs pointing to empty content modules.
 
-    With the new architecture, sections are created as topichead elements,
+    With the plugin architecture, sections are created as topichead elements,
     but content modules might still end up empty in edge cases. This function
     removes such empty modules and their topicrefs.
 
-    Note: This is now mainly a safety net since sections are properly handled
-    during initial creation as topichead elements.
+    Args:
+        context: DitaContext to update
+        
+    Returns:
+        Updated DitaContext with empty topics removed
     """
-
     if context.ditamap_root is None:
         return context
 
@@ -350,4 +350,4 @@ def prune_empty_topics(context: "DitaContext") -> "DitaContext":
         # Remove topic
         context.topics.pop(fname, None)
 
-    return context 
+    return context

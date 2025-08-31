@@ -29,7 +29,7 @@ from .exceptions import (
     PluginStateError,
 )
 from .loader import PluginLoader, PluginInfo
-from .registry import ServiceRegistry, get_all_official_plugins, get_official_plugin_info, is_official_plugin
+from .registry import ServiceRegistry
 from .metadata import PluginMetadata, validate_plugin_metadata
 from .manager import PluginManager, PluginInstallResult
 from .downloader import GitHubPluginDownloader, DownloadResult
@@ -76,7 +76,4 @@ __all__ = [
     
     # Utility functions
     "validate_plugin_metadata",
-    "get_all_official_plugins",
-    "get_official_plugin_info",
-    "is_official_plugin",
 ]

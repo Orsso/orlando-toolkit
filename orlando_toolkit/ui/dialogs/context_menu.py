@@ -135,7 +135,8 @@ class ContextMenuHandler:
             style_label = None
             is_topic = False
 
-        if is_topic and style_label:
+        # Only show style action if plugin provides the capability (via on_style callback)
+        if is_topic and style_label and isinstance(context, dict) and context.get("on_style"):
             menu.add_command(
                 label=f"👀 {str(style_label)}",
                 state=tk.NORMAL,

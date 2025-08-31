@@ -1,0 +1,35 @@
+{
+  "name": "ui-test-plugin",
+  "version": "1.0.0",
+  "display_name": "UI Test Plugin",
+  "description": "A plugin for testing UI extensions",
+  "author": "Test Author",
+  "homepage": "https://example.com/ui-test-plugin",
+  
+  "orlando_version": ">=2.0.0",
+  "plugin_api_version": "1.0",
+  "category": "pipeline",
+  
+  "entry_point": "plugin.UITestPlugin",
+  
+  "supported_formats": [],
+  
+  "dependencies": {
+    "python": ">=3.8",
+    "packages": []
+  },
+  
+  "provides": {
+    "services": [],
+    "ui_extensions": ["TestPanel"],
+    "marker_providers": ["TestMarkerProvider"]
+  },
+  
+  "ui": {
+    "splash_button": {
+      "text": "UI Test\nPlugin",
+      "icon": "ui-test-icon.png",
+      "tooltip": "UI test plugin for integration testing"
+    }
+  }
+}

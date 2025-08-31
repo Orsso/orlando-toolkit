@@ -1,8 +1,7 @@
 
+# Core Orlando Toolkit Dependencies
+# Format-specific dependencies have been moved to plugins
 lxml
-python-docx
-Pillow
 sv-ttk 
 pyyaml
 tkinterweb>=3.13
-requests

@@ -1,0 +1,41 @@
+{
+  "name": "simple-test-plugin",
+  "version": "1.0.0",
+  "display_name": "Simple Test Plugin",
+  "description": "A simple plugin for integration testing",
+  "author": "Test Author",
+  "homepage": "https://example.com/simple-test-plugin",
+  
+  "orlando_version": ">=2.0.0",
+  "plugin_api_version": "1.0",
+  "category": "pipeline",
+  
+  "entry_point": "plugin.SimpleTestPlugin",
+  
+  "supported_formats": [
+    {
+      "extension": ".simple",
+      "mime_type": "application/x-simple",
+      "description": "Simple Test Format"
+    }
+  ],
+  
+  "dependencies": {
+    "python": ">=3.8",
+    "packages": []
+  },
+  
+  "provides": {
+    "services": ["DocumentHandler"],
+    "ui_extensions": [],
+    "marker_providers": []
+  },
+  
+  "ui": {
+    "splash_button": {
+      "text": "Import from\nSIMPLE",
+      "icon": "simple-icon.png",
+      "tooltip": "Convert Simple test files to DITA"
+    }
+  }
+}

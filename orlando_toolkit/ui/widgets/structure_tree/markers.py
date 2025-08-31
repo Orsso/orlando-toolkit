@@ -12,6 +12,15 @@ def apply_marker_image(widget: object, item_id: str) -> None:
         style_name = widget._id_to_style.get(item_id, "")
         has_style_marker = (not is_section and style_name and widget._style_visibility.get(style_name, False))
 
+        # Get plugin markers if registry is available
+        plugin_markers = []
+        if hasattr(widget, '_marker_registry') and widget._marker_registry:
+            try:
+                item_data = widget.get_item_data_for_markers(item_id)
+                plugin_markers = widget._marker_registry.get_markers_for_item(item_data)
+            except Exception:
+                pass  # Graceful degradation
+
         child_style_colors: List[str] = []
         if is_section:
             is_open = bool(widget._tree.item(item_id, "open"))
@@ -19,8 +28,15 @@ def apply_marker_image(widget: object, item_id: str) -> None:
                 child_styles = collect_child_styles(widget, item_id)
                 child_style_colors = [widget._style_colors.get(s, "#F57C00") for s in child_styles]
 
-        if child_style_colors:
-            marker_img = create_stacked_marker(widget, child_style_colors, has_search)
+        # Combine style markers and plugin markers
+        all_style_colors = list(child_style_colors)
+        for provider, color in plugin_markers:
+            # Only add if not from the built-in style provider (to avoid duplication)
+            if provider.get_marker_type_id() != "style_marker":
+                all_style_colors.append(color)
+
+        if all_style_colors:
+            marker_img = create_stacked_marker(widget, all_style_colors, has_search)
             widget._tree.item(item_id, image=marker_img)
         elif has_search and has_style_marker:
             style_color = widget._style_colors.get(style_name, "#F57C00")

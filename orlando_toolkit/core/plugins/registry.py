@@ -21,113 +21,8 @@ T = TypeVar('T')
 
 
 # -------------------------------------------------------------------------
-# Official Plugin Registry
+# Service Registry - Pure Discovery Model
 # -------------------------------------------------------------------------
-
-OFFICIAL_PLUGINS = {
-    "docx-converter": {
-        "repository": "https://github.com/organization/orlando-docx-plugin",
-        "branch": "main", 
-        "category": "pipeline",
-        "description": "Microsoft Word (.docx) to DITA conversion",
-        "icon": "docx-icon.png",
-        "button_text": "Import from DOCX",
-        "tooltip": "Convert Microsoft Word documents to DITA",
-        "supported_formats": [".docx"],
-        "official": True
-    },
-    "pdf-converter": {
-        "repository": "https://github.com/organization/orlando-pdf-plugin",
-        "branch": "main",
-        "category": "pipeline", 
-        "description": "PDF to DITA conversion",
-        "icon": "pdf-icon.png", 
-        "button_text": "Import from PDF",
-        "tooltip": "Convert PDF documents to DITA",
-        "supported_formats": [".pdf"],
-        "official": True
-    },
-    "markdown-converter": {
-        "repository": "https://github.com/organization/orlando-markdown-plugin",
-        "branch": "main",
-        "category": "pipeline",
-        "description": "Markdown files to DITA conversion", 
-        "icon": "markdown-icon.png",
-        "button_text": "Import from Markdown",
-        "tooltip": "Convert Markdown files to DITA",
-        "supported_formats": [".md", ".markdown"],
-        "official": True
-    },
-    "html-converter": {
-        "repository": "https://github.com/organization/orlando-html-plugin",
-        "branch": "main",
-        "category": "pipeline",
-        "description": "HTML files to DITA conversion",
-        "icon": "html-icon.png", 
-        "button_text": "Import from HTML",
-        "tooltip": "Convert HTML files to DITA",
-        "supported_formats": [".html", ".htm"],
-        "official": True
-    }
-}
-
-
-def get_official_plugin_info(plugin_id: str) -> Optional[Dict[str, Any]]:
-    """Get information about an official plugin.
-    
-    Args:
-        plugin_id: Plugin identifier
-        
-    Returns:
-        Plugin information dictionary or None if not found
-    """
-    return OFFICIAL_PLUGINS.get(plugin_id)
-
-
-def get_all_official_plugins() -> Dict[str, Dict[str, Any]]:
-    """Get all official plugin definitions.
-    
-    Returns:
-        Dictionary mapping plugin_id to plugin information
-    """
-    return OFFICIAL_PLUGINS.copy()
-
-
-def is_official_plugin(plugin_id: str) -> bool:
-    """Check if a plugin is an official Orlando Toolkit plugin.
-    
-    Args:
-        plugin_id: Plugin identifier
-        
-    Returns:
-        True if plugin is official
-    """
-    return plugin_id in OFFICIAL_PLUGINS
-
-
-def get_official_plugins_by_format(file_extension: str) -> List[Dict[str, Any]]:
-    """Get official plugins that support a specific file format.
-    
-    Args:
-        file_extension: File extension (with or without leading dot)
-        
-    Returns:
-        List of plugin information dictionaries
-    """
-    if not file_extension.startswith('.'):
-        file_extension = f'.{file_extension}'
-    
-    file_extension = file_extension.lower()
-    
-    matching_plugins = []
-    for plugin_id, plugin_info in OFFICIAL_PLUGINS.items():
-        supported_formats = plugin_info.get("supported_formats", [])
-        if file_extension in supported_formats:
-            plugin_data = plugin_info.copy()
-            plugin_data["plugin_id"] = plugin_id
-            matching_plugins.append(plugin_data)
-    
-    return matching_plugins
 
 
 
@@ -142,6 +37,7 @@ class ServiceRegistry:
     
     def __init__(self) -> None:
         self._document_handlers: Dict[str, DocumentHandler] = {}
+        self._handler_plugins: Dict[DocumentHandler, str] = {}  # handler -> plugin_id
         self._plugin_services: Dict[str, Dict[str, Any]] = {}
         self._service_plugins: Dict[str, str] = {}  # service_id -> plugin_id
         self._lock = RLock()
@@ -201,6 +97,9 @@ class ServiceRegistry:
                 self._document_handlers[handler_id] = handler
                 self._service_plugins[handler_id] = plugin_id
                 
+                # Store handler -> plugin mapping for lookup
+                self._handler_plugins[handler] = plugin_id
+                
                 # Register in plugin services dict
                 if plugin_id not in self._plugin_services:
                     self._plugin_services[plugin_id] = {}
@@ -233,6 +132,12 @@ class ServiceRegistry:
             
             removed = False
             if handler_id in self._document_handlers:
+                handler = self._document_handlers[handler_id]
+                
+                # Clean up handler -> plugin mapping
+                if handler in self._handler_plugins:
+                    del self._handler_plugins[handler]
+                
                 del self._document_handlers[handler_id]
                 del self._service_plugins[handler_id]
                 removed = True
@@ -255,6 +160,18 @@ class ServiceRegistry:
         """
         with self._lock:
             return list(self._document_handlers.values())
+    
+    def get_plugin_for_handler(self, handler: DocumentHandler) -> Optional[str]:
+        """Get the plugin ID that registered a specific handler.
+        
+        Args:
+            handler: DocumentHandler instance to look up
+            
+        Returns:
+            Plugin ID that registered the handler, or None if not found
+        """
+        with self._lock:
+            return self._handler_plugins.get(handler)
     
     def find_handler_for_file(self, file_path: Path) -> Optional[DocumentHandler]:
         """Find compatible handler for a specific file.
@@ -329,6 +246,11 @@ class ServiceRegistry:
         Raises:
             ServiceRegistrationError: If registration fails
         """
+        # Route DocumentHandler to specialized registration method
+        if service_type == "DocumentHandler":
+            self.register_document_handler(service_instance, plugin_id)
+            return
+            
         with self._lock:
             try:
                 service_id = f"{plugin_id}_{service_type.lower()}"
@@ -361,6 +283,20 @@ class ServiceRegistry:
                     service_type=service_type,
                     cause=e
                 )
+    
+    def unregister_service(self, service_type: str, plugin_id: str) -> bool:
+        """Unregister a specific service from a plugin.
+        
+        Args:
+            service_type: Type of service to unregister
+            plugin_id: Plugin ID
+            
+        Returns:
+            True if service was found and removed
+        """
+        if service_type == "DocumentHandler":
+            return self.unregister_document_handler(plugin_id)
+        return False
     
     def unregister_plugin_services(self, plugin_id: str) -> None:
         """Unregister all services from a plugin.

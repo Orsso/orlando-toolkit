@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE topic PUBLIC "-//OASIS//DTD DITA Topic//EN" "topic.dtd">
+<topic id="sample_topic">
+    <title>Sample Topic for Testing</title>
+    <body>
+        <p>This is a sample DITA topic created for integration testing of the Orlando Toolkit plugin system.</p>
+        <section id="section1">
+            <title>Test Section</title>
+            <p>This section contains test content to validate DITA processing capabilities.</p>
+            <ul>
+                <li>Test list item 1</li>
+                <li>Test list item 2</li>
+                <li>Test list item 3</li>
+            </ul>
+        </section>
+        <section id="section2">
+            <title>Additional Content</title>
+            <p>This section provides additional content for comprehensive testing.</p>
+            <table>
+                <tgroup cols="2">
+                    <thead>
+                        <row>
+                            <entry>Column 1</entry>
+                            <entry>Column 2</entry>
+                        </row>
+                    </thead>
+                    <tbody>
+                        <row>
+                            <entry>Test data 1</entry>
+                            <entry>Test data 2</entry>
+                        </row>
+                    </tbody>
+                </tgroup>
+            </table>
+        </section>
+    </body>
+</topic>

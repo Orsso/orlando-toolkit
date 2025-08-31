@@ -9,9 +9,13 @@ between plugins and the core application.
 
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import Dict, List, Any, Protocol, runtime_checkable
+from typing import Dict, List, Any, Protocol, runtime_checkable, Callable, Optional
 
 from orlando_toolkit.core.models import DitaContext
+
+
+# Type alias for progress callback function
+ProgressCallback = Callable[[str], None]
 
 
 @runtime_checkable
@@ -45,7 +49,8 @@ class DocumentHandler(Protocol):
         """
         ...
     
-    def convert_to_dita(self, file_path: Path, metadata: Dict[str, Any]) -> DitaContext:
+    def convert_to_dita(self, file_path: Path, metadata: Dict[str, Any], 
+                       progress_callback: Optional[ProgressCallback] = None) -> DitaContext:
         """Convert file to DitaContext and return complete DITA archive data.
         
         This is the main conversion method that transforms the source document
@@ -55,6 +60,8 @@ class DocumentHandler(Protocol):
         Args:
             file_path: Path to the source document
             metadata: Conversion metadata and configuration options
+            progress_callback: Optional callback function for progress updates.
+                             Call with string messages to update UI status during conversion.
             
         Returns:
             DitaContext containing the complete DITA archive data
@@ -62,6 +69,11 @@ class DocumentHandler(Protocol):
         Raises:
             Exception: If conversion fails, handler should raise an appropriate
                       exception with descriptive error message
+                      
+        Note:
+            If progress_callback is provided, plugins should call it with descriptive
+            status messages during conversion (e.g., "Loading DOCX file...", 
+            "Extracting images...", "Analyzing document structure...").
         """
         ...
     
@@ -113,7 +125,8 @@ class DocumentHandlerBase(ABC):
         pass
     
     @abstractmethod
-    def convert_to_dita(self, file_path: Path, metadata: Dict[str, Any]) -> DitaContext:
+    def convert_to_dita(self, file_path: Path, metadata: Dict[str, Any], 
+                       progress_callback: Optional[ProgressCallback] = None) -> DitaContext:
         """Convert file to DitaContext and return complete DITA archive data."""
         pass
     
@@ -164,6 +177,7 @@ class DocumentHandlerBase(ABC):
         }
 
 
+@runtime_checkable
 class UIExtension(Protocol):
     """Protocol for UI extension components.
     
@@ -178,18 +192,50 @@ class UIExtension(Protocol):
         """Get information about this UI extension.
         
         Returns:
-            Dictionary describing the extension capabilities
+            Dictionary describing the extension capabilities including:
+            - supported_components: List of component types this extension provides
+            - display_name: Human-readable name for the extension
+            - description: Description of extension functionality
         """
         ...
     
-    def create_components(self, parent_context: Any) -> Dict[str, Any]:
-        """Create UI components for this extension.
+    def register_ui_components(self, ui_registry: Any) -> None:
+        """Register UI components with the UI registry.
         
         Args:
-            parent_context: Application context for component creation
+            ui_registry: UIRegistry instance for component registration
             
+        Note:
+            This method should register panel factories, marker providers,
+            and other UI components that the plugin provides.
+        """
+        ...
+    
+    def unregister_ui_components(self, ui_registry: Any) -> None:
+        """Unregister UI components from the UI registry.
+        
+        Args:
+            ui_registry: UIRegistry instance for component cleanup
+            
+        Note:
+            This method should clean up all UI components registered
+            by this extension. It's called when the plugin is deactivated.
+        """
+        ...
+    
+    def get_panel_factories(self) -> Dict[str, Any]:
+        """Get panel factories provided by this extension.
+        
         Returns:
-            Dictionary mapping component names to component instances
+            Dictionary mapping panel type names to PanelFactory instances
+        """
+        ...
+    
+    def get_marker_providers(self) -> Dict[str, Any]:
+        """Get marker providers provided by this extension.
+        
+        Returns:
+            Dictionary mapping marker type names to MarkerProvider instances
         """
         ...
 

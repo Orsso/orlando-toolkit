@@ -55,7 +55,7 @@ $WshShell = New-Object -comObject WScript.Shell
 $Shortcut = $WshShell.CreateShortcut(\"{shortcut_path}\")
 $Shortcut.TargetPath = \"{exe_path}\"
 $Shortcut.WorkingDirectory = \"{exe_path.parent}\"
-$Shortcut.Description = \"Orlando Toolkit - DOCX to DITA Converter\"
+$Shortcut.Description = \"Orlando Toolkit - DITA document processor with extensible plugin architecture\"
 $Shortcut.Save()
 """
 

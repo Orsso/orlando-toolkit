@@ -24,10 +24,12 @@ from orlando_toolkit.core.models.ui_config import (
     SplashLayoutConfig, ButtonConfig, SplashButtonConfig, IconConfig, 
     DEFAULT_SPLASH_LAYOUT, DEFAULT_ICONS
 )
-from orlando_toolkit.core.services import ConversionService
+from orlando_toolkit.core.context import AppContext, set_app_context
+from orlando_toolkit.core.services import ConversionService, StructureEditingService, UndoService, PreviewService
 from orlando_toolkit.core.plugins.manager import PluginManager
 from orlando_toolkit.core.plugins.loader import PluginLoader
-from orlando_toolkit.core.plugins.registry import ServiceRegistry, get_all_official_plugins, get_official_plugin_info
+from orlando_toolkit.core.plugins.registry import ServiceRegistry
+from orlando_toolkit.core.plugins.ui_registry import UIRegistry
 from orlando_toolkit.ui.metadata_tab import MetadataTab
 from orlando_toolkit.ui.image_tab import ImageTab
 from orlando_toolkit.ui.widgets.metadata_form import MetadataForm
@@ -45,12 +47,49 @@ class OrlandoToolkit:
     def __init__(self, root: tk.Tk):
         self.root = root
         self.dita_context: Optional[DitaContext] = None
-        self.service = ConversionService()
+        
+        # Store reference to this app instance in the root window for plugin dialog access
+        self.root._orlando_toolkit_app = self
+        
+        # Initialize logger
+        self._logger = logging.getLogger(f"{__name__}.OrlandoToolkit")
         
         # Plugin system integration
         self.service_registry = ServiceRegistry()
+        self.ui_registry = UIRegistry()
         self.plugin_loader = PluginLoader(self.service_registry)
         self.plugin_manager = PluginManager(self.plugin_loader)
+        
+        # Create AppContext with all services
+        self.app_context = AppContext(
+            service_registry=self.service_registry,
+            plugin_manager=self.plugin_manager,
+            ui_registry=self.ui_registry,
+            app_instance=self
+        )
+        
+        # Set global context for UI access (Context Bridge Pattern)
+        set_app_context(self.app_context)
+        
+        # Plugin progress callback
+        self._current_progress_callback = None
+        
+        # Update plugin loader to use the shared app_context
+        self.plugin_loader.app_context = self.app_context
+        
+        # Create services with plugin integration
+        self.service = ConversionService(service_registry=self.app_context.service_registry)
+        self.structure_editing_service = StructureEditingService(app_context=self.app_context)
+        self.undo_service = UndoService()
+        self.preview_service = PreviewService()
+        
+        # Update AppContext with services
+        self.app_context.update_services(
+            conversion_service=self.service,
+            structure_editing_service=self.structure_editing_service,
+            undo_service=self.undo_service,
+            preview_service=self.preview_service
+        )
         
         # UI configuration
         self.splash_layout = DEFAULT_SPLASH_LAYOUT
@@ -72,30 +111,113 @@ class OrlandoToolkit:
         self.home_center: Optional[ttk.Frame] = None
         self.version_label: Optional[ttk.Label] = None
 
+        # Initialize plugin system and load any previously activated plugins
+        self._initialize_plugin_system()
+        
         self.create_home_screen()
         self.root.protocol("WM_DELETE_WINDOW", self.on_close)
+    
+    def _initialize_plugin_system(self) -> None:
+        """Initialize plugin system and restore previously activated plugins."""
+        try:
+            # Discover all available plugins
+            self.plugin_loader.discover_plugins()
+            
+            # Restore plugin activation states from previous session
+            installed_plugins = self.plugin_manager.get_installed_plugins()
+            self.plugin_manager.restore_plugin_states()
+                    
+            logger.info("Plugin system initialized with %d available plugins", len(installed_plugins))
+            
+        except Exception as e:
+            logger.error("Failed to initialize plugin system: %s", e)
 
     # ------------------------------------------------------------------
     # Home / landing screen
     # ------------------------------------------------------------------
 
     def create_home_screen(self) -> None:
-        """Create redesigned splash screen with squared buttons and icons."""
-        # Adjust window size for new layout
-        self.root.geometry(f"{self.splash_layout.window_size[0]}x{self.splash_layout.window_size[1]}")
+        """Create Google-inspired splash screen with prominent Open DITA button."""
+        # Adjust window size for new layout while preserving centering
+        width, height = self.splash_layout.window_size
+        screen_width = self.root.winfo_screenwidth()
+        screen_height = self.root.winfo_screenheight()
+        pos_x = (screen_width // 2) - (width // 2)
+        pos_y = (screen_height // 2) - (height // 2)
+        self.root.geometry(f"{width}x{height}+{pos_x}+{pos_y}")
         
         self.home_frame = ttk.Frame(self.root)
-        self.home_frame.pack(expand=True, fill="both", padx=20, pady=20)
+        self.home_frame.pack(expand=True, fill="both")
+        
+        # Plugin management button in top-right corner
+        self.create_management_button_top_right()
 
+        # Main content area - centered like Google homepage
         self.home_center = ttk.Frame(self.home_frame)
-        self.home_center.place(relx=0.5, rely=0.5, anchor="center")
+        self.home_center.place(relx=0.5, rely=0.45, anchor="center")  # Slightly higher than center
 
-        # Smaller logo to accommodate more buttons
+        # Logo - smaller and cleaner
+        self.create_logo()
+
+        # Title section - cleaner, more focused
+        title_frame = ttk.Frame(self.home_center)
+        title_frame.pack(pady=(0, self.splash_layout.logo_to_main_spacing))
+        
+        ttk.Label(title_frame, text="Orlando Toolkit", 
+                 font=("Segoe UI", 26, "bold"), foreground="#202124").pack()
+        ttk.Label(title_frame, text="DITA Reader and Structure Editor", 
+                 font=("Segoe UI", 13), foreground="#5f6368").pack(pady=(8, 0))
+        
+        # Main prominent "Open DITA" button - Google search box style
+        self.create_main_open_dita_button()
+        
+        # Plugin buttons underneath - like Google's suggestion buttons
+        self.create_plugin_buttons_google_style()
+
+        # Status and utility elements at bottom
+        self.create_status_elements()
+        
+        # Version label in bottom-right
+        self.create_version_label()
+
+    def create_management_button_top_right(self) -> None:
+        """Create plugin management button in top-right corner."""
+        # Create custom style for management button - subtle but clickable
+        style = ttk.Style()
+        style.configure("Management.TButton",
+                       padding=(8, 8),
+                       borderwidth=1,
+                       relief="solid")
+        style.map("Management.TButton",
+                 background=[("active", "#f8f9fa"), ("pressed", "#e8eaed")],
+                 bordercolor=[("focus", "#4285f4"), ("active", "#dadce0"), ("!focus", "#e0e0e0")],
+                 relief=[("pressed", "sunken")])
+        
+        # Create button with gear emoji (no image)
+        mgmt_button = ttk.Button(
+            self.home_frame,
+            text="⚙",  # Gear emoji
+            command=self.show_plugin_management,
+            style="Management.TButton",
+            width=3
+        )
+        
+        mgmt_button.place(relx=1.0, rely=0.0, x=-self.splash_layout.management_button_padding, 
+                         y=self.splash_layout.management_button_padding, anchor="ne")
+        
+        # Add keyboard support for accessibility
+        mgmt_button.bind("<Return>", lambda e: self.show_plugin_management())
+        mgmt_button.bind("<space>", lambda e: self.show_plugin_management())
+        
+        self._add_tooltip(mgmt_button, "Manage Plugins")
+
+    def create_logo(self) -> None:
+        """Create and display the application logo."""
         try:
             logo_path = Path(__file__).resolve().parent.parent / "assets" / "app_icon.png"
             if logo_path.exists():
                 logo_img = tk.PhotoImage(file=logo_path)
-                # Scale logo to smaller size (120px height instead of 180px)
+                # Scale logo to smaller, cleaner size
                 try:
                     h = logo_img.height()
                     target_h = self.splash_layout.logo_max_height
@@ -110,40 +232,103 @@ class OrlandoToolkit:
         except Exception as exc:
             logger.warning("Could not load logo: %s", exc)
 
-        # Title (keep existing but updated subtitle)
-        ttk.Label(self.home_center, text="Orlando Toolkit", 
-                 font=("Trebuchet MS", 24, "bold"), foreground="#0098e4").pack(pady=15)
-        ttk.Label(self.home_center, text="DITA Reader and Structure Editor", 
-                 font=("Arial", 12), foreground="gray").pack(pady=(0, 10))
+    def create_main_open_dita_button(self) -> None:
+        """Create the prominent main Open DITA button - Google search box style."""
+        # Container for the main button with shadow effect
+        main_button_frame = ttk.Frame(self.home_center)
+        main_button_frame.pack(pady=(0, self.splash_layout.main_to_plugin_spacing))
         
-        # Button grid container
-        button_frame = ttk.Frame(self.home_center)
-        button_frame.pack(pady=20)
-        
-        # Core functionality buttons (squared)
-        self.create_squared_button(
-            button_frame, 
-            text="Open DITA\nProject", 
-            icon="dita-icon.png",
+        # Main button using the app's accent style for proper blue appearance
+        main_button = ttk.Button(
+            main_button_frame,
+            text="Open DITA Project",
             command=self.open_dita_project,
-            row=0, column=0
+            style="Accent.TButton"
         )
+        main_button.pack(ipadx=20, ipady=15)  # Add padding for prominent appearance
         
-        # Plugin management button (squared)
-        self.create_squared_button(
-            button_frame,
-            text="Manage\nPlugins",
-            icon="plugin-icon.png", 
-            command=self.show_plugin_management,
-            row=0, column=1
-        )
-        
-        # Dynamic plugin buttons (squared, added by active pipeline plugins)
-        self.create_plugin_buttons(button_frame, start_row=1)
+        self._add_tooltip(main_button, "Open existing DITA project archive")
 
+    def create_plugin_buttons_google_style(self) -> None:
+        """Create plugin buttons underneath main button - Google suggestions style."""
+        try:
+            active_plugin_configs = self.plugin_manager.get_active_pipeline_plugins()
+            
+            if not active_plugin_configs:
+                return
+                
+            # Container for plugin buttons with proper spacing from main button
+            plugin_frame = ttk.Frame(self.home_center)
+            plugin_frame.pack(pady=(self.splash_layout.main_to_plugin_spacing//2, 10))
+            
+            # Create style for plugin buttons - smaller, subtle, Google-like
+            style = ttk.Style()
+            style.configure("PluginAction.TButton",
+                           font=("Segoe UI", 10),
+                           padding=(12, 8),
+                           borderwidth=1,
+                           relief="solid")
+            style.map("PluginAction.TButton",
+                     background=[("active", "#f8f9fa"), ("pressed", "#e8eaed"), ("!active", "#ffffff")],
+                     bordercolor=[("focus", "#4285f4"), ("active", "#dadce0"), ("!active", "#e0e0e0")],
+                     relief=[("pressed", "sunken")])
+            
+            # Arrange plugins in rows with centered alignment
+            col = 0
+            row = 0
+            current_row_frame = None
+            buttons_per_row = self.splash_layout.plugin_buttons_per_row
+            
+            for plugin_config in active_plugin_configs:
+                if col == 0:
+                    # Start new row - center aligned for Google-like appearance
+                    current_row_frame = ttk.Frame(plugin_frame)
+                    current_row_frame.pack(pady=self.splash_layout.plugin_rows_spacing//2)
+                
+                try:
+                    plugin_id = plugin_config['plugin_id']
+                    icon_image = self._load_icon(plugin_config.get('icon', 'default-plugin-icon.png'), plugin_id)
+                    
+                    # Get button text with proper formatting
+                    button_text = plugin_config.get('button_text', plugin_config.get('display_name', plugin_id))
+                    
+                    plugin_button = ttk.Button(
+                        current_row_frame,
+                        text=button_text,
+                        image=icon_image,
+                        compound="left",
+                        command=lambda p_id=plugin_id: self.launch_plugin_workflow(p_id),
+                        style="PluginAction.TButton"
+                    )
+                    plugin_button.pack(side="left", padx=self.splash_layout.plugin_button_padding[0])
+                    
+                    # Store image reference to prevent garbage collection
+                    if icon_image:
+                        plugin_button.image = icon_image
+                    
+                    # Add tooltip with proper fallback text
+                    tooltip_text = plugin_config.get('tooltip', 
+                                                   plugin_config.get('description', 
+                                                                   f'Import using {plugin_config.get("display_name", plugin_id)}'))
+                    self._add_tooltip(plugin_button, tooltip_text)
+                    
+                    col += 1
+                    if col >= buttons_per_row:
+                        col = 0
+                        row += 1
+                        
+                except Exception as e:
+                    logger.warning("Failed to create plugin button for %s: %s", plugin_config, e)
+                    continue
+                    
+        except Exception as e:
+            logger.error("Failed to create plugin buttons: %s", e)
+
+    def create_status_elements(self) -> None:
+        """Create status label and progress bar."""
         # Status label for feedback
-        self.status_label = ttk.Label(self.home_center, text="", font=("Arial", 10))
-        self.status_label.pack(pady=10)
+        self.status_label = ttk.Label(self.home_center, text="", font=("Segoe UI", 10))
+        self.status_label.pack(pady=(20, 5))
 
         # Attach logging→GUI bridge the first time the home screen is built
         if not hasattr(self, "_log_to_status"):
@@ -156,11 +341,13 @@ class OrlandoToolkit:
 
         self.progress_bar = ttk.Progressbar(self.home_center, mode="indeterminate")
 
-        # Discreet version label anchored to the bottom-right of the landing area
+    def create_version_label(self) -> None:
+        """Create version label in bottom-right corner."""
         try:
             version_text = get_app_version()
             if self.version_label is None or not self.version_label.winfo_exists():
-                self.version_label = ttk.Label(self.home_frame, text=version_text, font=("Arial", 9), foreground="#888888")
+                self.version_label = ttk.Label(self.home_frame, text=version_text, 
+                                             font=("Segoe UI", 9), foreground="#888888")
                 self.version_label.place(relx=1.0, rely=1.0, x=-8, y=-6, anchor="se")
             else:
                 self.version_label.configure(text=version_text)
@@ -168,115 +355,132 @@ class OrlandoToolkit:
             pass
 
     # ------------------------------------------------------------------
-    # Plugin Integration and Squared Button System
+    # UI State Management
     # ------------------------------------------------------------------
     
-    def create_squared_button(self, parent: ttk.Frame, text: str, icon: str, 
-                             command: Optional[callable], row: int, column: int,
-                             tooltip: Optional[str] = None) -> ttk.Button:
-        """Create a squared button with icon and text.
+    def _disable_all_ui_elements(self) -> None:
+        """Comprehensively disable all interactive UI elements during processing.
         
-        Args:
-            parent: Parent widget
-            text: Button text (can contain newlines)
-            icon: Icon filename
-            command: Command to execute when clicked
-            row: Grid row position
-            column: Grid column position
-            tooltip: Optional tooltip text
-            
-        Returns:
-            Created button widget
+        This method recursively traverses the entire widget hierarchy and disables
+        all interactive elements to prevent user input during background processing.
+        Provides professional desktop application behavior during processing.
         """
-        button_size = self.splash_layout.button_size
-        padding = self.splash_layout.button_padding
-        
-        # Create button frame
-        btn_frame = ttk.Frame(parent)
-        btn_frame.grid(row=row, column=column, padx=padding[0], pady=padding[1])
-        
-        # Try to load icon
-        icon_image = self._load_icon(icon)
-        
-        # Create button with icon and text
-        btn = ttk.Button(
-            btn_frame,
-            text=text,
-            image=icon_image,
-            compound="top",  # Icon above text
-            command=command,
-            width=15  # Character width for consistent sizing
-        )
-        btn.pack()
-        
-        # Store image reference to prevent garbage collection
-        if icon_image:
-            btn.image = icon_image
-            
-        # Add tooltip if provided
-        if tooltip:
-            self._add_tooltip(btn, tooltip)
-            
-        return btn
-    
-    def create_plugin_buttons(self, parent: ttk.Frame, start_row: int) -> None:
-        """Create squared buttons for active pipeline plugins.
-        
-        Args:
-            parent: Parent widget for buttons
-            start_row: Starting row for plugin buttons
-        """
-        try:
-            # Discover and load plugins
-            self.plugin_loader.discover_plugins()
-            active_plugins = self.get_active_pipeline_plugins()
-            
-            col = 0
-            row = start_row
-            buttons_per_row = self.splash_layout.buttons_per_row
-            
-            for plugin_id in active_plugins:
-                if col >= buttons_per_row:  # Max buttons per row
-                    col = 0
-                    row += 1
+        def _disable_widget_recursive(widget):
+            """Recursively disable a widget and all its children."""
+            try:
+                # Try to disable the widget itself
+                if hasattr(widget, 'config'):
+                    try:
+                        # Check if widget supports 'state' config option
+                        current_state = widget.cget('state')
+                        widget.config(state='disabled')
+                    except tk.TclError:
+                        # Widget doesn't support state configuration
+                        pass
                 
-                try:
-                    plugin_config = self._get_plugin_button_config(plugin_id)
-                    self.create_squared_button(
-                        parent,
-                        text=plugin_config.text,
-                        icon=plugin_config.icon,
-                        command=lambda p_id=plugin_id: self.launch_plugin_workflow(p_id),
-                        row=row, column=col,
-                        tooltip=plugin_config.tooltip
-                    )
-                    col += 1
-                except Exception as e:
-                    logger.warning("Failed to create button for plugin %s: %s", plugin_id, e)
-                    continue
-                    
-        except Exception as e:
-            logger.error("Failed to create plugin buttons: %s", e)
+                # Disable all children recursively
+                if hasattr(widget, 'winfo_children'):
+                    for child in widget.winfo_children():
+                        _disable_widget_recursive(child)
+                        
+            except Exception as e:
+                # Continue processing other widgets even if one fails
+                logger.debug("Failed to disable widget %s: %s", widget.__class__.__name__, e)
+        
+        # Disable all children of the home frame
+        if self.home_frame and self.home_frame.winfo_exists():
+            _disable_widget_recursive(self.home_frame)
+        
+        # Disable the root window's menu if it exists
+        try:
+            if hasattr(self.root, 'config'):
+                menu = self.root.cget('menu')
+                if menu:
+                    menu.config(state='disabled')
+        except Exception:
+            pass
+    
+    def _enable_all_ui_elements(self) -> None:
+        """Re-enable all UI elements after processing completes.
+        
+        This method traverses the widget hierarchy and re-enables elements
+        that were disabled during processing. It's called after successful
+        completion or failure to restore normal UI interaction.
+        """
+        def _enable_widget_recursive(widget):
+            """Recursively enable a widget and all its children."""
+            try:
+                # Try to enable the widget itself
+                if hasattr(widget, 'config'):
+                    try:
+                        # Check if widget supports 'state' config option
+                        widget.config(state='normal')
+                    except tk.TclError:
+                        # Widget doesn't support state configuration or should stay disabled
+                        pass
+                
+                # Enable all children recursively
+                if hasattr(widget, 'winfo_children'):
+                    for child in widget.winfo_children():
+                        _enable_widget_recursive(child)
+                        
+            except Exception as e:
+                # Continue processing other widgets even if one fails
+                logger.debug("Failed to enable widget %s: %s", widget.__class__.__name__, e)
+        
+        # Enable all children of the home frame
+        if self.home_frame and self.home_frame.winfo_exists():
+            _enable_widget_recursive(self.home_frame)
+        
+        # Re-enable the root window's menu if it exists
+        try:
+            if hasattr(self.root, 'config'):
+                menu = self.root.cget('menu')
+                if menu:
+                    menu.config(state='normal')
+        except Exception:
+            pass
+
+    def _handle_plugin_failure(self, error_message: str, filepath: str) -> None:
+        """Handle plugin processing failure with proper UI cleanup and user feedback.
+        
+        Args:
+            error_message: Descriptive error message for user
+            filepath: Path to the file that failed processing
+        """
+        # Stop progress indicators
+        if self.progress_bar:
+            try:
+                self.progress_bar.stop()
+                self.progress_bar.pack_forget()
+            except Exception:
+                pass
+        
+        # Reset status label
+        if self.status_label:
+            self.status_label.config(text="Plugin processing failed. Please try again.")
+        
+        # Re-enable all UI elements
+        self._enable_all_ui_elements()
+        
+        # Show error dialog
+        messagebox.showerror("Plugin Processing Error", error_message)
+    
+    # ------------------------------------------------------------------
+    # Plugin Integration and Workflow Management
+    # ------------------------------------------------------------------
+    
     
     def get_active_pipeline_plugins(self) -> list[str]:
-        """Get list of active pipeline plugin IDs.
+        """Get list of active pipeline plugin IDs (DEPRECATED - use plugin_manager.get_active_pipeline_plugins()).
         
         Returns:
             List of active pipeline plugin identifiers
         """
         try:
-            # For now, return official plugins that are "installed" (simulated)
-            # In real implementation, this would check actual plugin status
-            official_plugins = get_all_official_plugins()
-            active = []
-            
-            for plugin_id, plugin_info in official_plugins.items():
-                if plugin_info.get("category") == "pipeline":
-                    # Simulate that DOCX plugin is always "active" for demonstration
-                    if plugin_id == "docx-converter":
-                        active.append(plugin_id)
-            
-            return active
+            # Delegate to plugin manager for consistent behavior
+            active_plugin_configs = self.plugin_manager.get_active_pipeline_plugins()
+            return [config['plugin_id'] for config in active_plugin_configs]
         except Exception as e:
             logger.error("Failed to get active plugins: %s", e)
             return []
@@ -290,15 +494,7 @@ class OrlandoToolkit:
         Returns:
             Button configuration for the plugin
         """
-        # Try to get from official registry first
-        official_data = get_official_plugin_info(plugin_id)
-        if official_data:
-            return SplashButtonConfig.from_official_plugin(
-                plugin_id, official_data, 
-                command=lambda: self.launch_plugin_workflow(plugin_id)
-            )
-        
-        # Try to get from loaded plugin metadata
+        # Pure discovery model - only get from loaded plugin metadata
         try:
             plugin_info = self.plugin_loader.get_plugin_info(plugin_id)
             if plugin_info and plugin_info.metadata:
@@ -319,24 +515,64 @@ class OrlandoToolkit:
             command=lambda: self.launch_plugin_workflow(plugin_id)
         )
     
-    def _load_icon(self, icon_name: str) -> Optional[tk.PhotoImage]:
-        """Load an icon with fallback handling.
+    def _load_icon(self, icon_name: str, plugin_id: Optional[str] = None) -> Optional[tk.PhotoImage]:
+        """Load an icon with plugin-specific support and fallback handling.
+        
+        Icon resolution hierarchy:
+        1. Plugin Directory: ~/.orlando_toolkit/plugins/{plugin_id}/{icon_name}
+        2. App Assets: assets/icons/{icon_name}  
+        3. Default Fallback: assets/icons/default-plugin-icon.png
         
         Args:
             icon_name: Icon filename
+            plugin_id: Optional plugin ID for plugin-specific icon lookup
             
         Returns:
             PhotoImage instance or None if loading fails
         """
+        # Create cache key that includes plugin_id for proper isolation
+        cache_key = f"{plugin_id}:{icon_name}" if plugin_id else icon_name
+        
         # Check cache first
-        if icon_name in self.icon_cache:
-            return self.icon_cache[icon_name]
+        if cache_key in self.icon_cache:
+            return self.icon_cache[cache_key]
+        
+        icon_path = None
         
         try:
-            # Try to load from assets/icons directory
-            icon_path = Path(__file__).resolve().parent.parent / "assets" / "icons" / icon_name
+            # Step 1: Plugin Directory - Look for plugin-specific icons first
+            if plugin_id:
+                from orlando_toolkit.core.plugins.loader import get_user_plugins_dir
+                plugin_dir = get_user_plugins_dir() / plugin_id
+                
+                # First try the metadata-specified icon name
+                plugin_icon_path = plugin_dir / icon_name
+                if plugin_icon_path.exists():
+                    icon_path = plugin_icon_path
+                    logger.debug("Using plugin-specific icon: %s", plugin_icon_path)
+                # If metadata-specified icon doesn't exist, try standard plugin-icon.png
+                elif icon_name != "plugin-icon.png":
+                    standard_icon_path = plugin_dir / "plugin-icon.png"
+                    if standard_icon_path.exists():
+                        icon_path = standard_icon_path
+                        logger.debug("Using standard plugin icon: %s", standard_icon_path)
             
-            if icon_path.exists():
+            # Step 2: App Assets - Look in app assets directory
+            if not icon_path:
+                assets_icon_path = Path(__file__).resolve().parent.parent / "assets" / "icons" / icon_name
+                if assets_icon_path.exists():
+                    icon_path = assets_icon_path
+                    logger.debug("Using app assets icon: %s", assets_icon_path)
+            
+            # Step 3: Default Fallback - Use default plugin icon
+            if not icon_path:
+                default_icon_path = Path(__file__).resolve().parent.parent / "assets" / "icons" / "default-plugin-icon.png"
+                if default_icon_path.exists():
+                    icon_path = default_icon_path
+                    logger.debug("Using default fallback icon: %s", default_icon_path)
+            
+            # Load and process the icon if we found one
+            if icon_path and icon_path.exists():
                 icon_image = tk.PhotoImage(file=icon_path)
                 # Scale icon to fit in button (48x48)
                 try:
@@ -351,13 +587,13 @@ class OrlandoToolkit:
                 except Exception:
                     pass  # Use original size if scaling fails
                 
-                self.icon_cache[icon_name] = icon_image
+                self.icon_cache[cache_key] = icon_image
                 return icon_image
             else:
-                logger.debug("Icon file not found: %s", icon_path)
+                logger.debug("No icon found for %s (plugin: %s)", icon_name, plugin_id)
                 
         except Exception as e:
-            logger.warning("Failed to load icon %s: %s", icon_name, e)
+            logger.warning("Failed to load icon %s for plugin %s: %s", icon_name, plugin_id, e)
         
         return None
     
@@ -396,6 +632,9 @@ class OrlandoToolkit:
     def _refresh_splash_screen(self) -> None:
         """Refresh the splash screen to reflect plugin changes."""
         try:
+            # Ensure plugin states are synchronized before refresh
+            self._synchronize_plugin_states()
+            
             # Destroy current home frame
             if self.home_frame:
                 self.home_frame.destroy()
@@ -407,6 +646,20 @@ class OrlandoToolkit:
             
         except Exception as e:
             logger.error("Failed to refresh splash screen: %s", e)
+    
+    def _synchronize_plugin_states(self) -> None:
+        """Synchronize plugin states between loader and manager for consistent display."""
+        try:
+            if not self.plugin_manager or not self.plugin_loader:
+                return
+                
+            # This forces the plugin manager to re-check states from loader
+            # The improved is_plugin_active method now correctly uses PluginInfo.is_active()
+            active_count = len(self.plugin_manager.get_active_plugin_ids())
+            logger.debug("Plugin state synchronization complete - %d active plugins", active_count)
+            
+        except Exception as e:
+            logger.warning("Failed to synchronize plugin states: %s", e)
     
     # ------------------------------------------------------------------
     # Plugin Management and Workflow Integration
@@ -437,23 +690,61 @@ class OrlandoToolkit:
     
     def open_dita_project(self) -> None:
         """Open existing DITA project from ZIP archive."""
+        # Get supported formats for DITA import
+        try:
+            dita_formats = [fmt for fmt in self.service.get_supported_formats() 
+                           if fmt.description and 'DITA' in fmt.description]
+            
+            if dita_formats:
+                # Build file type list for dialog
+                filetypes = []
+                for fmt in dita_formats:
+                    filetypes.append((fmt.description, f"*{fmt.extension}"))
+                filetypes.append(("All files", "*.*"))
+            else:
+                # Fallback to ZIP only
+                filetypes = [("ZIP Archives", "*.zip"), ("All files", "*.*")]
+                
+        except Exception as e:
+            logger.warning("Failed to get supported formats for DITA import: %s", e)
+            filetypes = [("ZIP Archives", "*.zip"), ("All files", "*.*")]
+        
         filepath = filedialog.askopenfilename(
             title="Select a DITA Project Archive", 
-            filetypes=(("ZIP Archives", "*.zip"), ("All files", "*.*"))
+            filetypes=filetypes
         )
         if not filepath:
             return
         
-        # Placeholder for DITA import functionality (Task 7)
-        messagebox.showinfo(
-            "DITA Project Import", 
-            f"DITA project import functionality will be implemented in Task 7.\n\n"
-            f"Selected file: {Path(filepath).name}\n\n"
-            f"This will allow you to:\n"
-            f"• Import zipped DITA archives\n"
-            f"• Load existing DITA projects\n"
-            f"• Edit structure without conversion"
-        )
+        # Check if file is supported
+        if not self.service.can_handle_file(filepath):
+            messagebox.showerror(
+                "Unsupported File Type",
+                f"The selected file type is not supported:\n{Path(filepath).name}\n\n"
+                f"Supported formats:\n" + 
+                "\n".join(f"• {fmt.description} ({fmt.extension})" 
+                         for fmt in self.service.get_supported_formats())
+            )
+            return
+        
+        # Import DITA project using conversion service
+        if self.status_label:
+            self.status_label.config(text="Loading DITA project…")
+        if self.progress_bar:
+            self.progress_bar.pack(fill="x", expand=True, padx=20, pady=(10, 0))
+            self.progress_bar.start()
+
+        # Comprehensively disable all UI elements during processing
+        self._disable_all_ui_elements()
+
+        # Extract metadata from filename for initial setup
+        initial_metadata = {
+            "manual_title": Path(filepath).stem,
+            "revision_date": datetime.now().strftime("%Y-%m-%d"),
+            # No default revision_number so the package is treated as an edition
+        }
+
+        threading.Thread(target=self.run_dita_import_thread, args=(filepath, initial_metadata), daemon=True).start()
     
     def launch_plugin_workflow(self, plugin_id: str) -> None:
         """Launch workflow for a specific plugin.
@@ -464,24 +755,83 @@ class OrlandoToolkit:
         try:
             logger.info("Launching plugin workflow for: %s", plugin_id)
             
-            # For demonstration, show DOCX conversion workflow for docx-converter
-            if plugin_id == "docx-converter":
-                self.start_conversion_workflow()
+            # Get plugin metadata to determine supported formats
+            plugin_metadata = self.plugin_manager.get_plugin_metadata(plugin_id)
+            if not plugin_metadata:
+                messagebox.showerror(
+                    "Plugin Error", 
+                    f"Could not find metadata for plugin: {plugin_id}"
+                )
                 return
             
-            # For other plugins, show placeholder
-            official_info = get_official_plugin_info(plugin_id)
-            plugin_name = official_info.get("description", plugin_id) if official_info else plugin_id
+            # Build file dialog from plugin's supported formats
+            filetypes = []
+            if plugin_metadata.supported_formats:
+                for fmt in plugin_metadata.supported_formats:
+                    if isinstance(fmt, dict):
+                        extension = fmt.get("extension", "")
+                        description = fmt.get("description", f"{extension.upper()} files")
+                        if extension:
+                            filetypes.append((description, f"*{extension}"))
             
-            messagebox.showinfo(
-                "Plugin Workflow", 
-                f"Plugin workflow for {plugin_name} would start here.\n\n"
-                f"Plugin ID: {plugin_id}\n\n"
-                f"This would typically:\n"
-                f"• Open file dialog for supported formats\n"
-                f"• Convert files to DITA format\n"
-                f"• Create new DITA project archive"
-            )
+            if not filetypes:
+                # Fallback to all files if no formats specified
+                filetypes = [("All files", "*.*")]
+            else:
+                filetypes.append(("All files", "*.*"))  # Always add all files option
+            
+            # Choose title based on plugin name
+            title = f"Select file for {plugin_metadata.display_name}"
+            
+            # Open file dialog with plugin-specific formats
+            filepath = filedialog.askopenfilename(title=title, filetypes=filetypes)
+            if not filepath:
+                return
+            
+            # Get plugin's document handler from service registry
+            document_handlers = self.service_registry.get_document_handlers()
+            plugin_handler = None
+            
+            for handler in document_handlers:
+                handler_plugin_id = self.service_registry.get_plugin_for_handler(handler)
+                if handler_plugin_id == plugin_id:
+                    plugin_handler = handler
+                    break
+            
+            if plugin_handler:
+                # Use plugin's document handler to process the file
+                logger.info("Processing file %s with plugin %s", filepath, plugin_id)
+                
+                # Show loading UI like regular DITA opening
+                file_extension = Path(filepath).suffix.upper().lstrip('.')
+                plugin_display_name = plugin_metadata.display_name
+                if self.status_label:
+                    self.status_label.config(text=f"Loading {file_extension} with {plugin_display_name}…")
+                if self.progress_bar:
+                    self.progress_bar.pack(fill="x", expand=True, padx=20, pady=(10, 0))
+                    self.progress_bar.start()
+                
+                # Comprehensively disable all UI elements during processing
+                self._disable_all_ui_elements()
+                
+                # Process in background thread like regular DITA opening
+                metadata = {
+                    "manual_title": Path(filepath).stem,
+                    "revision_date": datetime.now().strftime("%Y-%m-%d"),
+                }
+                
+                threading.Thread(
+                    target=self.run_plugin_processing_thread,
+                    args=(plugin_handler, filepath, metadata, plugin_id),
+                    daemon=True
+                ).start()
+            else:
+                # No document handler found - plugin may not be fully loaded
+                messagebox.showwarning(
+                    "Plugin Not Ready", 
+                    f"Plugin {plugin_metadata.display_name} does not have a document handler registered.\n\n"
+                    f"The plugin may need to be reactivated or may have loading issues."
+                )
             
         except Exception as e:
             logger.error("Failed to launch plugin workflow for %s: %s", plugin_id, e)
@@ -490,32 +840,185 @@ class OrlandoToolkit:
                 f"Failed to launch plugin {plugin_id}:\n\n{e}"
             )
 
+    def _create_progress_callback(self) -> callable:
+        """Create thread-safe progress callback for plugin updates."""
+        def progress_callback(message: str) -> None:
+            """Update status label with plugin progress message."""
+            if self.status_label and self.status_label.winfo_exists():
+                # Schedule UI update on main thread
+                self.root.after(0, lambda: self.status_label.config(text=message))
+        return progress_callback
+
+    def run_plugin_processing_thread(self, plugin_handler, filepath: str, metadata: dict, plugin_id: str) -> None:
+        """Run plugin processing in background thread (like regular DITA opening).
+        
+        Args:
+            plugin_handler: Plugin's document handler
+            filepath: Path to file to process
+            metadata: Conversion metadata
+            plugin_id: ID of the plugin
+        """
+        try:
+            logger.info("Background plugin processing started for %s", plugin_id)
+            
+            # Create progress callback for the plugin
+            progress_callback = self._create_progress_callback()
+            
+            # Call the plugin's document handler with progress callback
+            logger.info("Calling convert_to_dita with progress callback")
+            result = plugin_handler.convert_to_dita(Path(filepath), metadata, progress_callback)
+            logger.info("Plugin returned result type: %s", type(result).__name__)
+            
+            if not result:
+                logger.error("Plugin processing returned no result")
+                self.root.after(0, lambda: self._handle_plugin_failure("Plugin failed to process the file", filepath))
+                return
+                
+            logger.info("Finalizing DITA conversion")
+            
+            # Store plugin ID in the DitaContext for UI availability checks
+            if hasattr(result, 'plugin_data'):
+                result.plugin_data['_source_plugin'] = plugin_id
+                logger.debug("Stored source plugin ID: %s in plugin_data", plugin_id)
+            else:
+                logger.warning("Result has no plugin_data attribute to store source plugin ID")
+            
+            # Load the converted content into the app
+            logger.info("Loading converted content")
+            self._load_conversion_result(result, filepath)
+            logger.info("Plugin conversion completed successfully")
+                
+        except Exception as e:
+            logger.error("Plugin processing failed: %s", e)
+            error_msg = f"Failed to process file:\n\n{e}"
+            self.root.after(0, lambda msg=error_msg: self._handle_plugin_failure(msg, filepath))
+
+    def _load_conversion_result(self, result, source_filepath: str) -> None:
+        """Load conversion result from plugin into the application.
+        
+        Args:
+            result: Conversion result from plugin (could be DitaContext, file path, etc.)
+            source_filepath: Original source file path
+        """
+        try:
+            logger.info("Processing conversion result - type: %s, has dita_context attr: %s", 
+                        type(result).__name__, hasattr(result, 'dita_context'))
+            
+            if hasattr(result, '__dict__'):
+                logger.info("Result attributes: %s", list(result.__dict__.keys()))
+            
+            # Handle different types of plugin results
+            if hasattr(result, 'dita_context') and result.dita_context:
+                # Plugin returned a result with DITA context
+                logger.info("Loading result.dita_context")
+                self.dita_context = result.dita_context
+                # Use standard workflow to show post-process validation screen
+                self.root.after(0, self.on_conversion_success, result.dita_context)
+            elif hasattr(result, '__dict__') and hasattr(result, 'topics'):
+                # Plugin returned a DITA context-like object directly
+                logger.info("Loading result as DitaContext directly - topics: %d", len(result.topics) if hasattr(result, 'topics') else 0)
+                self.dita_context = result
+                # Use standard workflow to show post-process validation screen  
+                self.root.after(0, self.on_conversion_success, result)
+            elif isinstance(result, str) and Path(result).exists():
+                # Plugin returned a file path - load it
+                logger.info("Loading result as file path: %s", result)
+                self._load_dita_package(result)
+            else:
+                # Generic result - show success message
+                logger.warning("Unhandled result type - showing generic success message")
+                messagebox.showinfo(
+                    "Conversion Complete",
+                    f"File processed successfully by plugin.\n\n"
+                    f"Source: {Path(source_filepath).name}\n"
+                    f"Result type: {type(result).__name__}"
+                )
+                
+        except Exception as e:
+            logger.error("Failed to load conversion result: %s", e)
+            # Handle failure properly with UI cleanup
+            self.root.after(0, lambda: self._handle_plugin_failure(f"Failed to load conversion result:\n\n{e}", source_filepath))
+
+    def _transition_to_post_conversion_state(self, source_filepath: str) -> None:
+        """Transition application to post-conversion state with loaded DITA content."""
+        try:
+            logger.info("Starting transition to post-conversion state")
+            logger.info("Current dita_context: %s (topics: %d)", 
+                        type(self.dita_context).__name__ if self.dita_context else None,
+                        len(self.dita_context.topics) if self.dita_context and hasattr(self.dita_context, 'topics') else 0)
+            
+            # Update AppContext with current document context
+            if self.dita_context:
+                logger.info("Updating AppContext with DitaContext containing source plugin: %s", 
+                           self.dita_context.plugin_data.get('_source_plugin') if hasattr(self.dita_context, 'plugin_data') else 'None')
+                self.app_context._set_current_dita_context(self.dita_context)
+            
+            # Hide home frame and show main interface
+            if self.home_frame:
+                logger.info("Destroying home frame")
+                self.home_frame.destroy()
+                self.home_frame = None
+            
+            # Set up the main interface (tabs, etc.)
+            logger.info("Setting up main UI")
+            self.setup_main_ui()
+            
+            logger.info("Successfully loaded conversion result from %s", source_filepath)
+            
+        except Exception as e:
+            logger.error("Failed to transition to post-conversion state: %s", e)
+            messagebox.showerror("Interface Error", f"Failed to set up main interface:\n\n{e}")
+
     # ------------------------------------------------------------------
-    # Conversion workflow (Legacy DOCX support)
+    # Document conversion workflow
     # ------------------------------------------------------------------
 
     def start_conversion_workflow(self) -> None:
-        filepath = filedialog.askopenfilename(title="Select a DOCX file", filetypes=(("Word Documents", "*.docx"), ("All files", "*.*")))
+        # Get all supported formats for dynamic file dialog
+        try:
+            supported_formats = self.service.get_supported_formats()
+            
+            # Build file types for dialog
+            filetypes = []
+            for fmt in supported_formats:
+                filetypes.append((fmt.description, f"*{fmt.extension}"))
+            filetypes.append(("All files", "*.*"))
+            
+            # Choose title based on available formats
+            if any('DITA' in fmt.description for fmt in supported_formats):
+                title = "Select a Document or DITA Package"
+            else:
+                title = "Select a Document"
+                
+        except Exception as e:
+            logger.warning("Failed to get supported formats: %s", e)
+            # Fallback to all files only (plugin-agnostic)
+            filetypes = [("All files", "*.*")]
+            title = "Select a file"
+        
+        filepath = filedialog.askopenfilename(title=title, filetypes=filetypes)
         if not filepath:
             return
+        
+        # Check if file is supported
+        if not self.service.can_handle_file(filepath):
+            messagebox.showerror(
+                "Unsupported File Type",
+                f"The selected file type is not supported:\n{Path(filepath).name}\n\n"
+                f"Supported formats:\n" + 
+                "\n".join(f"• {fmt.description} ({fmt.extension})" 
+                         for fmt in self.service.get_supported_formats())
+            )
+            return
 
-        if self.load_button:
-            try:
-                # Show the file name on the disabled button during processing, truncated to fit width
-                name = Path(filepath).name
-                try:
-                    max_chars = int(self.load_button.cget("width"))
-                except Exception:
-                    max_chars = len(self.load_button.cget("text"))
-                display = name if len(name) <= max_chars else (name[: max_chars - 1] + "\u2026")
-                self.load_button.config(text=display, state="disabled")
-            except Exception:
-                self.load_button.config(state="disabled")
         if self.status_label:
             self.status_label.config(text="Converting document…")
         if self.progress_bar:
             self.progress_bar.pack(fill="x", expand=True, padx=20, pady=(10, 0))
             self.progress_bar.start()
+
+        # Comprehensively disable all UI elements during processing
+        self._disable_all_ui_elements()
 
         initial_metadata = {
             "manual_title": Path(filepath).stem,
@@ -523,35 +1026,58 @@ class OrlandoToolkit:
             # No default revision_number so the generated package is treated as an edition.
         }
 
-        threading.Thread(target=self.run_conversion_thread, args=(filepath, initial_metadata), daemon=True).start()
+        # Use unified processing thread for both conversions and imports
+        threading.Thread(target=self.run_document_processing_thread, args=(filepath, initial_metadata), daemon=True).start()
 
-    def run_conversion_thread(self, filepath: str, metadata: dict) -> None:
+    def run_document_processing_thread(self, filepath: str, metadata: dict) -> None:
+        """Process document (conversion or import) in background thread."""
         try:
+            # Determine operation type for logging
+            file_path = Path(filepath)
+            if file_path.suffix.lower() == '.zip':
+                operation = "DITA import"
+            else:
+                operation = "Document conversion"
+            
+            logger.info("Starting %s for: %s", operation, filepath)
+            
             ctx = self.service.convert(filepath, metadata)
-            # Treat a None result as a conversion failure
+            # Treat a None result as a failure
             if ctx is None:
-                logger.error("Document conversion returned no result for file: %s", filepath)
+                logger.error("%s returned no result for file: %s", operation, filepath)
                 self.root.after(
                     0,
                     self.on_conversion_failure,
-                    RuntimeError(f"Conversion returned no result for file: {filepath}"),
+                    RuntimeError(f"{operation} returned no result for file: {filepath}"),
                 )
                 return
 
             # Set default depth from style analysis (max depth) if not already provided
-            try:
-                if hasattr(ctx, "metadata"):
-                    if ctx.metadata.get("topic_depth") is None:
-                        from orlando_toolkit.core.services.heading_analysis_service import compute_max_depth
-                        computed = compute_max_depth(ctx)
-                        ctx.metadata["topic_depth"] = max(1, int(computed))
-            except Exception:
-                # Best-effort only; UI can still adjust depth later
-                pass
+            # Skip for DITA imports as they already have structure
+            if operation == "Document conversion":
+                try:
+                    if hasattr(ctx, "metadata"):
+                        if ctx.metadata.get("topic_depth") is None:
+                            from orlando_toolkit.core.services.heading_analysis_service import compute_max_depth
+                            computed = compute_max_depth(ctx)
+                            ctx.metadata["topic_depth"] = max(1, int(computed))
+                except Exception:
+                    # Best-effort only; UI can still adjust depth later
+                    pass
+            
+            logger.info("%s completed successfully", operation)
             self.root.after(0, self.on_conversion_success, ctx)
         except Exception as exc:
-            logger.error("Document conversion failed", exc_info=True)
+            logger.error("%s failed for %s", operation, filepath, exc_info=True)
             self.root.after(0, self.on_conversion_failure, exc)
+
+    def run_conversion_thread(self, filepath: str, metadata: dict) -> None:
+        """Legacy method - delegate to unified processing."""
+        self.run_document_processing_thread(filepath, metadata)
+
+    def run_dita_import_thread(self, filepath: str, metadata: dict) -> None:
+        """Legacy method - delegate to unified processing."""
+        self.run_document_processing_thread(filepath, metadata)
 
     # ------------------------------------------------------------------
     # Conversion callbacks
@@ -565,6 +1091,11 @@ class OrlandoToolkit:
         metadata form. A Continue button opens the full workspace.
         """
         self.dita_context = context
+        
+        # Update AppContext with current document context
+        logger.info("Calling app_context._set_current_dita_context with source plugin: %s", 
+                   context.plugin_data.get('_source_plugin') if hasattr(context, 'plugin_data') else 'None')
+        self.app_context._set_current_dita_context(context)
 
         # Stop and hide any in-flight progress UI
         if self.progress_bar:
@@ -598,13 +1129,10 @@ class OrlandoToolkit:
             self.progress_bar.pack_forget()
         if self.status_label:
             self.status_label.config(text="Conversion failed. Please try again.")
-        if self.load_button:
-            try:
-                self.load_button.config(text="Load Document (.docx)", state="normal")
-            except Exception:
-                self.load_button.config(state="normal")
-
-    
+        
+        # Re-enable all UI elements after processing failure
+        self._enable_all_ui_elements()
+        
         messagebox.showerror("Conversion Error", f"Document processing failed:\n\n{error}")
 
     # ------------------------------------------------------------------
@@ -622,13 +1150,24 @@ class OrlandoToolkit:
         from orlando_toolkit.ui.structure_tab import StructureTab
         self.structure_tab = StructureTab(self.notebook)
         self.notebook.add(self.structure_tab, text="Structure")
+        
+        # Load the converted DITA context into the structure tab
+        if self.dita_context:
+            logger.info("Loading DitaContext into structure tab - topics: %d", len(self.dita_context.topics))
+            self.structure_tab.load_context(self.dita_context)
+        else:
+            logger.warning("No DitaContext available to load into structure tab")
 
         # Place Images second, Metadata third per updated UX
         self.image_tab = ImageTab(self.notebook)
         self.notebook.add(self.image_tab, text="Images")
+        if self.dita_context:
+            self.image_tab.load_context(self.dita_context)
 
         self.metadata_tab = MetadataTab(self.notebook)
         self.notebook.add(self.metadata_tab, text="Metadata")
+        if self.dita_context:
+            self.metadata_tab.load_context(self.dita_context)
 
         self.metadata_tab.set_metadata_change_callback(self.on_metadata_change)
 
@@ -801,6 +1340,10 @@ class OrlandoToolkit:
         for widget in self.root.winfo_children():
             widget.destroy()
         self.dita_context = None
+        
+        # Clear AppContext document context
+        self.app_context._set_current_dita_context(None)
+        
         self.notebook = self.metadata_tab = self.image_tab = self.main_actions_frame = None
         self.inline_metadata = None
         self.create_home_screen()

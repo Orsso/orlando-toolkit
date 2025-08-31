@@ -10,9 +10,9 @@ sequenceDiagram
     participant Prev as "Preview"
     participant FS as "File System"
 
-    User->>GUI: Select DOCX
+    User->>GUI: Select Document
     GUI->>Svc: convert(path, metadata)
-    Svc->>Conv: convert_docx_to_dita()
+    Svc->>Conv: Plugin Handler convert_to_dita()
     Conv-->>Svc: DitaContext
     Svc-->>GUI: context ready
     GUI-->>User: Home summary + inline metadata

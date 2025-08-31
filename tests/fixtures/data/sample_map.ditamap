@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE map PUBLIC "-//OASIS//DTD DITA Map//EN" "map.dtd">
+<map>
+    <title>Sample Map for Testing</title>
+    <topicmeta>
+        <shortdesc>A sample DITA map for integration testing</shortdesc>
+        <author>Test Author</author>
+    </topicmeta>
+    
+    <topicref href="sample_topic.dita">
+        <topicref href="nested_topic.dita"/>
+    </topicref>
+    
+    <topicref href="standalone_topic.dita"/>
+</map>

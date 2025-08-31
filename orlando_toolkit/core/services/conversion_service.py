@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-"""High-level conversion service for DOCX to DITA transformation.
+"""High-level conversion service for document to DITA transformation.
 
 Entry-point for any front-end (GUI, CLI, API) that needs to transform
-a Word document into a DITA package. Provides a clean, stable API for
-document conversion operations.
+supported documents into a DITA package. Provides a clean, stable API for
+document conversion operations through plugin architecture.
 """
 
 import logging
@@ -20,14 +20,16 @@ from orlando_toolkit.core.plugins.interfaces import DocumentHandler
 from orlando_toolkit.core.plugins.models import FileFormat
 from orlando_toolkit.core.plugins.exceptions import UnsupportedFormatError
 
-# Core conversion operations
-from orlando_toolkit.core.converter import (
-    convert_docx_to_dita,
+# Core package utilities
+from orlando_toolkit.core.package_utils import (
     save_dita_package,
     update_image_references_and_names,
     update_topic_references_and_names,
     prune_empty_topics,
 )
+
+# DITA import functionality  
+from orlando_toolkit.core.importers import DitaPackageImporter
 
 logger = logging.getLogger(__name__)
 
@@ -42,8 +44,11 @@ class ConversionService:
         self.service_registry = service_registry
         self.logger = logger
         
-        # Track whether we're in legacy DOCX-only mode
-        self._legacy_mode = service_registry is None
+        # DITA package importer for core DITA-only functionality
+        self.dita_importer = DitaPackageImporter()
+        
+        # Track whether we're in DITA-only mode (no plugins)
+        self._dita_only_mode = service_registry is None
 
     # ---------------------------------------------------------------------
     # PUBLIC API
@@ -52,8 +57,8 @@ class ConversionService:
         """Convert any supported document to an in-memory DitaContext.
         
         This method finds a compatible DocumentHandler plugin for the file format
-        and delegates conversion to that handler. Falls back to legacy DOCX
-        conversion if no service registry is configured.
+        and delegates conversion to that handler. Only DITA package import is
+        available in DITA-only mode (no plugins).
         
         Args:
             file_path: Path to the document to convert
@@ -77,6 +82,17 @@ class ConversionService:
         if not file_path.is_file():
             raise ValueError(f"Path is not a file: {file_path}")
         
+        # Check for DITA package import (core functionality, available without plugins)
+        if self.dita_importer.can_import(file_path):
+            try:
+                self.logger.debug("Using DITA package importer for file: %s", file_path)
+                context = self.dita_importer.import_package(file_path, metadata)
+                self.logger.info("DITA package import successful")
+                return context
+            except Exception as e:
+                self.logger.error("DITA package import failed: %s", e)
+                raise RuntimeError(f"DITA package import failed: {e}") from e
+        
         # Plugin-aware conversion
         if self.service_registry is not None:
             # Try to find a compatible handler from plugins
@@ -93,6 +109,11 @@ class ConversionService:
                     if not isinstance(context, DitaContext):
                         raise ValueError(f"Plugin handler returned invalid type: {type(context)}")
                     
+                    # Add plugin attribution to context for UI capability checks
+                    if not hasattr(context, 'plugin_data') or context.plugin_data is None:
+                        context.plugin_data = {}
+                    context.plugin_data['_source_plugin'] = plugin_id
+                    
                     self.logger.info("Conversion successful using plugin: %s", plugin_id)
                     return context
                     
@@ -107,22 +128,12 @@ class ConversionService:
             extensions = [fmt.extension for fmt in supported_formats]
             raise UnsupportedFormatError(str(file_path), extensions)
         
-        # Legacy DOCX-only mode (backward compatibility)
+        # No plugin registry configured - only DITA import is supported
         else:
-            self.logger.debug("Running in legacy DOCX-only mode (no plugin registry)")
-            # Check if it's a DOCX file
-            if file_path.suffix.lower() not in ['.docx']:
-                raise UnsupportedFormatError(str(file_path), ['.docx'])
-            
-            # Use the legacy DOCX conversion
-            try:
-                docx_path = str(file_path)
-                context = convert_docx_to_dita(docx_path, dict(metadata))
-                self.logger.info("Legacy DOCX conversion successful")
-                return context
-            except Exception as e:
-                self.logger.error("Legacy DOCX conversion failed: %s", e)
-                raise RuntimeError(f"DOCX conversion failed: {e}") from e
+            self.logger.debug("Running in DITA-only mode (no plugin registry)")
+            # No plugins available, only DITA import is supported
+            supported_formats = [fmt.extension for fmt in self.get_supported_formats()]
+            raise UnsupportedFormatError(str(file_path), supported_formats)
 
     def get_supported_formats(self) -> List[FileFormat]:
         """Get all supported file formats from loaded plugins.
@@ -130,12 +141,20 @@ class ConversionService:
         Returns:
             List of FileFormat objects describing supported formats
         """
+        formats = []
+        
+        # Always include DITA packages (core functionality)
+        dita_extensions = self.dita_importer.get_supported_extensions()
+        for ext in dita_extensions:
+            formats.append(FileFormat.from_extension(
+                ext, 'built-in', 'Zipped DITA Package Archive'
+            ))
+        
         if self.service_registry is not None:
             # Get formats from service registry which aggregates from all handlers
             format_dicts = self.service_registry.get_supported_formats()
             
             # Convert dict format to FileFormat objects
-            formats = []
             for fmt_dict in format_dicts:
                 try:
                     file_format = FileFormat.from_extension(
@@ -148,11 +167,11 @@ class ConversionService:
                     self.logger.warning("Failed to create FileFormat from registry data %s: %s",
                                       fmt_dict, e)
                     continue
-            
-            return formats
         else:
-            # Legacy mode - only DOCX
-            return [FileFormat.from_extension('.docx', 'built-in', 'Microsoft Word Document')]
+            # No plugins available - only DITA import is supported
+            pass
+        
+        return formats
 
     def get_supported_extensions(self) -> List[str]:
         """Get list of supported file extensions.
@@ -174,13 +193,17 @@ class ConversionService:
         """
         file_path = Path(file_path)
         
+        # Always check DITA package support first (core functionality)
+        if self.dita_importer.can_import(file_path):
+            return True
+        
         if self.service_registry is not None:
             # Check if any plugin handler can handle this file
             handler = self.service_registry.find_handler_for_file(file_path)
             return handler is not None
         else:
-            # Legacy mode - only DOCX
-            return file_path.suffix.lower() == '.docx'
+            # No plugins available - only DITA import is supported
+            return False
 
     def _get_plugin_id_for_handler(self, handler: DocumentHandler) -> str:
         """Get plugin ID for a handler instance."""
@@ -309,14 +332,14 @@ class ConversionService:
     # Convenience one-shot -------------------------------------------------
     def convert_and_package(
         self,
-        docx_path: str | Path,
+        input_path: str | Path,
         metadata: Dict[str, Any],
         output_zip: str | Path,
         *,
         debug_copy_dir: Optional[str | Path] = None,
     ) -> Path:
-        """Full pipeline: convert DOCX and immediately write a ZIP archive."""
-        context = self.convert(docx_path, metadata)
+        """Full pipeline: convert document and immediately write a ZIP archive."""
+        context = self.convert(input_path, metadata)
         context = self.prepare_package(context)
         self.write_package(context, output_zip, debug_copy_dir=debug_copy_dir)
         return Path(output_zip)

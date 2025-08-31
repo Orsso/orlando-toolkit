@@ -9,8 +9,10 @@ all plugins.
 """
 
 import logging
+import os
 from abc import ABC, abstractmethod
 from enum import Enum
+from pathlib import Path
 from typing import TYPE_CHECKING, Optional, Any, Dict
 
 if TYPE_CHECKING:
@@ -95,11 +97,12 @@ class BasePlugin(ABC):
         """
         self.plugin_id = plugin_id
         self.metadata = metadata
-        self.plugin_dir = plugin_dir
+        self.plugin_dir = Path(plugin_dir)
         self._state = PluginState.DISCOVERED
         self._app_context: Optional[AppContext] = None
         self._logger = logging.getLogger(f"plugin.{plugin_id}")
         self._config: Dict[str, Any] = {}
+        self._config_file = self.plugin_dir / "config.yml"
     
     # -------------------------------------------------------------------------
     # Public Properties
@@ -189,21 +192,80 @@ class BasePlugin(ABC):
     # Configuration Management
     # -------------------------------------------------------------------------
     
-    def load_config(self, config_data: Dict[str, Any]) -> None:
-        """Load plugin configuration data.
+    def load_config(self) -> Dict[str, Any]:
+        """Load plugin configuration from plugin directory.
         
-        Called by the plugin system to provide configuration data
-        to the plugin. Configuration is loaded from plugin-specific
-        YAML files in the user's configuration directory.
+        Loads configuration from config.yml in the plugin directory.
+        Creates a default configuration file if it doesn't exist.
+        
+        Returns:
+            Configuration dictionary
+            
+        Raises:
+            Exception: If configuration file cannot be read or parsed
+        """
+        try:
+            import yaml
+        except ModuleNotFoundError:
+            self._logger.warning("PyYAML not available, using empty config")
+            self._config = {}
+            return self._config.copy()
+        
+        try:
+            if self._config_file.exists():
+                with open(self._config_file, 'r', encoding='utf-8') as f:
+                    config_data = yaml.safe_load(f) or {}
+                self._config = config_data
+                self._logger.debug("Configuration loaded from %s", self._config_file)
+            else:
+                # Create default configuration file
+                default_config = self._get_default_config()
+                self.save_config(default_config)
+                self._config = default_config
+                self._logger.info("Created default configuration: %s", self._config_file)
+                
+        except Exception as e:
+            self._logger.error("Failed to load configuration from %s: %s", self._config_file, e)
+            self._config = {}
+            raise
+        
+        return self._config.copy()
+    
+    def save_config(self, config: Dict[str, Any]) -> None:
+        """Save plugin configuration to plugin directory.
+        
+        Saves configuration to config.yml in the plugin directory.
+        Creates the plugin directory if it doesn't exist.
         
         Args:
-            config_data: Configuration dictionary
+            config: Configuration dictionary to save
+            
+        Raises:
+            Exception: If configuration cannot be saved
         """
-        self._config = config_data.copy()
-        self._logger.debug("Configuration loaded for plugin: %s", self.plugin_id)
+        try:
+            import yaml
+        except ModuleNotFoundError:
+            self._logger.error("PyYAML not available, cannot save config")
+            return
+        
+        try:
+            # Ensure plugin directory exists
+            self.plugin_dir.mkdir(parents=True, exist_ok=True)
+            
+            # Save configuration
+            with open(self._config_file, 'w', encoding='utf-8') as f:
+                yaml.dump(config, f, default_flow_style=False, indent=2)
+            
+            self._config = config.copy()
+            self._logger.debug("Configuration saved to %s", self._config_file)
+            
+        except Exception as e:
+            self._logger.error("Failed to save configuration to %s: %s", self._config_file, e)
+            raise
     
     def get_config_value(self, key: str, default: Any = None) -> Any:
-        """Get a configuration value.
+        """Get specific configuration value.
         
         Args:
             key: Configuration key (supports dot notation, e.g., 'section.key')
@@ -222,6 +284,39 @@ class BasePlugin(ABC):
                 return default
         
         return value
+    
+    def set_config_value(self, key: str, value: Any) -> None:
+        """Set specific configuration value.
+        
+        Args:
+            key: Configuration key (supports dot notation, e.g., 'section.key')
+            value: Value to set
+        """
+        keys = key.split('.')
+        config = self._config
+        
+        # Navigate to the parent dictionary
+        for k in keys[:-1]:
+            if k not in config:
+                config[k] = {}
+            elif not isinstance(config[k], dict):
+                config[k] = {}
+            config = config[k]
+        
+        # Set the value
+        config[keys[-1]] = value
+        self._logger.debug("Configuration value set: %s = %s", key, value)
+    
+    def _get_default_config(self) -> Dict[str, Any]:
+        """Get default configuration for this plugin.
+        
+        Override this method in plugin subclasses to provide
+        plugin-specific default configuration.
+        
+        Returns:
+            Default configuration dictionary
+        """
+        return {}
     
     # -------------------------------------------------------------------------
     # State Management (Internal Use)

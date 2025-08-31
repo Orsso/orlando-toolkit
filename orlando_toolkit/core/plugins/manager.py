@@ -7,9 +7,11 @@ plugin management including downloading from GitHub repositories, installing
 dependencies, validating plugins, and managing the local plugin directory.
 """
 
+import json
 import logging
 import shutil
 import tempfile
+import time
 from pathlib import Path
 from typing import Dict, List, Optional, Any, Set
 import subprocess
@@ -18,6 +20,7 @@ import sys
 from .loader import PluginLoader, PluginInfo, get_user_plugins_dir
 from .downloader import GitHubPluginDownloader
 from .installer import PluginInstaller
+from .github_fetcher import GitHubMetadataFetcher
 from .metadata import validate_plugin_metadata, PluginMetadata
 from .exceptions import (
     PluginError,
@@ -28,6 +31,13 @@ from .exceptions import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+# Official plugins available for installation
+OFFICIAL_PLUGINS = [
+    {"name": "DOCX Converter", "url": "https://github.com/orsso/orlando-docx-plugin"},
+    {"name": "PDF Converter", "url": "https://github.com/orsso/orlando-pdf-plugin"}
+]
 
 
 class PluginInstallResult:
@@ -72,13 +82,290 @@ class PluginManager:
         self._plugins_dir = get_user_plugins_dir()
         self._downloader = GitHubPluginDownloader()
         self._installer = PluginInstaller()
+        self._github_fetcher = GitHubMetadataFetcher()
         self._logger = logging.getLogger(f"{__name__}.PluginManager")
         
         # Ensure plugins directory exists
         self._plugins_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Plugin state persistence - use same directory as plugins
+        self._state_file = self._plugins_dir.parent / "plugin_states.json"
+        self._fetched_file = self._plugins_dir.parent / "fetched_plugins.json"
+        self._logger.debug("Plugin state file: %s", self._state_file)
+        self._logger.debug("Fetched plugins file: %s", self._fetched_file)
+        
+        # Fetched plugins support
+        self._fetched_plugins = {}
+        self._load_fetched_plugins()
     
     # -------------------------------------------------------------------------
-    # Plugin Installation
+    # Plugin State Persistence
+    # -------------------------------------------------------------------------
+    
+    def load_plugin_states(self) -> Dict[str, bool]:
+        """Load plugin activation states from disk.
+        
+        Returns:
+            Dictionary mapping plugin_id -> is_active
+        """
+        try:
+            if self._state_file.exists():
+                with open(self._state_file, 'r') as f:
+                    states = json.load(f)
+                    self._logger.debug("Loaded plugin states: %s", states)
+                    return states
+            else:
+                self._logger.debug("No plugin state file found at: %s", self._state_file)
+        except Exception as e:
+            self._logger.warning("Failed to load plugin states: %s", e)
+        return {}
+    
+    def save_plugin_states(self) -> None:
+        """Save current plugin activation states to disk."""
+        try:
+            if not self.plugin_loader:
+                return
+                
+            states = {}
+            for plugin_id in self.plugin_loader.get_all_plugins().keys():
+                states[plugin_id] = self.is_plugin_active(plugin_id)
+            
+            # Ensure parent directory exists
+            self._state_file.parent.mkdir(parents=True, exist_ok=True)
+            
+            with open(self._state_file, 'w') as f:
+                json.dump(states, f, indent=2)
+                
+            self._logger.debug("Saved plugin states to %s: %s", self._state_file, states)
+                
+        except Exception as e:
+            self._logger.error("Failed to save plugin states: %s", e)
+    
+    def restore_plugin_states(self) -> None:
+        """Restore plugin activation states from saved state."""
+        if not self.plugin_loader:
+            return
+            
+        saved_states = self.load_plugin_states()
+        for plugin_id, should_be_active in saved_states.items():
+            if should_be_active and not self.is_plugin_active(plugin_id):
+                try:
+                    self.plugin_loader.activate_plugin(plugin_id)
+                    self._logger.info("Restored plugin activation: %s", plugin_id)
+                except Exception as e:
+                    self._logger.error("Failed to restore plugin %s: %s", plugin_id, e)
+    
+    # -------------------------------------------------------------------------
+    # Two-Phase Plugin Installation (Fetch → Install)
+    # -------------------------------------------------------------------------
+    
+    def get_official_plugins_not_added(self) -> List[dict]:
+        """Return official plugins not yet fetched or installed.
+        
+        Returns:
+            List of official plugin dictionaries not yet in fetched plugins or installed
+        """
+        installed_plugins = self.get_installed_plugins()
+        
+        # Check if plugin is fetched or installed
+        available_plugins = []
+        for plugin in OFFICIAL_PLUGINS:
+            url = plugin["url"]
+            
+            # Skip if already fetched
+            if url in self._fetched_plugins:
+                continue
+                
+            # Skip if already installed (check multiple methods)
+            plugin_installed = False
+            for installed_id in installed_plugins:
+                try:
+                    metadata = self.get_plugin_metadata(installed_id)
+                    if metadata:
+                        # Method 1: Check if homepage URL matches the official plugin URL
+                        if hasattr(metadata, 'homepage') and metadata.homepage:
+                            if metadata.homepage == url:
+                                self._logger.debug("Found installed plugin by homepage URL: %s", installed_id)
+                                plugin_installed = True
+                                break
+                        
+                        # Method 2: Check plugin directory name matches expected pattern
+                        # For github.com/owner/repo-name, the directory would be repo-name
+                        expected_dir = url.split('/')[-1].replace('.git', '')
+                        if installed_id == expected_dir:
+                            self._logger.debug("Found installed plugin by directory name: %s", installed_id)
+                            plugin_installed = True
+                            break
+                        
+                        # Method 3: Check if name attribute matches expected pattern
+                        if hasattr(metadata, 'name') and metadata.name:
+                            if metadata.name == expected_dir:
+                                self._logger.debug("Found installed plugin by metadata name: %s", installed_id)
+                                plugin_installed = True
+                                break
+                                
+                except Exception as e:
+                    self._logger.debug("Exception checking plugin metadata for %s: %s", installed_id, e)
+                    
+                # Method 4: Fall back to name-based matching
+                if ("docx" in plugin["name"].lower() and "docx" in installed_id.lower()) or \
+                   ("pdf" in plugin["name"].lower() and "pdf" in installed_id.lower()):
+                    self._logger.debug("Found installed plugin by name pattern: %s", installed_id)
+                    plugin_installed = True
+                    break
+            
+            if not plugin_installed:
+                available_plugins.append(plugin)
+        
+        return available_plugins
+    
+    def add_plugin_from_github(self, repo_url: str) -> dict:
+        """Fetch plugin metadata and image from GitHub (does not install).
+        
+        Args:
+            repo_url: GitHub repository URL
+            
+        Returns:
+            dict: Result with format:
+                {
+                    "success": bool,
+                    "message": str,
+                    "plugin_info": {
+                        "name": str,
+                        "version": str,
+                        "description": str,
+                        "has_image": bool
+                    } or None
+                }
+        """
+        self._logger.info("Fetching plugin metadata from: %s", repo_url)
+        
+        try:
+            # Fetch plugin info using GitHub fetcher
+            result = self._github_fetcher.fetch_plugin_info(repo_url)
+            
+            if result.get("error"):
+                return {
+                    "success": False,
+                    "message": f"Failed to fetch plugin: {result['error']}",
+                    "plugin_info": None
+                }
+            
+            metadata = result["metadata"]
+            
+            # Store fetched plugin info (overwrite if already exists)
+            self._fetched_plugins[repo_url] = {
+                "metadata": metadata,
+                "image_data": result.get("image_data"),
+                "has_image": result.get("has_image", False),
+                "fetch_time": str(int(time.time())),  # Simple timestamp
+                "is_official": repo_url in [p["url"] for p in OFFICIAL_PLUGINS]
+            }
+            
+            # Save to JSON file
+            self._save_fetched_plugins()
+            
+            return {
+                "success": True,
+                "message": f"Plugin '{metadata['name']}' ready to install",
+                "plugin_info": {
+                    "name": metadata["name"],
+                    "version": metadata["version"],
+                    "description": metadata.get("description", ""),
+                    "has_image": result.get("has_image", False)
+                }
+            }
+            
+        except Exception as e:
+            self._logger.error("Failed to fetch plugin %s: %s", repo_url, e)
+            return {
+                "success": False,
+                "message": f"Error fetching plugin: {e}",
+                "plugin_info": None
+            }
+    
+    def get_fetched_plugins(self) -> dict:
+        """Return all fetched but not installed plugins.
+        
+        Returns:
+            dict: Mapping of repo_url -> plugin_info
+        """
+        return self._fetched_plugins.copy()
+    
+    def install_fetched_plugin(self, repo_url: str) -> PluginInstallResult:
+        """Install a previously fetched plugin.
+        
+        Args:
+            repo_url: GitHub repository URL of fetched plugin
+            
+        Returns:
+            PluginInstallResult with installation status
+        """
+        if repo_url not in self._fetched_plugins:
+            return PluginInstallResult(
+                plugin_id="unknown",
+                success=False,
+                message="Plugin not found in fetched plugins"
+            )
+        
+        # Get fetched plugin info
+        fetched_info = self._fetched_plugins[repo_url]
+        metadata = fetched_info["metadata"]
+        
+        self._logger.info("Installing fetched plugin: %s v%s", 
+                         metadata["name"], metadata["version"])
+        
+        # Use existing installation logic
+        result = self.install_plugin_from_github(repo_url)
+        
+        # Remove from fetched plugins if installation successful
+        if result.success:
+            del self._fetched_plugins[repo_url]
+            self._save_fetched_plugins()
+            self._logger.info("Removed installed plugin from fetched list: %s", repo_url)
+        
+        return result
+    
+    def _load_fetched_plugins(self) -> None:
+        """Load fetched plugins from JSON file."""
+        try:
+            if self._fetched_file.exists():
+                with open(self._fetched_file, 'r') as f:
+                    data = json.load(f)
+                    # Convert base64 back to bytes for image data
+                    import base64
+                    for url, info in data.items():
+                        if info.get("image_data") and isinstance(info["image_data"], str):
+                            info["image_data"] = base64.b64decode(info["image_data"])
+                    
+                    self._fetched_plugins = data
+                    self._logger.debug("Loaded %d fetched plugins", len(self._fetched_plugins))
+            else:
+                self._logger.debug("No fetched plugins file found, starting empty")
+        except Exception as e:
+            self._logger.error("Failed to load fetched plugins: %s", e)
+            self._fetched_plugins = {}
+    
+    def _save_fetched_plugins(self) -> None:
+        """Save fetched plugins to JSON file."""
+        try:
+            with open(self._fetched_file, 'w') as f:
+                # Convert image bytes to base64 for JSON serialization
+                serializable_data = {}
+                for url, info in self._fetched_plugins.items():
+                    serializable_info = info.copy()
+                    if info.get("image_data"):
+                        import base64
+                        serializable_info["image_data"] = base64.b64encode(info["image_data"]).decode('utf-8')
+                    serializable_data[url] = serializable_info
+                
+                json.dump(serializable_data, f, indent=2)
+                self._logger.debug("Saved %d fetched plugins", len(self._fetched_plugins))
+        except Exception as e:
+            self._logger.error("Failed to save fetched plugins: %s", e)
+    
+    # -------------------------------------------------------------------------
+    # Plugin Installation (Legacy/Direct)
     # -------------------------------------------------------------------------
     
     def install_plugin_from_github(self, repository_url: str, 
@@ -579,6 +866,162 @@ class PluginManager:
         return warnings
     
     # -------------------------------------------------------------------------
+    # Service Lifecycle Management
+    # -------------------------------------------------------------------------
+    
+    def is_plugin_active(self, plugin_id: str) -> bool:
+        """Check if a plugin is currently active.
+        
+        Args:
+            plugin_id: Plugin identifier
+            
+        Returns:
+            True if plugin is active, False otherwise
+        """
+        if not self.plugin_loader:
+            return False
+        
+        try:
+            # Plugin is active if it's in ACTIVE state (single source of truth)
+            plugin_info = self.plugin_loader.get_plugin_info(plugin_id)
+            
+            if plugin_info is None:
+                return False
+            
+            # Check both state and instance for consistency
+            return plugin_info.is_active() and plugin_info.instance is not None
+            
+        except Exception as e:
+            self._logger.warning("Error checking plugin status %s: %s", plugin_id, e)
+            return False
+    
+    def get_active_plugin_ids(self) -> List[str]:
+        """Get list of currently active plugin IDs.
+        
+        Returns:
+            List of active plugin identifiers
+        """
+        if not self.plugin_loader:
+            return []
+        
+        try:
+            loaded_plugins = self.plugin_loader.get_loaded_plugins()
+            active_plugins = []
+            
+            for plugin_info in loaded_plugins:
+                # Use the correct attribute name 'instance' (not 'plugin_instance')
+                if plugin_info.instance and self.is_plugin_active(plugin_info.plugin_id):
+                    active_plugins.append(plugin_info.plugin_id)
+            
+            return active_plugins
+            
+        except Exception as e:
+            self._logger.warning("Error getting active plugins: %s", e)
+            return []
+    
+    def get_active_pipeline_plugins(self) -> List[Dict[str, Any]]:
+        """Get list of active pipeline plugins with their configuration.
+        
+        Returns:
+            List of active pipeline plugin configurations
+        """
+        active_plugins = []
+        
+        try:
+            active_ids = self.get_active_plugin_ids()
+            
+            for plugin_id in active_ids:
+                if self.plugin_loader:
+                    loaded_plugins = self.plugin_loader.get_loaded_plugins()
+                    
+                    # Find matching plugin info
+                    plugin_info = None
+                    for plugin in loaded_plugins:
+                        if plugin.plugin_id == plugin_id:
+                            plugin_info = plugin
+                            break
+                    
+                    if plugin_info and plugin_info.metadata and plugin_info.metadata.category == "pipeline":
+                        # Build plugin configuration for splash screen
+                        config = {
+                            'plugin_id': plugin_id,
+                            'display_name': plugin_info.metadata.display_name,
+                            'description': plugin_info.metadata.description,
+                            'button_text': getattr(plugin_info.metadata, 'ui', {}).get('splash_button', {}).get('text', plugin_info.metadata.display_name),
+                            'icon': getattr(plugin_info.metadata, 'ui', {}).get('splash_button', {}).get('icon', 'default-plugin-icon.png'),
+                            'tooltip': getattr(plugin_info.metadata, 'ui', {}).get('splash_button', {}).get('tooltip', plugin_info.metadata.description)
+                        }
+                        active_plugins.append(config)
+            
+            return active_plugins
+            
+        except Exception as e:
+            self._logger.warning("Error getting active pipeline plugins: %s", e)
+            return []
+    
+    def activate_plugin(self, plugin_id: str) -> bool:
+        """Activate a plugin by loading and registering its services.
+        
+        Args:
+            plugin_id: Plugin identifier
+            
+        Returns:
+            True if plugin was successfully activated
+        """
+        try:
+            if self.is_plugin_active(plugin_id):
+                self._logger.debug("Plugin %s is already active", plugin_id)
+                return True
+            
+            # Activate plugin (this will load it first if needed)
+            if self.plugin_loader:
+                success = self.plugin_loader.activate_plugin(plugin_id)
+                if not success:
+                    self._logger.error("Failed to activate plugin %s", plugin_id)
+                    return False
+                
+                self._logger.info("Plugin %s activated successfully", plugin_id)
+                self.save_plugin_states()
+                return True
+            
+            return False
+            
+        except Exception as e:
+            self._logger.error("Error activating plugin %s: %s", plugin_id, e)
+            return False
+    
+    def deactivate_plugin(self, plugin_id: str) -> bool:
+        """Deactivate a plugin by unloading it and cleaning up services.
+        
+        Args:
+            plugin_id: Plugin identifier
+            
+        Returns:
+            True if plugin was successfully deactivated
+        """
+        try:
+            if not self.is_plugin_active(plugin_id):
+                self._logger.debug("Plugin %s is not active", plugin_id)
+                return True
+            
+            # Deactivate plugin (keeps it loaded but inactive)
+            if self.plugin_loader:
+                success = self.plugin_loader.deactivate_plugin(plugin_id)
+                if success:
+                    self._logger.info("Plugin %s deactivated successfully", plugin_id)
+                    self.save_plugin_states()
+                else:
+                    self._logger.warning("Failed to cleanly deactivate plugin %s", plugin_id)
+                
+                return success
+            
+            return False
+            
+        except Exception as e:
+            self._logger.error("Error deactivating plugin %s: %s", plugin_id, e)
+            return False
+    
+    # -------------------------------------------------------------------------
     # Statistics and Information
     # -------------------------------------------------------------------------
     
@@ -589,11 +1032,14 @@ class PluginManager:
             Dictionary with manager statistics
         """
         installed_plugins = self.get_installed_plugins()
+        active_plugins = self.get_active_plugin_ids()
         
         stats = {
             "plugins_directory": str(self._plugins_dir),
             "installed_plugins_count": len(installed_plugins),
-            "installed_plugins": installed_plugins
+            "installed_plugins": installed_plugins,
+            "active_plugins_count": len(active_plugins),
+            "active_plugins": active_plugins
         }
         
         if self.plugin_loader:

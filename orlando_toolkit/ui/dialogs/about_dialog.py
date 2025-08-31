@@ -88,7 +88,7 @@ def show_about_dialog(root: tk.Tk) -> None:
     ttk.Label(
         content,
         text=(
-            "Open-source DOCX to DITA converter. "
+            "Open-source DITA document processor with extensible plugin architecture. "
         ),
         wraplength=360,
         justify="center",

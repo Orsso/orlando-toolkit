@@ -11,6 +11,14 @@ from orlando_toolkit.ui.widgets.scroll_marker_bar import ScrollMarkerBar
 from orlando_toolkit.ui.widgets.structure_tree import markers as _markers
 from orlando_toolkit.ui.widgets.structure_tree import marker_bar_adapter as _bar
 
+# Plugin marker support
+try:
+    from orlando_toolkit.core.plugins.marker_providers import get_marker_registry, MarkerProviderRegistry
+except ImportError:
+    # Graceful degradation if plugin system not available
+    get_marker_registry = lambda: None  # type: ignore
+    MarkerProviderRegistry = None  # type: ignore
+
 
 class StructureTreeWidget(ttk.Frame):
     """Tkinter widget that encapsulates a Treeview for presenting a DITA structure.
@@ -172,6 +180,10 @@ class StructureTreeWidget(ttk.Frame):
         
         # Style markers cache: color -> PhotoImage
         self._style_markers: Dict[str, tk.PhotoImage] = {}
+        
+        # Plugin marker support
+        self._marker_registry: Optional['MarkerProviderRegistry'] = None
+        self._initialize_marker_providers()
 
         # Tag configuration and marker icons for highlights
         try:
@@ -286,6 +298,23 @@ class StructureTreeWidget(ttk.Frame):
                 return tk.PhotoImage(width=getattr(self, "_marker_w", 16), height=getattr(self, "_marker_h", 16))
         # Bind as instance method so helper modules can call widget._create_empty_marker
         self._create_empty_marker = _create_empty_marker  # type: ignore[attr-defined]
+    
+    def _initialize_marker_providers(self) -> None:
+        """Initialize plugin marker provider support."""
+        try:
+            self._marker_registry = get_marker_registry()
+            if self._marker_registry:
+                # Setup the built-in style marker provider with current settings
+                style_provider = self._marker_registry.get_style_provider()
+                if style_provider:
+                    style_provider.set_style_visibility(self._style_visibility)
+                    style_provider.set_style_colors(self._style_colors)
+        except Exception as e:
+            # Graceful degradation
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.debug(f"Plugin marker support not available: {e}")
+            self._marker_registry = None
 
     # Public API
 
@@ -503,6 +532,13 @@ class StructureTreeWidget(ttk.Frame):
         """
         try:
             self._style_visibility = dict(style_visibility or {})
+            
+            # Update plugin marker registry if available
+            if self._marker_registry:
+                style_provider = self._marker_registry.get_style_provider()
+                if style_provider:
+                    style_provider.set_style_visibility(self._style_visibility)
+            
             # Refresh all markers
             for item_id in self._iter_all_item_ids():
                 try:
@@ -528,6 +564,13 @@ class StructureTreeWidget(ttk.Frame):
         """
         try:
             self._style_colors = dict(style_colors or {})
+            
+            # Update plugin marker registry if available
+            if self._marker_registry:
+                style_provider = self._marker_registry.get_style_provider()
+                if style_provider:
+                    style_provider.set_style_colors(self._style_colors)
+            
             # Clear marker cache to force recreation
             self._style_markers.clear()
             # Refresh all markers
@@ -600,6 +643,106 @@ class StructureTreeWidget(ttk.Frame):
 
     def _create_stacked_marker(self, style_colors: List[str], has_search: bool = False) -> tk.PhotoImage:
         return _markers.create_stacked_marker(self, style_colors, has_search)
+    
+    # Plugin marker support
+    def register_marker_provider(self, provider: 'MarkerProvider') -> None:
+        """Register a marker provider with the marker system.
+        
+        Args:
+            provider: MarkerProvider instance to register
+        """
+        if not self._marker_registry:
+            self._initialize_marker_providers()
+        
+        if self._marker_registry:
+            try:
+                self._marker_registry.register_provider(provider)
+                # Refresh markers to include new provider
+                self.refresh_all_markers()
+            except Exception as e:
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.error(f"Failed to register marker provider: {e}")
+    
+    def unregister_marker_provider(self, marker_type: str) -> None:
+        """Unregister a marker provider by type.
+        
+        Args:
+            marker_type: Type identifier of marker provider to unregister
+        """
+        if self._marker_registry:
+            try:
+                self._marker_registry.unregister_provider(marker_type)
+                # Refresh markers to remove unregistered provider
+                self.refresh_all_markers()
+            except Exception as e:
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.error(f"Failed to unregister marker provider '{marker_type}': {e}")
+    
+    def get_marker_providers(self) -> List['MarkerProvider']:
+        """Get all registered marker providers.
+        
+        Returns:
+            List of registered marker providers
+        """
+        if self._marker_registry:
+            return self._marker_registry.get_enabled_providers()
+        return []
+    
+    def refresh_all_markers(self) -> None:
+        """Refresh all markers using current providers."""
+        try:
+            for item_id in self._iter_all_item_ids():
+                try:
+                    self._apply_marker_image(item_id)
+                except Exception:
+                    continue
+            # Update marker bar
+            try:
+                from orlando_toolkit.ui.widgets.structure_tree import marker_bar_adapter as _bar
+                _bar.update_marker_bar_positions(self)
+            except Exception:
+                pass
+        except Exception:
+            pass
+    
+    def get_item_data_for_markers(self, item_id: str) -> Dict[str, Any]:
+        """Get item data for marker providers.
+        
+        Args:
+            item_id: Tree item ID
+            
+        Returns:
+            Dictionary containing item data for marker evaluation
+        """
+        try:
+            topic_ref = self._id_to_ref.get(item_id, "")
+            style = self._id_to_style.get(item_id, "")
+            
+            # Get additional context data
+            data = {
+                'topic_ref': topic_ref,
+                'style': style,
+                'item_id': item_id,
+                'tree_data': {}
+            }
+            
+            # Add tree item information
+            try:
+                item_values = self._tree.item(item_id)
+                if item_values:
+                    data['tree_data'] = {
+                        'text': item_values.get('text', ''),
+                        'tags': list(item_values.get('tags', [])),
+                        'open': item_values.get('open', False)
+                    }
+            except Exception:
+                pass
+            
+            return data
+        except Exception:
+            return {'topic_ref': '', 'style': '', 'item_id': item_id, 'tree_data': {}}
 
     def _refresh_section_markers(self, item_ids: Optional[List[str]] = None) -> None:
         """Centralized method to refresh markers for sections when their state changes.

@@ -3,10 +3,15 @@
 Core processing layer used by all front-end interfaces.
 
 - `models/` – dataclasses like `DitaContext` and `HeadingNode` that travel through the pipeline.
-- `parser/` – low-level helpers to walk a Word document and extract styles/blocks/images.
-- `converter/` – two-pass DOCX → DITA logic and packaging helpers (`save_dita_package`, renamers).
-- `generators/` – XML builders (tables, lists) so the converter stays readable.
+- `importers/` – DITA archive import functionality.
+- `package_utils.py` – packaging helpers for DITA output (`save_dita_package`, renamers).
 - `preview/` – read-only XML/HTML preview utilities (minimal XSLT + temp image materialization).
+- `plugins/` – plugin architecture for extensible format conversion:
+  - `base.py` – BasePlugin class and lifecycle management
+  - `interfaces.py` – DocumentHandler and UI extension protocols
+  - `registry.py` – Service registry for plugin services
+  - `ui_registry.py` – UI component registry for plugin extensions
+  - `marker_providers.py` – Scrollbar marker system for plugins
 - `services/` – high-level APIs:
   - `ConversionService` (convert, prepare, write ZIP)
   - `PreviewService` (XML/HTML preview)
@@ -14,11 +19,12 @@ Core processing layer used by all front-end interfaces.
 - `merge.py` – unified depth/style merge helpers used for structure filtering.
 - `utils.py` – helpers (slugify, XML save, ID generation, section numbering… ).
 
-## Conversion
+## Plugin-Based Conversion
 
-- Pass 1: `converter/structure_builder.build_document_structure()` builds a hierarchy of `HeadingNode` using `parser/style_analyzer` and block iteration.
-- Pass 2: `determine_node_roles()` marks nodes as section vs module.
-- Generation: `generate_dita_from_structure()` produces a DITA map with `topichead` for sections, concept topics for modules, and fills `DitaContext`.
+Document conversion through the plugin architecture:
+- Plugin discovery via `ServiceRegistry` finds compatible handlers for file types
+- Plugins implement `DocumentHandler.convert_to_dita()` to populate `DitaContext`
+- Core services coordinate conversion workflow and UI integration
 
 ## Editing & packaging
 
@@ -30,3 +36,5 @@ Core processing layer used by all front-end interfaces.
 Links:
 - Architecture: [docs/architecture_overview.md](../../docs/architecture_overview.md)
 - Runtime flow: [docs/runtime_flow.md](../../docs/runtime_flow.md)
+- Plugin development: [docs/PLUGIN_DEVELOPMENT_GUIDE.md](../../docs/PLUGIN_DEVELOPMENT_GUIDE.md)
+- Plugin examples: see `tests/fixtures/plugins/` directory

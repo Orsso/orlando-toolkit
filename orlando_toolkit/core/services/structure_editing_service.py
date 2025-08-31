@@ -78,7 +78,21 @@ class StructureEditingService:
     or "topichead" (structural). Renaming and deletion operate primarily on "topicref"
     with an href attribute pointing to topics/{filename}. Promote/demote and up/down
     are implemented in terms of reordering and reparenting of topicref/topichead nodes.
+    
+    Plugin Integration:
+    - Constructor supports dependency injection for plugin-aware composition
+    - Service can be instantiated with or without plugin dependencies
+    - Maintains backward compatibility with existing non-plugin usage
     """
+    
+    def __init__(self, app_context: Optional[Any] = None) -> None:
+        """Initialize structure editing service.
+        
+        Args:
+            app_context: Optional application context for plugin integration
+        """
+        self._app_context = app_context
+        self._logger = logging.getLogger(f"{__name__}.StructureEditingService")
 
     # -------------------------------------------------------------------------
     # Public API

@@ -1,0 +1,33 @@
+{
+  "name": "error-test-plugin",
+  "version": "1.0.0",
+  "display_name": "Error Test Plugin",
+  "description": "A plugin for testing error handling",
+  "author": "Test Author",
+  "homepage": "https://example.com/error-test-plugin",
+  
+  "orlando_version": ">=2.0.0",
+  "plugin_api_version": "1.0",
+  "category": "pipeline",
+  
+  "entry_point": "plugin.ErrorTestPlugin",
+  
+  "supported_formats": [
+    {
+      "extension": ".error",
+      "mime_type": "application/x-error",
+      "description": "Error Test Format"
+    }
+  ],
+  
+  "dependencies": {
+    "python": ">=3.8",
+    "packages": []
+  },
+  
+  "provides": {
+    "services": ["DocumentHandler"],
+    "ui_extensions": [],
+    "marker_providers": []
+  }
+}

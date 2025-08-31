@@ -69,7 +69,7 @@ class DitaContext:
     topics
         Mapping of topic file names to their root XML Element.
     images
-        Mapping of image file names to the raw bytes (as extracted from DOCX).
+        Mapping of image file names to raw bytes extracted during document conversion.
     metadata
         Arbitrary key/value pairs captured from GUI or config (title, code…).
     """
@@ -78,6 +78,9 @@ class DitaContext:
     topics: Dict[str, ET.Element] = field(default_factory=dict)
     images: Dict[str, bytes] = field(default_factory=dict)
     metadata: Dict[str, Any] = field(default_factory=dict)
+    
+    # Plugin data storage (namespaced by plugin ID) - Required by design Section 7.1
+    plugin_data: Dict[str, Dict[str, Any]] = field(default_factory=dict)
 
     def save_original_structure(self) -> None:
         """Save the original structure before any depth merging operations.

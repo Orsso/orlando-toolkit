@@ -89,14 +89,15 @@ class PluginLoader:
     do not crash the main application.
     """
     
-    def __init__(self, service_registry: ServiceRegistry) -> None:
+    def __init__(self, service_registry: ServiceRegistry, app_context: Optional[AppContext] = None) -> None:
         """Initialize plugin loader.
         
         Args:
             service_registry: Service registry for plugin services
+            app_context: Application context (created if not provided)
         """
         self.service_registry = service_registry
-        self.app_context = AppContext(service_registry)
+        self.app_context = app_context or AppContext(service_registry)
         
         self._plugins: Dict[str, PluginInfo] = {}
         self._logger = logging.getLogger(f"{__name__}.PluginLoader")
@@ -412,7 +413,7 @@ class PluginLoader:
     # -------------------------------------------------------------------------
     
     def activate_plugin(self, plugin_id: str) -> bool:
-        """Activate a loaded plugin.
+        """Activate a plugin, loading it first if needed.
         
         Args:
             plugin_id: Plugin identifier
@@ -426,9 +427,11 @@ class PluginLoader:
         
         plugin_info = self._plugins[plugin_id]
         
+        # Load plugin first if not already loaded
         if not plugin_info.is_loaded():
-            self._logger.error("Plugin not loaded, cannot activate: %s", plugin_id)
-            return False
+            if not self.load_plugin(plugin_id):
+                self._logger.error("Failed to load plugin before activation: %s", plugin_id)
+                return False
         
         if plugin_info.is_active():
             self._logger.debug("Plugin already active: %s", plugin_id)
@@ -471,6 +474,10 @@ class PluginLoader:
         try:
             # Unregister plugin services
             self.service_registry.unregister_plugin_services(plugin_id)
+            
+            # Unregister UI components
+            if hasattr(self.app_context, 'ui_registry') and self.app_context.ui_registry:
+                self.app_context.ui_registry.cleanup_plugin_components(plugin_id)
             
             # Call deactivation lifecycle hook
             plugin_info.instance.on_deactivate()

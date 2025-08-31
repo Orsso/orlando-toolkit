@@ -113,9 +113,16 @@ class ContextMenuCoordinator:
         except Exception:
             pass
 
-        # Hook for style primary action
+        # Hook for style primary action (only if source plugin has style_toggle capability)
         if is_single and not is_section and isinstance(style, str) and style:
-            ctx["on_style"] = (lambda s=style: self._emit("style_action", s))
+            # Check if document source plugin has style_toggle capability
+            try:
+                from orlando_toolkit.core.context import get_app_context
+                app_context = get_app_context()
+                if app_context and app_context.document_source_plugin_has_capability('style_toggle'):
+                    ctx["on_style"] = (lambda s=style: self._emit("style_action", s))
+            except Exception:
+                pass
 
         try:
             self._menu.show_context_menu(event, current_refs, context=ctx)

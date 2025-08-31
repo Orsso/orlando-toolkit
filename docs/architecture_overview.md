@@ -4,6 +4,7 @@
 
 - UI overview: see `orlando_toolkit/app.py` and `orlando_toolkit/ui/`
 - Core processing: see `orlando_toolkit/core/` and its [README](../orlando_toolkit/core/README.md)
+- Plugin architecture: see [Plugin Development Guide](PLUGIN_DEVELOPMENT_GUIDE.md)
 - Configuration: see `orlando_toolkit/config/` and its [README](../orlando_toolkit/config/README.md)
 - End-to-end runtime: see [Runtime Flow](runtime_flow.md)
 
@@ -20,25 +21,22 @@ flowchart TD
   end
   subgraph Core
     B1["Services<br/>ConversionService<br/>PreviewService<br/>UndoService"]
-    B2["Converter<br/>converter/ (two-pass)"]
-    B3["Parsing & Generators<br/>parser/, generators/"]
-    B4["Merge & Utils<br/>merge.py, utils.py"]
-    B5["Models<br/>DitaContext, HeadingNode"]
+    B2["Plugin System<br/>ServiceRegistry<br/>DocumentHandlers"]
+    B3["Models & Utils<br/>DitaContext, HeadingNode<br/>merge.py, utils.py"]
   end
   subgraph Config
     C1["Config Manager<br/>YAML + user overrides"]
   end
 
   A1 --> A2 --> A3 --> B1
-  B1 --> B2 --> B3
-  B1 --> B4
-  B1 --> B5
+  B1 --> B2
+  B1 --> B3
   B1 --> C1
 ```
 
 Key properties:
 - UI is a thin layer. Business logic lives in services (`core/services/`).
-- Core conversion is I/O-free (operates in-memory) until packaging.
+- Plugin-based conversion operates in-memory until packaging.
 - Configuration is optional and layered: packaged defaults + user overrides; safe fallbacks when YAML isn’t available.
 
 ---
@@ -48,19 +46,16 @@ Key properties:
 ```
 orlando_toolkit/
   app.py                 # Tk-based app, home → summary → main tabs
-  logging_config.py      # DictConfig + rotating file handler (logs/app.log)
   core/
     models/              # DitaContext, HeadingNode
-    parser/              # WordprocessingML traversal, style analysis
-    converter/           # Two-pass DOCX→DITA + packaging helpers
-    generators/          # XML builders (tables, etc.)
-    preview/             # Raw XML + HTML preview (XSLT, temp images)
+    plugins/             # Plugin architecture (base, interfaces, registry)
     services/            # ConversionService, PreviewService, UndoService
+    importers/           # DITA archive import
+    preview/             # Raw XML + HTML preview (XSLT, temp images)
     merge.py             # Unified depth/style merge for structure filtering
     utils.py             # Save XML, slugify, ID helpers, etc.
   config/
     manager.py           # YAML loader + user overrides
-    default_color_rules.yml  # Packaged default (others fallback to builtin-empty)
   ui/
     controllers/         # `StructureController`
     widgets/             # Structure tree, search, toolbar, preview panel…
@@ -78,7 +73,7 @@ Related sub-docs:
 
 Summary of the primary flow (see the full sequence in [Runtime Flow](runtime_flow.md)):
 - `run.py` sets up logging, theme, icon, and instantiates `OrlandoToolkit`.
-- User selects a `.docx` → `ConversionService.convert()` builds an in-memory `DitaContext` using the two-pass converter.
+- User selects a document → `ConversionService.convert()` uses plugins to build an in-memory `DitaContext`.
 - The app shows a post-conversion summary on the home screen with counts and inline metadata editing.
 - User continues to the main tabs: Structure, Images, Metadata.
 - On Export, `ConversionService.prepare_package()` applies unified depth/style filtering and renaming; then `write_package()` saves a `DATA/` tree and zips it.
@@ -89,14 +84,13 @@ Notes:
 
 ---
 
-## 4. Conversion pipeline
+## 4. Plugin-based conversion
 
-Two-pass conversion in `core/converter/`:
-- Pass 1: `structure_builder.build_document_structure()` builds a full heading tree (`HeadingNode`) using style and numbering analysis from `parser/style_analyzer.py`.
-- Pass 2: `structure_builder.determine_node_roles()` marks nodes as section vs module.
-- Generation: `structure_builder.generate_dita_from_structure()` produces a DITA map with `topichead` for sections and concept topics for modules, storing topics and images in `DitaContext`.
-
-Helpers in `converter/helpers.py` handle inline formatting, Wingdings checkbox normalization, and paragraph/table processing. Table XML is created by `generators/dita_builder.py`.
+Document conversion through plugin system:
+- Plugin discovery: `ServiceRegistry` finds compatible `DocumentHandler` for file type
+- Document parsing: Plugin extracts content, images, and metadata from source format  
+- DITA generation: Plugin converts to `DitaContext` with topics, images, and structure
+- UI integration: Plugins register capabilities for format-specific features
 
 ---
 

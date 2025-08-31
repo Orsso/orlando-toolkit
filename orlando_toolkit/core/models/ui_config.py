@@ -60,34 +60,13 @@ class SplashButtonConfig:
         
         return cls(
             text=splash_button.get("text", "Import"),
-            icon=splash_button.get("icon", "default-plugin-icon.png"),
+            icon=splash_button.get("icon", "plugin-icon.png"),
             tooltip=splash_button.get("tooltip", f"Import content using {plugin_id}"),
             command=command,
             plugin_id=plugin_id,
             button_text=splash_button.get("button_text")
         )
     
-    @classmethod
-    def from_official_plugin(cls, plugin_id: str, official_data: Dict[str, Any],
-                           command: Optional[Callable] = None) -> 'SplashButtonConfig':
-        """Create button configuration from official plugin registry.
-        
-        Args:
-            plugin_id: Plugin identifier
-            official_data: Official plugin data
-            command: Command to execute when button is clicked
-            
-        Returns:
-            SplashButtonConfig instance
-        """
-        return cls(
-            text=official_data.get("button_text", "Import"),
-            icon=official_data.get("icon", "default-plugin-icon.png"),
-            tooltip=official_data.get("tooltip", official_data.get("description", "")),
-            command=command,
-            plugin_id=plugin_id,
-            button_text=official_data.get("button_text")
-        )
 
 
 @dataclass
@@ -118,17 +97,32 @@ class IconConfig:
 class SplashLayoutConfig:
     """Configuration for splash screen layout and sizing."""
     
-    window_size: tuple[int, int] = (800, 600)
-    logo_max_height: int = 120  # Smaller logo for more buttons
-    buttons_per_row: int = 3
-    button_size: int = 120
-    button_padding: tuple[int, int] = (10, 10)
-    grid_padding: tuple[int, int] = (20, 20)
+    window_size: tuple[int, int] = (900, 650)
+    logo_max_height: int = 100  # Smaller logo for cleaner look
+    
+    # Main button (Open DITA) styling - Google search box inspired
+    main_button_width: int = 300
+    main_button_height: int = 60
+    main_button_font_size: int = 14
+    
+    # Plugin buttons under main button
+    plugin_buttons_per_row: int = 4
+    plugin_button_size: int = 100
+    plugin_button_padding: tuple[int, int] = (8, 8)
+    
+    # Plugin management button in top-right
+    management_button_size: int = 80
+    management_button_padding: int = 15
+    
+    # Spacing configuration
+    logo_to_main_spacing: int = 40
+    main_to_plugin_spacing: int = 35
+    plugin_rows_spacing: int = 15
     
     # Core buttons that are always present
     core_buttons: Dict[str, ButtonConfig] = field(default_factory=lambda: {
         "open_dita": ButtonConfig(
-            text="Open DITA\nProject",
+            text="Open DITA Project",
             icon="dita-icon.png",
             tooltip="Open existing DITA project archive"
         ),

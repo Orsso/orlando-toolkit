@@ -81,10 +81,9 @@ class ConfigManager(metaclass=_Singleton):
 
     _DEFAULT_FILENAMES = {
         "style_map": "default_style_map.yml",
-        "color_rules": "default_color_rules.yml",
+        "preview_styles": "preview_styles.yml",
         "image_naming": "image_naming.yml",
         "logging": "logging.yml",
-        "style_detection": "style_detection.yml",
     }
 
     def __init__(self) -> None:
@@ -97,8 +96,8 @@ class ConfigManager(metaclass=_Singleton):
     def get_style_map(self) -> Dict[str, Any]:
         return self._data.get("style_map", {})
 
-    def get_color_rules(self) -> Dict[str, Any]:
-        return self._data.get("color_rules", {})
+    def get_preview_styles(self) -> Dict[str, Any]:
+        return self._data.get("preview_styles", {})
 
     def get_image_naming(self) -> Dict[str, Any]:
         return self._data.get("image_naming", {})
@@ -106,8 +105,6 @@ class ConfigManager(metaclass=_Singleton):
     def get_logging_config(self) -> Dict[str, Any]:
         return self._data.get("logging", {})
 
-    def get_style_detection(self) -> Dict[str, Any]:
-        return self._data.get("style_detection", {})
 
     # ------------------------------------------------------------------
     # Internal loading logic
@@ -168,8 +165,7 @@ class ConfigManager(metaclass=_Singleton):
         """Return neutral empty mappings (no business rules embedded)."""
         return {
             "style_map": {},
-            "color_rules": {},
+            "preview_styles": {},
             "image_naming": {},
             "logging": {},
-            "style_detection": {},
         } 
