@@ -89,19 +89,28 @@ class PluginLoader:
     do not crash the main application.
     """
     
-    def __init__(self, service_registry: ServiceRegistry, app_context: Optional[AppContext] = None) -> None:
+    def __init__(self, service_registry: ServiceRegistry, app_context: Optional[AppContext] = None, dev_mode: bool = False) -> None:
         """Initialize plugin loader.
         
         Args:
             service_registry: Service registry for plugin services
             app_context: Application context (created if not provided)
+            dev_mode: Enable development mode for local plugin loading
         """
         self.service_registry = service_registry
         self.app_context = app_context or AppContext(service_registry)
+        self._dev_mode = dev_mode
         
         self._plugins: Dict[str, PluginInfo] = {}
         self._logger = logging.getLogger(f"{__name__}.PluginLoader")
-        self._plugins_dir = get_user_plugins_dir()
+        
+        if self._dev_mode:
+            # In dev mode, look for plugins in ./plugins/ directory
+            self._plugins_dir = Path.cwd() / 'plugins'
+            self._logger.info("Dev mode enabled: using local plugins directory %s", self._plugins_dir)
+        else:
+            # Normal mode: use user's plugin directory
+            self._plugins_dir = get_user_plugins_dir()
         
         # Ensure plugins directory exists
         self._plugins_dir.mkdir(parents=True, exist_ok=True)
@@ -224,27 +233,42 @@ class PluginLoader:
             return False
     
     def load_all_plugins(self) -> Dict[str, bool]:
-        """Load all discovered plugins.
+        """Load all discovered plugins with graceful error handling.
         
         Returns:
             Dictionary mapping plugin_id -> success status
         """
         results = {}
         
+        if not self._plugins:
+            self._logger.info("No plugins discovered to load")
+            return results
+        
+        self._logger.info("Loading %d discovered plugins...", len(self._plugins))
+        
         for plugin_id in self._plugins:
             try:
                 success = self.load_plugin(plugin_id)
                 results[plugin_id] = success
+                
+                if success:
+                    self._logger.info("✓ Plugin loaded successfully: %s", plugin_id)
+                else:
+                    self._logger.warning("✗ Plugin failed to load: %s", plugin_id)
+                    
             except Exception as e:
-                self._logger.error("Unexpected error loading plugin %s: %s", 
-                                 plugin_id, e)
+                self._logger.error("✗ Plugin loading exception %s: %s", plugin_id, e)
                 results[plugin_id] = False
         
         success_count = sum(results.values())
         total_count = len(results)
         
-        self._logger.info("Plugin loading complete: %d/%d successful", 
-                         success_count, total_count)
+        if success_count == total_count:
+            self._logger.info("All plugins loaded successfully: %d/%d", success_count, total_count)
+        else:
+            failed_plugins = [pid for pid, success in results.items() if not success]
+            self._logger.warning("Plugin loading completed with failures: %d/%d successful (failed: %s)", 
+                               success_count, total_count, ', '.join(failed_plugins))
         
         return results
     
@@ -337,6 +361,11 @@ class PluginLoader:
                 # Convert entry point to module path (e.g., "src.plugin.MyPlugin" -> "src.plugin")
                 module_parts = entry_point.split('.')
                 module_path = '.'.join(module_parts[:-1])  # Remove class name
+                
+                # Clear any cached module to avoid conflicts between plugins
+                if module_path in sys.modules:
+                    self._logger.debug("Clearing cached module: %s", module_path)
+                    del sys.modules[module_path]
                 
                 # Import the module
                 module = importlib.import_module(module_path)

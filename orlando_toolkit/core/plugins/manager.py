@@ -79,18 +79,32 @@ class PluginManager:
             plugin_loader: Optional PluginLoader instance for integration
         """
         self.plugin_loader = plugin_loader
-        self._plugins_dir = get_user_plugins_dir()
+        
+        # Check if we're in dev mode by examining the plugin loader
+        self._dev_mode = (plugin_loader and hasattr(plugin_loader, '_dev_mode') and plugin_loader._dev_mode)
+        
+        if self._dev_mode:
+            # Dev mode: use local plugins directory
+            self._plugins_dir = Path.cwd() / 'plugins'
+            # Dev mode state files go in the dev plugins directory
+            self._state_file = self._plugins_dir / ".dev_plugin_states.json"
+            self._fetched_file = self._plugins_dir / ".dev_fetched_plugins.json"
+            self._logger = logging.getLogger(f"{__name__}.PluginManager[DEV]")
+            self._logger.info("DEV MODE: Using dev plugin management in %s", self._plugins_dir)
+        else:
+            # Production mode: use user plugins directory
+            self._plugins_dir = get_user_plugins_dir()
+            self._state_file = self._plugins_dir.parent / "plugin_states.json"
+            self._fetched_file = self._plugins_dir.parent / "fetched_plugins.json"
+            self._logger = logging.getLogger(f"{__name__}.PluginManager")
+        
         self._downloader = GitHubPluginDownloader()
         self._installer = PluginInstaller()
         self._github_fetcher = GitHubMetadataFetcher()
-        self._logger = logging.getLogger(f"{__name__}.PluginManager")
         
         # Ensure plugins directory exists
         self._plugins_dir.mkdir(parents=True, exist_ok=True)
         
-        # Plugin state persistence - use same directory as plugins
-        self._state_file = self._plugins_dir.parent / "plugin_states.json"
-        self._fetched_file = self._plugins_dir.parent / "fetched_plugins.json"
         self._logger.debug("Plugin state file: %s", self._state_file)
         self._logger.debug("Fetched plugins file: %s", self._fetched_file)
         
@@ -745,7 +759,7 @@ class PluginManager:
         """Get list of installed plugin IDs.
         
         Returns:
-            List of plugin identifiers
+            List of plugin identifiers (from JSON "name" field, not directory names)
         """
         if not self._plugins_dir.exists():
             return []
@@ -755,7 +769,17 @@ class PluginManager:
             if item.is_dir() and not item.name.startswith('.'):
                 # Check if it has plugin.json
                 if (item / "plugin.json").exists():
-                    plugins.append(item.name)
+                    try:
+                        # Get the actual plugin ID from the JSON "name" field
+                        metadata = self._get_installed_plugin_metadata(item.name)
+                        if metadata:
+                            plugins.append(metadata.name)  # Use JSON "name", not directory name
+                        else:
+                            # Fallback to directory name if metadata can't be read
+                            plugins.append(item.name)
+                    except Exception:
+                        # Fallback to directory name if there's any error
+                        plugins.append(item.name)
         
         return sorted(plugins)
     
@@ -763,12 +787,32 @@ class PluginManager:
         """Get metadata for an installed plugin.
         
         Args:
-            plugin_id: Plugin identifier
+            plugin_id: Plugin identifier (from JSON "name" field)
             
         Returns:
             PluginMetadata or None if not found
         """
-        return self._get_installed_plugin_metadata(plugin_id)
+        # First try plugin_loader if available (works for loaded plugins)
+        if self.plugin_loader:
+            plugin_info = self.plugin_loader.get_plugin_info(plugin_id)
+            if plugin_info:
+                return plugin_info.metadata
+        
+        # Fallback: scan directories to find the one with matching plugin_id
+        if not self._plugins_dir.exists():
+            return None
+            
+        for item in self._plugins_dir.iterdir():
+            if item.is_dir() and not item.name.startswith('.'):
+                if (item / "plugin.json").exists():
+                    try:
+                        metadata = self._get_installed_plugin_metadata(item.name)  # item.name = directory
+                        if metadata and metadata.name == plugin_id:  # metadata.name = JSON "name" field
+                            return metadata
+                    except Exception:
+                        continue
+        
+        return None
     
     def _get_installed_plugin_metadata(self, plugin_id: str) -> Optional[PluginMetadata]:
         """Internal method to get plugin metadata."""

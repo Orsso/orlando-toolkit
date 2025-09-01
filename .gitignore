@@ -8,6 +8,10 @@ release/
 dist/
 build/
 
+# dev mode plugin management
+plugins/.dev_plugin_states.json
+plugins/.dev_fetched_plugins.json
+
 # sample / reference documents
 *.docx
 Reference/
@@ -36,3 +40,4 @@ PIVOT_PLAN.md
 .qoder/quests/section-state-management.md
 .qoder/quests/section-movement-detector.md
 .qoder/quests/topic-section-drag-drop.md
+plugins/
