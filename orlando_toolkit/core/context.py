@@ -8,7 +8,7 @@ the design specifications for Task 6 of the plugin architecture implementation.
 """
 
 import logging
-from typing import Optional, Dict, Any, TYPE_CHECKING
+from typing import Optional, Dict, Any, List, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from .plugins.registry import ServiceRegistry
@@ -219,7 +219,7 @@ class AppContext:
         """Check if the document source plugin has a specific UI capability.
         
         Args:
-            capability: UI capability to check (e.g., "heading_filter", "style_toggle")
+            capability: UI capability to check (e.g., "filter_panel", "style_toggle")
             
         Returns:
             True if source plugin has the capability, False otherwise
@@ -244,6 +244,51 @@ class AppContext:
         except Exception as e:
             self._logger.debug(f"Capability check error: capability='{capability}', error={e}")
             return False
+    
+    def get_document_source_plugin_panels(self) -> List[str]:
+        """Get all available panel types from the document source plugin.
+        
+        Returns:
+            List of panel type identifiers available from source plugin
+        """
+        try:
+            # Get source plugin ID from current document
+            if (self._current_dita_context and 
+                hasattr(self._current_dita_context, 'plugin_data') and 
+                self._current_dita_context.plugin_data):
+                source_plugin = self._current_dita_context.plugin_data.get('_source_plugin')
+                
+                if source_plugin and hasattr(self, 'ui_registry'):
+                    panels = self.ui_registry.get_plugin_panel_types(source_plugin)
+                    self._logger.debug(f"Available panels from plugin '{source_plugin}': {panels}")
+                    return panels
+                else:
+                    self._logger.debug("No source plugin or ui_registry available")
+            else:
+                self._logger.debug("No dita_context or plugin_data available")
+            
+            return []
+        except Exception as e:
+            self._logger.debug(f"Error getting plugin panels: {e}")
+            return []
+
+    def get_filter_provider_for_source(self) -> Optional[Any]:
+        """Resolve the FilterProvider for the current document source plugin.
+
+        Returns:
+            FilterProvider instance if registered by the source plugin, else None.
+        """
+        try:
+            if (self._current_dita_context and
+                hasattr(self._current_dita_context, 'plugin_data') and
+                self._current_dita_context.plugin_data):
+                source_plugin = self._current_dita_context.plugin_data.get('_source_plugin')
+                if source_plugin and hasattr(self, 'service_registry'):
+                    provider = self._service_registry.get_service('FilterProvider', source_plugin)
+                    return provider
+        except Exception as e:
+            self._logger.debug(f"Error resolving filter provider: {e}")
+        return None
     
     # -------------------------------------------------------------------------
     # Service Lifecycle Management

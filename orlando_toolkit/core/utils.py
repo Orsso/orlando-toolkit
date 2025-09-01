@@ -244,8 +244,10 @@ def find_topicref_for_image(image_filename: str, context: "DitaContext") -> Opti
     
     # Search through all topics to find which one contains the image
     for topic_filename, topic_element in context.topics.items():
-        # Look for image references in the topic
-        image_elements = topic_element.xpath(f".//image[@href='../media/{image_filename}']")
+        # Look for image references in the topic (use XPath with parameterized string)
+        xpath_expr = ".//image[@href=$href]"
+        media_href = f"../media/{image_filename}"
+        image_elements = topic_element.xpath(xpath_expr, href=media_href)
         if image_elements:
             # Find the corresponding topicref in the ditamap
             for topicref in context.ditamap_root.xpath(".//topicref"):

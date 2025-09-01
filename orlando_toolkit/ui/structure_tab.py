@@ -32,6 +32,7 @@ from typing import Optional, List
 import threading
 import tkinter as tk
 from tkinter import ttk
+import logging
 
 # Required imports per specification
 from orlando_toolkit.core.models import DitaContext
@@ -64,6 +65,8 @@ from orlando_toolkit.ui.tabs.structure.search_coordinator import SearchCoordinat
 from orlando_toolkit.ui.tabs.structure.context_actions import ContextActions
 from orlando_toolkit.ui.tabs.structure.tree_refresh_coordinator import TreeRefreshCoordinator
 from orlando_toolkit.ui.widgets.universal_spinner import UniversalSpinner
+
+logger = logging.getLogger(__name__)
 
 
 __all__ = ["StructureTab"]
@@ -225,9 +228,10 @@ class StructureTab(ttk.Frame):
         self._preview_active: bool = True
         self._filter_active: bool = False
 
-        # Filters toggle: created dynamically by plugins with heading_filter capability
-        self._filter_toggle_btn = None
+        # Plugin panels toggle: created dynamically by plugins
+        self._plugin_panel_btns = {}  # Dict of panel_type -> button
         self._toggles_frame = toggles  # Keep reference to add buttons dynamically
+        self._active_plugin_panel = None  # Currently active panel type
 
         # Preview toggle: eye pictogram
         self._preview_toggle_btn = ttk.Button(
@@ -335,18 +339,47 @@ class StructureTab(ttk.Frame):
         # Right panel coordinator (centralizes preview/filter/none switching)
         try:
             def _make_filter_panel():
-                # Try to get filter panel from plugin UI registry first
+                # Try to get any available plugin panel (backward compatibility)
                 try:
                     app_context = get_app_context()
-                    if app_context and hasattr(app_context, 'ui_registry'):
-                        panel_factory = app_context.ui_registry.get_panel_factory('heading_filter')
-                        if panel_factory:
-                            return panel_factory(
-                                self._preview_container,
-                                on_close=self._on_filter_close,
-                                on_apply=self._on_filter_apply,
-                                on_toggle_style=self._on_filter_toggle_style,
-                            )
+                    if app_context:
+                        available_panels = app_context.get_document_source_plugin_panels()
+                        # Prefer factories that declare a 'filter' role
+                        for panel_type in list(available_panels or []):
+                            try:
+                                panel_factory = app_context.ui_registry.get_panel_factory(panel_type)
+                                if not panel_factory:
+                                    continue
+                                role = getattr(panel_factory, 'get_role', lambda: None)()
+                                if isinstance(role, str) and role.lower() == 'filter':
+                                    # Support both callable factories and PanelFactory objects
+                                    if callable(panel_factory):
+                                        # Remember which plugin panel provides the filter
+                                        try:
+                                            self._active_plugin_panel = panel_type
+                                        except Exception:
+                                            pass
+                                        return panel_factory(
+                                            self._preview_container,
+                                            on_close=self._on_filter_close,
+                                            on_apply=self._on_filter_apply,
+                                            on_toggle_style=self._on_filter_toggle_style,
+                                        )
+                                    elif hasattr(panel_factory, 'create_panel'):
+                                        try:
+                                            self._active_plugin_panel = panel_type
+                                        except Exception:
+                                            pass
+                                        return panel_factory.create_panel(
+                                            self._preview_container,
+                                            app_context,
+                                            on_close=self._on_filter_close,
+                                            on_apply=self._on_filter_apply,
+                                            on_toggle_style=self._on_filter_toggle_style,
+                                        )
+                            except Exception:
+                                continue
+                        # No legacy fallbacks; only role='filter' factories are considered
                 except Exception:
                     pass
                 # Fallback to None - no filter panel available without plugin
@@ -630,33 +663,12 @@ class StructureTab(ttk.Frame):
             
             app_context = get_app_context()
             if app_context:
-                # Check if document source plugin has heading filter capability
-                show_heading_filter = app_context.document_source_plugin_has_capability('heading_filter')
-                logger.info(f"Plugin UI visibility check: show_heading_filter={show_heading_filter}, current_button_exists={self._filter_toggle_btn is not None}")
+                # Get all available plugin panels
+                available_panels = app_context.get_document_source_plugin_panels()
+                logger.info(f"Plugin UI visibility check: available_panels={available_panels}, current_buttons={list(self._plugin_panel_btns.keys())}")
                 
-                # Create or destroy heading filter button as needed
-                if show_heading_filter and not self._filter_toggle_btn:
-                    # Create the heading filter button
-                    logger.info("Creating heading filter button")
-                    self._filter_toggle_btn = ttk.Button(
-                        self._toggles_frame,
-                        text="📃",  # page icon for heading filters
-                        command=self._on_filter_toggle_clicked,
-                        width=3,
-                    )
-                    self._filter_toggle_btn.grid(row=0, column=0, padx=(0, 4))
-                    try:
-                        self._filter_toggle_btn.tooltip_text = "Heading filters"  # type: ignore[attr-defined]
-                    except Exception:
-                        pass
-                    
-                elif not show_heading_filter and self._filter_toggle_btn:
-                    # Remove the heading filter button
-                    logger.info("Removing heading filter button")
-                    if self._filter_active:
-                        self._on_filter_toggle_clicked()  # Close filter panel if open
-                    self._filter_toggle_btn.destroy()
-                    self._filter_toggle_btn = None
+                # Update plugin panel buttons
+                self._update_plugin_panel_buttons(available_panels)
             else:
                 logger.debug("No app context available for plugin UI visibility check")
             
@@ -679,6 +691,192 @@ class StructureTab(ttk.Frame):
                 self._tree.clear()
             except Exception:
                 pass
+
+    def _update_plugin_panel_buttons(self, available_panels: List[str]) -> None:
+        """Update plugin panel buttons based on available panels.
+        
+        Args:
+            available_panels: List of panel types available from current plugin
+        """
+        # Remove buttons for panels that are no longer available
+        panels_to_remove = []
+        for panel_type in self._plugin_panel_btns:
+            if panel_type not in available_panels:
+                panels_to_remove.append(panel_type)
+        
+        for panel_type in panels_to_remove:
+            self._remove_plugin_panel_button(panel_type)
+        
+        # Add buttons for new panels
+        for panel_type in available_panels:
+            if panel_type not in self._plugin_panel_btns:
+                self._create_plugin_panel_button(panel_type)
+    
+    def _create_plugin_panel_button(self, panel_type: str) -> None:
+        """Create a button for a plugin panel.
+        
+        Args:
+            panel_type: Type of panel to create button for
+        """
+        try:
+            # Calculate grid position
+            column = len(self._plugin_panel_btns)
+
+            # Determine label/icon from plugin factory when available
+            label = panel_type.replace('_', ' ').title()
+            try:
+                app_context = get_app_context()
+                if app_context and hasattr(app_context, 'ui_registry'):
+                    factory = app_context.ui_registry.get_panel_factory(panel_type)
+                    if factory:
+                        try:
+                            if hasattr(factory, 'get_display_name'):
+                                label = str(factory.get_display_name()) or label
+                        except Exception:
+                            pass
+            except Exception:
+                pass
+            
+            # Resolve plugin-provided emoji (preferred over image)
+            try:
+                emoji = None
+                app_context2 = get_app_context()
+                if app_context2 and hasattr(app_context2, 'ui_registry'):
+                    factory2 = app_context2.ui_registry.get_panel_factory(panel_type)
+                    if factory2:
+                        if hasattr(factory2, 'get_button_emoji'):
+                            emoji = str(factory2.get_button_emoji())
+                        elif hasattr(factory2, 'get_emoji'):
+                            emoji = str(factory2.get_emoji())
+            except Exception:
+                emoji = None
+            
+            # Create button with generic icon and tooltip
+            button = ttk.Button(
+                self._toggles_frame,
+                text="🔧",  # generic tool icon for plugin panels
+                command=lambda: self._on_plugin_panel_toggle_clicked(panel_type),
+                width=3,
+            )
+            # Override default content with plugin-provided emoji or label
+            try:
+                display_text = (emoji if (isinstance(emoji, str) and emoji.strip()) else label)
+                button.configure(text=display_text)
+            except Exception:
+                pass
+
+            button.grid(row=0, column=column, padx=(0, 4))
+            
+            # Set tooltip
+            try:
+                button.tooltip_text = f"{label}"  # type: ignore[attr-defined]
+            except Exception:
+                pass
+            
+            self._plugin_panel_btns[panel_type] = button
+            logger.info(f"Created plugin panel button for '{panel_type}'")
+            
+        except Exception as e:
+            logger.error(f"Failed to create plugin panel button for '{panel_type}': {e}")
+    
+    def _remove_plugin_panel_button(self, panel_type: str) -> None:
+        """Remove a plugin panel button.
+        
+        Args:
+            panel_type: Type of panel to remove button for
+        """
+        try:
+            if panel_type in self._plugin_panel_btns:
+                # Close panel if it's currently active
+                if self._active_plugin_panel == panel_type:
+                    self._on_plugin_panel_close()
+                
+                # Destroy button
+                button = self._plugin_panel_btns[panel_type]
+                button.destroy()
+                del self._plugin_panel_btns[panel_type]
+                
+                logger.info(f"Removed plugin panel button for '{panel_type}'")
+                
+        except Exception as e:
+            logger.error(f"Failed to remove plugin panel button for '{panel_type}': {e}")
+    
+    def _on_plugin_panel_toggle_clicked(self, panel_type: str) -> None:
+        """Handle plugin panel toggle button click.
+        
+        Args:
+            panel_type: Type of panel to toggle
+        """
+        try:
+            if self._active_plugin_panel == panel_type:
+                # Close current panel
+                self._on_plugin_panel_close()
+            else:
+                # Open/switch to this panel
+                self._open_plugin_panel(panel_type)
+                
+        except Exception as e:
+            logger.error(f"Error handling plugin panel toggle for '{panel_type}': {e}")
+
+    def _open_plugin_panel(self, panel_type: str) -> None:
+        """Open a specific plugin panel.
+        
+        Args:
+            panel_type: Type of panel to open
+        """
+        try:
+            # Close any currently active panel first
+            if self._active_plugin_panel:
+                self._on_plugin_panel_close()
+            
+            # Create and show the new panel using right panel coordinator
+            if hasattr(self, '_right_panel') and self._right_panel:
+                try:
+                    self._right_panel.set_active(panel_type)
+                except Exception:
+                    try:
+                        self._right_panel.set_active("preview")
+                    except Exception:
+                        pass
+                self._active_plugin_panel = panel_type
+                # Highlight the active plugin button
+                try:
+                    self._set_active_plugin_button(panel_type)
+                except Exception:
+                    pass
+                self._filter_active = True  # For compatibility with existing logic
+                
+                logger.info(f"Opened plugin panel '{panel_type}'")
+            
+        except Exception as e:
+            logger.error(f"Error opening plugin panel '{panel_type}': {e}")
+
+    def _on_plugin_panel_close(self) -> None:
+        """Handle plugin panel close event."""
+        try:
+            if hasattr(self, '_right_panel') and self._right_panel:
+                try:
+                    # Mirror preview toggle behavior: closing an active plugin panel goes to 'none'
+                    self._right_panel.set_active("none")
+                except Exception:
+                    pass
+            
+            self._active_plugin_panel = None
+            # Clear plugin button highlights
+            try:
+                self._set_active_plugin_button(None)
+            except Exception:
+                pass
+            self._filter_active = False  # For compatibility with existing logic
+            
+            logger.info("Closed plugin panel")
+            
+        except Exception as e:
+            logger.error(f"Error closing plugin panel: {e}")
+    
+    def _on_filter_close(self) -> None:
+        """Handle filter panel close event (backward compatibility)."""
+        self._on_plugin_panel_close()
 
     # def _set_initial_sash_position(self) -> None:
     #     """Deprecated; PanedLayoutCoordinator restores the sash."""
@@ -1553,6 +1751,31 @@ class StructureTab(ttk.Frame):
         try:
             self._preview_active = bool(preview_active)
             self._filter_active = bool(filter_active)
+            # If preview becomes active, clear any notion of an active plugin panel
+            if self._preview_active:
+                try:
+                    self._active_plugin_panel = None
+                except Exception:
+                    pass
+            # If a filter panel is active but no plugin panel is marked, infer the filter panel type
+            if self._filter_active and not self._preview_active and not self._active_plugin_panel:
+                try:
+                    app_context = get_app_context()
+                    if app_context:
+                        available_panels = app_context.get_document_source_plugin_panels()
+                        for panel_type in list(available_panels or []):
+                            try:
+                                panel_factory = app_context.ui_registry.get_panel_factory(panel_type)
+                                if not panel_factory:
+                                    continue
+                                role = getattr(panel_factory, 'get_role', lambda: None)()
+                                if isinstance(role, str) and role.lower() == 'filter':
+                                    self._active_plugin_panel = panel_type
+                                    break
+                            except Exception:
+                                continue
+                except Exception:
+                    pass
             self._apply_toggle_visuals()
         except Exception:
             pass
@@ -1564,6 +1787,19 @@ class StructureTab(ttk.Frame):
                 self._filter_toggle_btn.configure(style=("Accent.TButton" if self._filter_active else "TButton"))
             if hasattr(self, "_preview_toggle_btn") and self._preview_toggle_btn is not None:
                 self._preview_toggle_btn.configure(style=("Accent.TButton" if self._preview_active else "TButton"))
+            # Plugin panel buttons: highlight only the active plugin panel
+            self._set_active_plugin_button(self._active_plugin_panel if not self._preview_active else None)
+        except Exception:
+            pass
+
+    def _set_active_plugin_button(self, active_panel_type: Optional[str]) -> None:
+        """Set Accent style on the active plugin panel button; reset others."""
+        try:
+            for p_type, btn in self._plugin_panel_btns.items():
+                try:
+                    btn.configure(style=("Accent.TButton" if (active_panel_type and p_type == active_panel_type) else "TButton"))
+                except Exception:
+                    continue
         except Exception:
             pass
 

@@ -40,7 +40,7 @@ class FilterCoordinator:
             headings_cache = ctrl.get_heading_counts()
             occurrences_map = ctrl.get_heading_occurrences()
             style_levels = ctrl.get_style_levels()
-            current = dict(getattr(ctrl, "heading_filter_exclusions", {}) or {})
+            current = dict(getattr(ctrl, "filter_exclusions", {}) or {})
             panel.set_data(headings_cache, occurrences_map, style_levels, current)
             # Initialize style colors/visibility
             style_colors = ctrl.get_style_colors()
@@ -60,7 +60,7 @@ class FilterCoordinator:
         if ctrl is None:
             return None
         try:
-            ctrl.heading_filter_exclusions = dict(exclusions or {})
+            ctrl.filter_exclusions = dict(exclusions or {})
             style_excl_map = ctrl.build_style_exclusion_map_from_flags(exclusions)
             return ctrl.handle_apply_filters(style_excl_map or None)
         except Exception:
@@ -101,7 +101,7 @@ class FilterCoordinator:
         if ctrl is None:
             return
         try:
-            ctrl.heading_filter_exclusions = dict(exclusions or {})
+            ctrl.filter_exclusions = dict(exclusions or {})
             style_excl_map = ctrl.build_style_exclusion_map_from_flags(exclusions)
         except Exception:
             style_excl_map = None

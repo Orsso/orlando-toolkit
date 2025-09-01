@@ -8,7 +8,7 @@ class TreeRefreshCoordinator:
 
     Responsibilities:
     - Preserve and restore expansion state
-    - Respect heading style exclusions
+    - Respect plugin-defined filter exclusions
     - Repopulate tree from controller context/max_depth
     - Re-apply selection and enable/disable toolbar heuristically
     - Optionally untoggle excluded styles in an attached filter panel
@@ -54,7 +54,7 @@ class TreeRefreshCoordinator:
 
         # Apply exclusions on the tree before population
         try:
-            exclusions = dict(getattr(ctrl, "heading_filter_exclusions", {}) or {})
+            exclusions = dict(getattr(ctrl, "filter_exclusions", {}) or {})
             if hasattr(tree, "set_style_exclusions"):
                 tree.set_style_exclusions(exclusions)  # type: ignore[attr-defined]
         except Exception:
@@ -74,7 +74,7 @@ class TreeRefreshCoordinator:
         try:
             panel = self._get_filter_panel() if callable(self._get_filter_panel) else None
             if panel is not None:
-                exclusions = dict(getattr(ctrl, "heading_filter_exclusions", {}) or {})
+                exclusions = dict(getattr(ctrl, "filter_exclusions", {}) or {})
                 excluded_styles = [k for k, v in exclusions.items() if v]
                 try:
                     current_visibility = panel.get_visible_styles()  # type: ignore[attr-defined]

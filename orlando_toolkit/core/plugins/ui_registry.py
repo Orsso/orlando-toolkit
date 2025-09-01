@@ -22,6 +22,11 @@ class PanelFactory(Protocol):
     Panel factories create UI panels that can be integrated into the
     right panel coordinator system. Each factory is responsible for
     creating and configuring panel instances on demand.
+    
+    Optional UI metadata methods supported by the host:
+    - get_role() -> str: Panel role (e.g., 'filter'). Enables standardized wiring.
+    - get_button_emoji() -> str: Emoji used as the Structure tab button icon
+    - get_display_name() -> str: Human-readable name used in tooltips and menus
     """
     
     def create_panel(self, parent: Any, context: Any) -> Any:
@@ -162,6 +167,21 @@ class UIRegistry:
             List of registered panel type identifiers
         """
         return list(self._panel_factories.keys())
+    
+    def get_plugin_panel_types(self, plugin_id: str) -> List[str]:
+        """Get panel types registered by a specific plugin.
+        
+        Args:
+            plugin_id: Unique identifier for the plugin
+            
+        Returns:
+            List of panel type identifiers registered by this plugin
+        """
+        if plugin_id in self._plugin_components:
+            plugin_data = self._plugin_components[plugin_id]
+            if 'panels' in plugin_data:
+                return list(plugin_data['panels'].keys())
+        return []
     
     # Marker Provider Management
     

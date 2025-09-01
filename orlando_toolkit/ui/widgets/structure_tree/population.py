@@ -12,11 +12,15 @@ def populate_tree(tree: object, context: object, max_depth: int = 999) -> None:
     _clear(tree)
 
     ditamap_root = _safe_getattr(context, "ditamap_root")
-    map_root = (
-        ditamap_root
-        or _safe_getattr(context, "map_root")
-        or _safe_getattr(context, "structure")
-    )
+    map_root = None
+    if ditamap_root is not None:
+        map_root = ditamap_root
+    else:
+        fallback_root = _safe_getattr(context, "map_root")
+        if fallback_root is not None:
+            map_root = fallback_root
+        else:
+            map_root = _safe_getattr(context, "structure")
 
     if ditamap_root is not None and map_root is not None:
         # Store ditamap root and precompute section numbers

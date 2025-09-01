@@ -13,7 +13,7 @@ from typing import Dict, List, Optional, Type, TypeVar, Generic, Any, Protocol
 from threading import RLock
 
 from .exceptions import ServiceRegistrationError, UnsupportedFormatError
-from .interfaces import DocumentHandler
+from .interfaces import DocumentHandler, FilterProvider
 
 logger = logging.getLogger(__name__)
 
@@ -297,6 +297,13 @@ class ServiceRegistry:
         if service_type == "DocumentHandler":
             return self.unregister_document_handler(plugin_id)
         return False
+
+    # Convenience wrappers for common service types
+    def register_filter_provider(self, provider: FilterProvider, plugin_id: str) -> None:
+        self.register_service("FilterProvider", provider, plugin_id)
+
+    def unregister_filter_provider(self, plugin_id: str) -> bool:
+        return self.unregister_service("FilterProvider", plugin_id)
     
     def unregister_plugin_services(self, plugin_id: str) -> None:
         """Unregister all services from a plugin.

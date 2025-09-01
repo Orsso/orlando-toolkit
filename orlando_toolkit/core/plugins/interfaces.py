@@ -242,3 +242,37 @@ class UIExtension(Protocol):
 
 # Type aliases for better code readability
 AnyDocumentHandler = DocumentHandler  # For type hints that accept any DocumentHandler
+
+
+@runtime_checkable
+class FilterProvider(Protocol):
+    """Protocol for plugin-provided structure filtering services.
+
+    A FilterProvider supplies counts, occurrences, grouping, and exclusion mapping
+    for a document source, and assists estimation prior to applying filters.
+    The core UI delegates to this provider instead of embedding source-specific logic.
+    """
+
+    def get_counts(self, context: DitaContext) -> Dict[str, int]:
+        """Return mapping group_key -> count for the source (plugin-defined keys)."""
+        ...
+
+    def get_occurrences(self, context: DitaContext) -> Dict[str, List[Dict[str, str]]]:
+        """Return mapping group_key -> list of occurrence dicts for full/original structure."""
+        ...
+
+    def get_occurrences_current(self, context: DitaContext) -> Dict[str, List[Dict[str, str]]]:
+        """Return mapping group_key -> occurrences for the current (filtered) structure."""
+        ...
+
+    def get_levels(self, context: DitaContext) -> Dict[str, Optional[int]]:
+        """Return mapping group_key -> Optional[level] to support grouping in UI."""
+        ...
+
+    def build_exclusion_map(self, exclusions: Dict[str, bool]) -> Dict[int, set[str]]:
+        """Convert group_key->excluded flags to per-level exclusion map used by the core."""
+        ...
+
+    def estimate_unmergable(self, context: DitaContext, style_excl_map: Dict[int, set[str]]) -> int:
+        """Estimate number of items that cannot be merged for a given exclusion map."""
+        ...

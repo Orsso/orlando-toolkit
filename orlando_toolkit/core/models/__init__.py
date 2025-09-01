@@ -70,6 +70,8 @@ class DitaContext:
         Mapping of topic file names to their root XML Element.
     images
         Mapping of image file names to raw bytes extracted during document conversion.
+    videos
+        Mapping of video file names to raw bytes extracted during document conversion.
     metadata
         Arbitrary key/value pairs captured from GUI or config (title, code…).
     """
@@ -77,6 +79,7 @@ class DitaContext:
     ditamap_root: Optional[ET.Element] = None
     topics: Dict[str, ET.Element] = field(default_factory=dict)
     images: Dict[str, bytes] = field(default_factory=dict)
+    videos: Dict[str, bytes] = field(default_factory=dict)
     metadata: Dict[str, Any] = field(default_factory=dict)
     
     # Plugin data storage (namespaced by plugin ID) - Required by design Section 7.1
@@ -99,6 +102,8 @@ class DitaContext:
             self.metadata["original_structure"] = {
                 "ditamap_root": deepcopy(self.ditamap_root) if self.ditamap_root is not None else None,
                 "topics": deepcopy(self.topics),
+                "images": deepcopy(self.images),
+                "videos": deepcopy(self.videos),
                 "metadata_snapshot": {k: v for k, v in self.metadata.items() 
                                     if k not in ["original_structure", "merged_depth", "merged_exclude_styles"]},
             }
@@ -114,6 +119,8 @@ class DitaContext:
             from copy import deepcopy
             self.ditamap_root = deepcopy(original["ditamap_root"]) if original["ditamap_root"] is not None else None
             self.topics = deepcopy(original["topics"])
+            self.images = deepcopy(original.get("images", {}))
+            self.videos = deepcopy(original.get("videos", {}))
             # Clear merge flags but preserve original metadata
             self.metadata.update(original["metadata_snapshot"])
             self.metadata.pop("merged_depth", None)

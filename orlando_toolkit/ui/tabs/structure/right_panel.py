@@ -146,8 +146,16 @@ class RightPanelCoordinator:
             except Exception:
                 pass
             
-            # Create panel with error isolation
-            panel = factory.create_panel(self._container, app_context)
+            # Create panel with error isolation (support both object factories and callables)
+            if hasattr(factory, 'create_panel'):
+                panel = factory.create_panel(self._container, app_context)
+            elif callable(factory):
+                try:
+                    panel = factory(self._container)
+                except TypeError:
+                    panel = factory(self._container, context=app_context)
+            else:
+                raise TypeError(f"Unsupported panel factory type for '{panel_type}': {type(factory)}")
             logger.info(f"Created plugin panel '{panel_type}'")
             return panel
             
@@ -293,6 +301,16 @@ class RightPanelCoordinator:
 
         # Check if it's a plugin panel type
         if self.is_plugin_panel_type(kind):
+            # If the factory declares a 'filter' role, route to the standard filter path
+            try:
+                factory = self._plugin_panel_factories.get(kind)
+                role = getattr(factory, 'get_role', lambda: None)()
+                if isinstance(role, str) and role.lower() == 'filter':
+                    # Delegate to unified filter handling
+                    self.set_active("filter")
+                    return
+            except Exception:
+                pass
             self._activate_plugin_panel(kind)
             return
         
@@ -504,5 +522,3 @@ class RightPanelCoordinator:
             'current_panel': self._kind if self.is_plugin_panel_type(self._kind) else None,
             'ui_registry_available': self._ui_registry is not None
         }
-
-

@@ -7,7 +7,11 @@ from orlando_toolkit.core.services.structure_editing_service import (
 )
 from orlando_toolkit.core.services.undo_service import UndoService
 from orlando_toolkit.core.services.preview_service import PreviewService, PreviewResult
-from orlando_toolkit.core.services import heading_analysis_service as _heading_analysis
+try:
+    from orlando_toolkit.core.context import get_app_context
+except Exception:
+    def get_app_context():
+        return None
 
 
 class StructureController:
@@ -54,7 +58,7 @@ class StructureController:
         self.search_results: List[str] = []  # e.g., list of topic_ref ids
         self.search_index: int = -1  # current index into search_results for navigation
         self.selected_items: List[str] = []
-        self.heading_filter_exclusions: Dict[str, bool] = {}  # style -> excluded
+        self.filter_exclusions: Dict[str, bool] = {}  # group_key -> excluded
         self.style_visibility: Dict[str, bool] = {}  # style -> visible (show marker)
 
     # ---------------------------------------------------------------------------------
@@ -148,9 +152,9 @@ class StructureController:
         # This keeps exclusions precise and stable across depth changes.
         style_exclusions_map = None
         try:
-            if hasattr(self, "heading_filter_exclusions") and isinstance(self.heading_filter_exclusions, dict):
+            if hasattr(self, "filter_exclusions") and isinstance(self.filter_exclusions, dict):
                 # Derive levels per style from original structure
-                style_exclusions_map = self.build_style_exclusion_map_from_flags(self.heading_filter_exclusions)
+                style_exclusions_map = self.build_style_exclusion_map_from_flags(self.filter_exclusions)
                 if not any(style_exclusions_map.values()):
                     style_exclusions_map = None
         except Exception:
@@ -566,7 +570,7 @@ class StructureController:
         return ""
 
     def handle_apply_filters(self, style_excl_map: Optional[Dict[int, Set[str]]] = None) -> OperationResult:
-        """Apply heading-style filters through the depth-limit service with snapshots."""
+        """Apply filters via StructureEditingService with undo snapshots."""
         try:
             return self._recorded_edit(
                 lambda: self.editing_service.apply_depth_limit(self.context, self.max_depth, style_excl_map)
@@ -579,91 +583,57 @@ class StructureController:
     # ---------------------------------------------------------------------
 
     def get_heading_counts(self) -> Dict[str, int]:
-        """Return counts of headings per style using the original (pre-merge) structure.
-
-        The filter panel needs to display styles that may currently be excluded
-        or beyond the visible depth. We temporarily restore the original map to
-        compute comprehensive counts, then restore the filtered structure.
-        """
+        """Return counts per provider-defined group key (plugin-supplied)."""
         try:
-            original_root = None
-            if hasattr(self.context, 'restore_from_original'):
-                original_root = getattr(self.context, 'ditamap_root', None)
-                self.context.restore_from_original()
-            result = _heading_analysis.build_headings_cache(self.context)
-            if original_root is not None and hasattr(self.context, 'ditamap_root'):
-                self.context.ditamap_root = original_root
-            return result
+            app_ctx = get_app_context()
+            provider = app_ctx.get_filter_provider_for_source() if app_ctx else None
+            return provider.get_counts(self.context) if provider else {}
         except Exception:
             return {}
 
     def get_heading_occurrences(self) -> Dict[str, List[Dict[str, str]]]:
-        """Return mapping style -> occurrences using the original (pre-merge) structure.
-
-        Ensures styles beyond the current depth/exclusions are still available
-        in the filter panel with their occurrences.
-        """
         try:
-            original_root = None
-            if hasattr(self.context, 'restore_from_original'):
-                original_root = getattr(self.context, 'ditamap_root', None)
-                self.context.restore_from_original()
-            result = _heading_analysis.build_heading_occurrences(self.context)
-            if original_root is not None and hasattr(self.context, 'ditamap_root'):
-                self.context.ditamap_root = original_root
-            return result
+            app_ctx = get_app_context()
+            provider = app_ctx.get_filter_provider_for_source() if app_ctx else None
+            return provider.get_occurrences(self.context) if provider else {}
         except Exception:
             return {}
 
     def get_heading_occurrences_current(self) -> Dict[str, List[Dict[str, str]]]:
-        """Return style -> occurrences for the current (post-merge) structure.
-
-        Used for UI highlighting so that selections align with what the tree shows now.
-        """
         try:
-            return _heading_analysis.build_heading_occurrences(self.context)
+            app_ctx = get_app_context()
+            provider = app_ctx.get_filter_provider_for_source() if app_ctx else None
+            return provider.get_occurrences_current(self.context) if provider else {}
         except Exception:
             return {}
 
     def get_style_levels(self) -> Dict[str, Optional[int]]:
-        """Return mapping style -> level using the original (pre-merge) structure.
-
-        This provides a stable grouping for styles even when the current view
-        has filtered them out.
-        """
         try:
-            original_root = None
-            if hasattr(self.context, 'restore_from_original'):
-                original_root = getattr(self.context, 'ditamap_root', None)
-                self.context.restore_from_original()
-            result = _heading_analysis.build_style_levels(self.context)
-            if original_root is not None and hasattr(self.context, 'ditamap_root'):
-                self.context.ditamap_root = original_root
-            return result
+            app_ctx = get_app_context()
+            provider = app_ctx.get_filter_provider_for_source() if app_ctx else None
+            return provider.get_levels(self.context) if provider else {}
         except Exception:
             return {}
 
     def estimate_unmergable(self, style_excl_map: Dict[int, Set[str]]) -> int:
-        """Estimate number of items that cannot be merged for given style-level exclusions."""
         try:
-            return _heading_analysis.count_unmergable_for_styles(self.context, style_excl_map)
+            app_ctx = get_app_context()
+            provider = app_ctx.get_filter_provider_for_source() if app_ctx else None
+            return int(provider.estimate_unmergable(self.context, style_excl_map)) if provider else 0
         except Exception:
             return 0
 
     def build_style_exclusion_map_from_flags(self, exclusions: Dict[str, bool]) -> Dict[int, Set[str]]:
-        """Convert style->excluded flags to per-level style set map.
-
-        For styles with unknown level, default to level 1 to preserve prior behavior.
-        """
+        """Generic mapping from group_key->excluded flags to level->set map using provider levels."""
         levels_map = self.get_style_levels()
         style_excl_map: Dict[int, Set[str]] = {}
         try:
-            for style, excluded in (exclusions or {}).items():
+            for key, excluded in (exclusions or {}).items():
                 if not excluded:
                     continue
-                level_val = levels_map.get(style)
+                level_val = levels_map.get(key)
                 level = int(level_val) if isinstance(level_val, int) else 1
-                style_excl_map.setdefault(level, set()).add(style)
+                style_excl_map.setdefault(level, set()).add(key)
         except Exception:
             pass
         return style_excl_map
@@ -889,11 +859,11 @@ class StructureController:
         """
         if not isinstance(style, str) or not style:
             # Do nothing if invalid style label; keep conservative behavior
-            return self.heading_filter_exclusions
+            return self.filter_exclusions
 
         excluded = not enabled
-        self.heading_filter_exclusions[style] = excluded
-        return self.heading_filter_exclusions
+        self.filter_exclusions[style] = excluded
+        return self.filter_exclusions
 
     def handle_style_visibility_toggle(self, style: str, visible: bool) -> Dict[str, bool]:
         """Toggle visibility of a style marker.
