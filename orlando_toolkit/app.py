@@ -31,7 +31,7 @@ from orlando_toolkit.core.plugins.loader import PluginLoader
 from orlando_toolkit.core.plugins.registry import ServiceRegistry
 from orlando_toolkit.core.plugins.ui_registry import UIRegistry
 from orlando_toolkit.ui.metadata_tab import MetadataTab
-from orlando_toolkit.ui.image_tab import ImageTab
+from orlando_toolkit.ui.media_tab import MediaTab
 from orlando_toolkit.ui.widgets.loading_spinner import LoadingSpinner
 from orlando_toolkit.ui.widgets.metadata_form import MetadataForm
 from orlando_toolkit.version import get_app_version
@@ -111,7 +111,7 @@ class OrlandoToolkit:
         self.load_button: Optional[ttk.Button] = None
         self.notebook: Optional[ttk.Notebook] = None
         self.metadata_tab: Optional[MetadataTab] = None
-        self.image_tab: Optional[ImageTab] = None
+        self.media_tab: Optional[MediaTab] = None
         self.structure_tab = None  # will be StructureTab
         self.main_actions_frame: Optional[ttk.Frame] = None
         # generation_progress removed - using main loading spinner
@@ -1205,11 +1205,11 @@ class OrlandoToolkit:
         else:
             logger.warning("No DitaContext available to load into structure tab")
 
-        # Place Images second, Metadata third per updated UX
-        self.image_tab = ImageTab(self.notebook)
-        self.notebook.add(self.image_tab, text="Images")
+        # Place Media second, Metadata third per updated UX
+        self.media_tab = MediaTab(self.notebook)
+        self.notebook.add(self.media_tab, text="Media")
         if self.dita_context:
-            self.image_tab.load_context(self.dita_context)
+            self.media_tab.load_context(self.dita_context)
 
         self.metadata_tab = MetadataTab(self.notebook)
         self.notebook.add(self.metadata_tab, text="Metadata")
@@ -1342,9 +1342,9 @@ class OrlandoToolkit:
 
             # Build tabs and load data under the overlay
             self.setup_main_ui()
-            if self.dita_context and self.metadata_tab and self.image_tab and self.structure_tab:
+            if self.dita_context and self.metadata_tab and self.media_tab and self.structure_tab:
                 self.metadata_tab.load_context(self.dita_context)
-                self.image_tab.load_context(self.dita_context)
+                self.media_tab.load_context(self.dita_context)
                 self.structure_tab.load_context(self.dita_context)
             # Ensure Structure tab is selected
             try:
@@ -1367,7 +1367,7 @@ class OrlandoToolkit:
         # Clear AppContext document context
         self.app_context._set_current_dita_context(None)
         
-        self.notebook = self.metadata_tab = self.image_tab = self.main_actions_frame = None
+        self.notebook = self.metadata_tab = self.media_tab = self.main_actions_frame = None
         self.inline_metadata = None
         self.create_home_screen()
 
@@ -1490,8 +1490,10 @@ class OrlandoToolkit:
         # No further action: Structure tab already filtered in real time
 
     def on_metadata_change(self) -> None:
-        if self.image_tab:
-            self.image_tab.update_image_names()
+        # TODO: Implement image name updating in MediaTab
+        # if self.media_tab:
+        #     self.media_tab.update_image_names()
+        pass
 
 
  

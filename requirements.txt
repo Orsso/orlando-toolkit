@@ -6,3 +6,7 @@ sv-ttk
 pyyaml
 tkinterweb>=3.13
 requests  # Required for GitHub plugin fetcher
+
+# Video support for Media tab
+opencv-python-headless>=4.5.0  # Lightweight video metadata extraction
+pillow>=8.0.0  # Required for video thumbnail display (if needed)

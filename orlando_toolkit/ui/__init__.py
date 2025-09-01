@@ -12,7 +12,7 @@ from . import widgets as _widgets  # noqa: F401
 from . import controllers as _controllers  # noqa: F401
 
 from .metadata_tab import MetadataTab  # noqa: F401
-from .image_tab import ImageTab  # noqa: F401
+from .media_tab import MediaTab  # noqa: F401
 from .structure_tab import StructureTab  # noqa: F401
 
 # Controllers
@@ -28,7 +28,7 @@ from .dialogs.context_menu import ContextMenuHandler  # noqa: F401
 
 __all__: list[str] = [
     "MetadataTab",
-    "ImageTab",
+    "MediaTab",
     "StructureTab",
     "StructureController",
     "StructureTreeWidget",
