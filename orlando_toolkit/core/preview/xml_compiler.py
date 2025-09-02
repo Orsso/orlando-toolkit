@@ -157,6 +157,32 @@ def render_html_preview(ctx: "DitaContext", tref: ET.Element, *, pretty: bool = 
                 out_path = storage.ensure_image_written(f"img_{h}.{ext}", blob)
                 img.set('href', out_path.as_uri())
 
+        # 3) Sanitize embedded media (video/object) for preview stability
+        #    Replace <object>/<video> with a lightweight placeholder so the HTML engine
+        #    does not attempt media playback inside the preview pane.
+        try:
+            # Handle <object>
+            for obj in tree.findall('.//object'):
+                ph = ET.Element('p')
+                # Try to show filename if available
+                data = obj.get('data') or obj.get('href') or ''
+                name = os.path.basename(str(data)) if data else 'media'
+                ph.text = f"[Video: {name}]"
+                parent = obj.getparent()
+                if parent is not None:
+                    parent.replace(obj, ph)
+            # Handle <video>
+            for vid in tree.findall('.//video'):
+                ph = ET.Element('p')
+                href = vid.get('href') or ''
+                name = os.path.basename(str(href)) if href else 'media'
+                ph.text = f"[Video: {name}]"
+                parent = vid.getparent()
+                if parent is not None:
+                    parent.replace(vid, ph)
+        except Exception:
+            pass
+
         xml_str = ET.tostring(tree, encoding='unicode')
     except Exception:
         # Fallback: leave hrefs untouched

@@ -276,3 +276,30 @@ class FilterProvider(Protocol):
     def estimate_unmergable(self, context: DitaContext, style_excl_map: Dict[int, set[str]]) -> int:
         """Estimate number of items that cannot be merged for a given exclusion map."""
         ...
+
+
+@runtime_checkable
+class WorkflowLauncher(Protocol):
+    """Optional plugin-owned workflow launcher.
+
+    If a plugin registers a WorkflowLauncher, the host app delegates the
+    entire pre-conversion UX (file/folder selection, custom prompts) to
+    the plugin. The launcher is expected to coordinate with the host app
+    for threading, progress, and final presentation of the DitaContext.
+
+    The host remains plugin-agnostic and provides minimal integration
+    points via the AppContext and the main app widget instance.
+    """
+
+    def get_display_name(self) -> str:
+        """Human-readable launcher name for diagnostics or tooltips."""
+        ...
+
+    def launch(self, app_context: Any, app_ui: Any) -> None:
+        """Start the plugin-specific workflow.
+
+        Args:
+            app_context: Global AppContext (services, registries, app_instance)
+            app_ui: OrlandoToolkit main UI widget to interop with UI helpers
+        """
+        ...

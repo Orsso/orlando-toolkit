@@ -845,6 +845,11 @@ class StructureTab(ttk.Frame):
                 except Exception:
                     pass
                 self._filter_active = True  # For compatibility with existing logic
+                # Initialize the newly opened panel with the current selection
+                try:
+                    self._update_active_plugin_panel_selection()
+                except Exception:
+                    pass
                 
                 logger.info(f"Opened plugin panel '{panel_type}'")
             
@@ -1249,6 +1254,81 @@ class StructureTab(ttk.Frame):
             self._pending_preview_job = self.after(250, self._update_side_preview)  # type: ignore[attr-defined]
         except Exception:
             # Do not break selection behavior if after scheduling fails
+            pass
+
+        # Also update any active plugin panel with the selected topic's videos
+        try:
+            if not hasattr(self, "_pending_plugin_panel_job"):
+                self._pending_plugin_panel_job = None  # type: ignore[attr-defined]
+            if getattr(self, "_pending_plugin_panel_job", None):
+                try:
+                    self.after_cancel(self._pending_plugin_panel_job)  # type: ignore[attr-defined]
+                except Exception:
+                    pass
+            self._pending_plugin_panel_job = self.after(150, self._update_active_plugin_panel_selection)  # type: ignore[attr-defined]
+        except Exception:
+            pass
+
+    def _update_active_plugin_panel_selection(self) -> None:
+        """If a plugin panel is active and supports topic-scoped data, update it.
+
+        The panel contract is simple: set_topic_data(topic_element, dita_context)
+        and clear_data() for non-topic selections.
+        """
+        try:
+            # Ensure we have an active plugin panel and right panel coordination
+            active_type = getattr(self, "_active_plugin_panel", None)
+            rp = getattr(self, "_right_panel", None)
+            ctrl = self._controller
+            if not active_type or rp is None or ctrl is None:
+                return
+
+            panel = None
+            try:
+                panel = rp.get_plugin_panel(active_type)  # type: ignore[attr-defined]
+            except Exception:
+                panel = None
+            if panel is None:
+                return
+
+            # Resolve current topic selection to a topic element
+            topic_ref = self._get_first_selected_ref()
+            ctx = getattr(ctrl, "context", None)
+            if not topic_ref or not isinstance(topic_ref, str) or not ctx:
+                if hasattr(panel, 'clear_data'):
+                    try:
+                        panel.clear_data()
+                    except Exception:
+                        pass
+                return
+
+            filename = None
+            try:
+                if topic_ref.startswith('topics/'):
+                    filename = topic_ref.split('/')[-1]
+            except Exception:
+                filename = None
+
+            if filename and hasattr(ctx, 'topics') and filename in ctx.topics:
+                topic_el = ctx.topics.get(filename)
+                if hasattr(panel, 'set_topic_data') and topic_el is not None:
+                    try:
+                        panel.set_topic_data(topic_el, ctx)
+                    except Exception:
+                        # Fall back to clearing to avoid stale items
+                        try:
+                            panel.clear_data()
+                        except Exception:
+                            pass
+            else:
+                # Non-topic selection (e.g., section); clear panel items
+                if hasattr(panel, 'clear_data'):
+                    try:
+                        panel.clear_data()
+                    except Exception:
+                        pass
+        except Exception:
+            # Keep UI resilient
             pass
 
     def _on_tree_item_activated(self, item_refs: Optional[object]) -> None:

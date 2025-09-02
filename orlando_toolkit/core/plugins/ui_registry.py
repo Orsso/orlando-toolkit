@@ -81,6 +81,8 @@ class UIRegistry:
         self._component_cleanup: Dict[str, List[Callable[[], None]]] = {}
         # Track UI capabilities provided by each plugin
         self._plugin_capabilities: Dict[str, List[str]] = {}
+        # Optional workflow launchers owned by plugins (plugin_id -> launcher)
+        self._workflow_launchers: Dict[str, Any] = {}
     
     # Panel Factory Management
     
@@ -277,6 +279,44 @@ class UIRegistry:
             List of registered marker type identifiers
         """
         return list(self._marker_providers.keys())
+
+    # Workflow Launcher Management
+
+    def register_workflow_launcher(self, plugin_id: str, launcher: Any) -> None:
+        """Register a plugin-owned workflow launcher.
+
+        Args:
+            plugin_id: Plugin identifier
+            launcher: Instance implementing WorkflowLauncher protocol
+        """
+        try:
+            if plugin_id in self._workflow_launchers:
+                raise ValueError(f"Workflow launcher already registered for '{plugin_id}'")
+            self._workflow_launchers[plugin_id] = launcher
+            # Track for cleanup alongside other components
+            if plugin_id not in self._plugin_components:
+                self._plugin_components[plugin_id] = {}
+            self._plugin_components[plugin_id]['workflow_launcher'] = launcher
+            logger.info(f"Registered workflow launcher for plugin '{plugin_id}'")
+        except Exception as e:
+            logger.error(f"Failed to register workflow launcher for '{plugin_id}': {e}")
+            raise
+
+    def unregister_workflow_launcher(self, plugin_id: str) -> None:
+        """Unregister a plugin-owned workflow launcher."""
+        try:
+            self._workflow_launchers.pop(plugin_id, None)
+            if plugin_id in self._plugin_components:
+                self._plugin_components[plugin_id].pop('workflow_launcher', None)
+                if not self._plugin_components[plugin_id]:
+                    del self._plugin_components[plugin_id]
+            logger.info(f"Unregistered workflow launcher for plugin '{plugin_id}'")
+        except Exception as e:
+            logger.error(f"Failed to unregister workflow launcher for '{plugin_id}': {e}")
+
+    def get_workflow_launcher(self, plugin_id: str) -> Any | None:
+        """Get workflow launcher for a plugin, if any."""
+        return self._workflow_launchers.get(plugin_id)
     
     # Plugin Capability Management
     
@@ -387,10 +427,12 @@ class UIRegistry:
                 # Remove plugin from tracking
                 if plugin_id in self._plugin_components:
                     del self._plugin_components[plugin_id]
-                
+
                 # Clean up plugin capabilities
                 if plugin_id in self._plugin_capabilities:
                     del self._plugin_capabilities[plugin_id]
+                # Clean up workflow launcher registry
+                self._workflow_launchers.pop(plugin_id, None)
             
             logger.info(f"Cleaned up all UI components for plugin '{plugin_id}'")
             

@@ -817,6 +817,16 @@ class OrlandoToolkit:
         """
         try:
             logger.info("Launching plugin workflow for: %s", plugin_id)
+            # If plugin registered a workflow launcher, delegate UX entirely
+            try:
+                launcher = self.ui_registry.get_workflow_launcher(plugin_id)
+            except Exception:
+                launcher = None
+            if launcher is not None:
+                logger.info("Delegating workflow to plugin launcher for %s", plugin_id)
+                # Allow launcher to control dialogs, selection, and batching
+                launcher.launch(self.app_context, self)
+                return
             
             # Get plugin metadata to determine supported formats
             plugin_metadata = self.plugin_manager.get_plugin_metadata(plugin_id)

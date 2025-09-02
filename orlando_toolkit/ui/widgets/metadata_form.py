@@ -30,7 +30,7 @@ class MetadataForm(ttk.Frame):
 
         metadata_fields = {
             "manual_title": "Manual Title:",
-            "manual_code": "Manual Code:",
+            "manual_code": "Manual Short Name:",
             "revision_date": "Revision Date:",
         }
 

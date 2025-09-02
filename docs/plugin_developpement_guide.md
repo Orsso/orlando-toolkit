@@ -1,6 +1,6 @@
 # Orlando Toolkit — Plugin Development Guide (Concise)
 
-This document lists all plugin integration points and how to use them — precise, practical, and free of fluff.
+This document lists all plugin integration points and how to use them.
 
 Contents
 - Plugin Layout
@@ -13,8 +13,11 @@ Contents
   - Marker Providers (scrollbar markers)
 - UIRegistry integrations
   - PanelFactory (Structure tab panels)
+  - WorkflowLauncher (custom conversion flows)
+  - Plugin Capabilities
   - Buttons and Emoji
   - Panel roles (filter)
+- Video Support in DitaContext
 - Common Patterns and Pitfalls
 - Minimal Examples
 
@@ -140,13 +143,74 @@ Panel roles:
   - on_toggle_style(style: str, visible: bool)
 - (others/omitted): generic plugin panel.
 
+### WorkflowLauncher (custom conversion flows)
+
+Purpose: Take complete control of the conversion workflow (file selection, progress UI, threading).
+Register: ui_registry.register_workflow_launcher(plugin_id, launcher)
+Unregister: ui_registry.unregister_workflow_launcher(plugin_id)
+
+Implement (Protocol):
+- get_display_name() -> str
+- launch(app_context, app_ui) -> None
+
+Usage:
+- Called from splash screen buttons or plugin-specific entry points
+- Plugin handles entire conversion flow (file dialogs, progress, threading)
+- Must call app_ui.on_conversion_success(context) when complete
+- Handle errors with app_ui._hide_loading_spinner() + messagebox
+
+### Plugin Capabilities
+
+Purpose: Declare UI capabilities for conditional feature activation.
+Register: ui_registry.register_plugin_capability(plugin_id, capability)
+Unregister: ui_registry.unregister_plugin_capability(plugin_id, capability)
+
+Common capabilities:
+- "heading_filter": Plugin provides heading-based filtering
+- "style_toggle": Plugin supports style-based toggles
+- "video_preview": Plugin can display video previews
+- "filter_panel": Plugin provides filter panels
+
+Usage:
+- Host checks capabilities via app_context.document_source_plugin_has_capability(capability)
+- Enables conditional UI features based on source plugin capabilities
+
 ### Buttons and Emoji
 
-- Provide get_button_emoji() for the panel’s button; tooltip uses get_display_name().
+- Provide get_button_emoji() for the panel's button; tooltip uses get_display_name().
 - Structure tab buttons use emojis only (no images).
 - Toggle behavior:
   - Preview: toggles preview <-> none
   - Plugin panel: toggles panel <-> none
+
+## Video Support in DitaContext
+
+Purpose: Store and manage video files alongside images in DITA packages.
+
+Video storage:
+- DitaContext.videos: Dict[str, bytes] - Similar to images storage
+- Videos are saved to DATA/media/ during package creation (alongside images)
+- UI supports video preview and download via MediaTab
+
+Plugin usage:
+- Populate context.videos in DocumentHandler.convert_to_dita()
+- Videos persist through package save/load cycles
+- Use standard media references in DITA content: <object data="../media/video.mp4"/>
+
+Example:
+```python
+def convert_to_dita(self, file_path: Path, metadata: Dict[str, Any], progress_callback=None) -> DitaContext:
+    context = DitaContext()
+    
+    # Add video file
+    video_data = file_path.read_bytes()
+    context.videos[file_path.name] = video_data
+    
+    # Reference in DITA content
+    # <object data="../media/my_video.mp4" type="video/mp4"/>
+    
+    return context
+```
 
 ## Common Patterns and Pitfalls
 
@@ -239,4 +303,40 @@ class MyFilterPanel(ttk.Frame):
         super().__init__(parent, **kwargs)
         ttk.Label(self, text='My Filter').pack()
         # Host passes: on_close, on_apply(exclusions), on_toggle_style(style, visible)
+
+### WorkflowLauncher
+
+from orlando_toolkit.core.plugins.interfaces import WorkflowLauncher
+import threading
+from tkinter import filedialog, messagebox
+
+class MyWorkflowLauncher(WorkflowLauncher):
+    def get_display_name(self) -> str:
+        return "My Custom Workflow"
+    
+    def launch(self, app_context: Any, app_ui: Any) -> None:
+        # Show file dialog
+        files = filedialog.askopenfilenames(filetypes=[("My Files", "*.ext")])
+        if not files:
+            return
+        
+        # Start progress UI
+        app_ui._show_loading_spinner("Converting Files", "")
+        app_ui._disable_all_ui_elements()
+        
+        # Run conversion in background thread
+        def work():
+            try:
+                context = self._convert_files(files)
+                # Success: hand off to host UI thread
+                app_ui.root.after(0, app_ui.on_conversion_success, context)
+            except Exception as e:
+                # Error: cleanup and show message
+                def fail():
+                    app_ui._hide_loading_spinner()
+                    app_ui._enable_all_ui_elements()
+                    messagebox.showerror("Error", str(e))
+                app_ui.root.after(0, fail)
+        
+        threading.Thread(target=work, daemon=True).start()
 
