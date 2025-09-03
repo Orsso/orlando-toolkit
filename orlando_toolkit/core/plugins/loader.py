@@ -105,8 +105,8 @@ class PluginLoader:
         self._logger = logging.getLogger(f"{__name__}.PluginLoader")
         
         if self._dev_mode:
-            # In dev mode, look for plugins in ./plugins/ directory
-            self._plugins_dir = Path.cwd() / 'plugins'
+            # In dev mode, look for plugins in ../plugins/ directory
+            self._plugins_dir = Path.cwd().parent / 'plugins'
             self._logger.info("Dev mode enabled: using local plugins directory %s", self._plugins_dir)
         else:
             # Normal mode: use user's plugin directory

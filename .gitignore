@@ -9,8 +9,8 @@ dist/
 build/
 
 # dev mode plugin management
-plugins/.dev_plugin_states.json
-plugins/.dev_fetched_plugins.json
+../plugins/.dev_plugin_states.json
+../plugins/.dev_fetched_plugins.json
 
 # sample / reference documents
 *.docx
@@ -40,7 +40,7 @@ PIVOT_PLAN.md
 .qoder/quests/section-state-management.md
 .qoder/quests/section-movement-detector.md
 .qoder/quests/topic-section-drag-drop.md
-plugins/
+../plugins/
 VIDLIB-TEST_REIBEL_2025-09-02_10-30/
 TESTNODTDNOFOLDER/
 TESTDTDEMBEDDED/

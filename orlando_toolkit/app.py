@@ -62,7 +62,7 @@ class OrlandoToolkit:
         # Check for dev mode via environment variable
         dev_mode = os.getenv('ORLANDO_DEV_MODE', '').lower() in ('1', 'true', 'yes', 'on')
         if dev_mode:
-            logger.info("DEV MODE ENABLED - Using local plugins from ./plugins/")
+            logger.info("DEV MODE ENABLED - Using local plugins from ../plugins/")
         
         self.plugin_loader = PluginLoader(self.service_registry, dev_mode=dev_mode)
         self.plugin_manager = PluginManager(self.plugin_loader)

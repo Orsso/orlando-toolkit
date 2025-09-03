@@ -85,7 +85,7 @@ class PluginManager:
         
         if self._dev_mode:
             # Dev mode: use local plugins directory
-            self._plugins_dir = Path.cwd() / 'plugins'
+            self._plugins_dir = Path.cwd().parent / 'plugins'
             # Dev mode state files go in the dev plugins directory
             self._state_file = self._plugins_dir / ".dev_plugin_states.json"
             self._fetched_file = self._plugins_dir / ".dev_fetched_plugins.json"

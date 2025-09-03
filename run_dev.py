@@ -3,7 +3,7 @@
 Dev mode launcher for Orlando Toolkit.
 
 This script launches Orlando Toolkit with dev mode enabled,
-which loads plugins from the local ./plugins/ directory
+which loads plugins from the local ../plugins/ directory
 instead of the user's installed plugins directory.
 """
 
@@ -15,10 +15,10 @@ def main():
     """Launch Orlando Toolkit in development mode."""
     
     print("🚧 Starting Orlando Toolkit in DEV MODE")
-    print(f"📁 Plugin directory: {Path.cwd() / 'plugins'}")
+    print(f"📁 Plugin directory: {Path.cwd().parent / 'plugins'}")
     
     # Check if plugins directory exists
-    plugins_dir = Path.cwd() / 'plugins'
+    plugins_dir = Path.cwd().parent / 'plugins'
     if not plugins_dir.exists():
         print(f"❌ ERROR: Plugins directory not found: {plugins_dir}")
         print("   Create the plugins directory and add your plugins there.")
@@ -31,7 +31,7 @@ def main():
         for plugin_dir in plugin_dirs:
             print(f"   - {plugin_dir.name}")
     else:
-        print("⚠️  No plugins found in ./plugins/ directory")
+        print("⚠️  No plugins found in ../plugins/ directory")
     
     print()
     
