@@ -105,6 +105,56 @@ class ConfigManager(metaclass=_Singleton):
     def get_logging_config(self) -> Dict[str, Any]:
         return self._data.get("logging", {})
 
+    def update_image_naming_config(self, updates: Dict[str, Any]) -> bool:
+        """Update image naming configuration and persist to user config file.
+        
+        Args:
+            updates: Dictionary of configuration fields to update
+            
+        Returns:
+            bool: True if successfully written to disk, False otherwise
+        """
+        try:
+            import yaml  # type: ignore
+        except ModuleNotFoundError:
+            logger.warning("PyYAML not available - cannot persist config changes")
+            return False
+        
+        # Update in-memory config
+        if "image_naming" not in self._data:
+            self._data["image_naming"] = {}
+        self._data["image_naming"].update(updates)
+        
+        # Write to user config file
+        try:
+            user_config_dir = _get_user_config_dir()
+            user_config_path = user_config_dir / "image_naming.yml"
+            
+            # Read existing user config or start with empty dict
+            user_config = {}
+            if user_config_path.exists():
+                try:
+                    user_config = yaml.safe_load(user_config_path.read_text()) or {}
+                except Exception as e:
+                    logger.warning("Could not read existing user config, starting fresh: %s", e)
+            
+            # Update only the specified fields
+            user_config.update(updates)
+            
+            # Ensure user config directory exists
+            user_config_dir.mkdir(parents=True, exist_ok=True)
+            
+            # Write updated config
+            with open(user_config_path, 'w', encoding='utf-8') as f:
+                yaml.safe_dump(user_config, f, default_flow_style=False, sort_keys=False)
+            
+            logger.info("Updated image naming config: %s", updates)
+            return True
+            
+        except Exception as e:
+            logger.error("Failed to persist image naming config: %s", e)
+            return False
+
 
     # ------------------------------------------------------------------
     # Internal loading logic

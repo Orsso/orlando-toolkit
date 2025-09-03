@@ -327,7 +327,20 @@ class MediaTab(ttk.Frame):
     def update_image_names(self) -> None:
         if not (self.context and self.prefix_entry and self.image_listbox):
             return
-        self.context.metadata["prefix"] = self.prefix_entry.get()
+        new_prefix = self.prefix_entry.get()
+        old_prefix = self.context.metadata.get("prefix")
+        
+        # Update context metadata
+        self.context.metadata["prefix"] = new_prefix
+        
+        # Persist prefix change to user config if it actually changed
+        if new_prefix != old_prefix:
+            try:
+                config_manager = ConfigManager()
+                config_manager.update_image_naming_config({"prefix": new_prefix})
+            except Exception as e:
+                logger.warning("Failed to persist prefix change: %s", e)
+        
         self.image_listbox.delete(0, tk.END)
         if not getattr(self.context, "images", None):
             self.image_listbox.insert(tk.END, "No images found.")
