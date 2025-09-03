@@ -658,9 +658,230 @@ class StructureEditingService:
             logger.error("Edit FAIL: move_sections_to_target error=%s", e, exc_info=True)
             return OperationResult(False, "Failed to move sections to destination.", {"error": str(e)})
 
+    def move_mixed_selection_to_target(
+        self,
+        context: DitaContext,
+        topic_refs: List[str],
+        section_paths: List[List[int]], 
+        target_index_path: Optional[List[int]]
+    ) -> OperationResult:
+        """Move mixed selection (topics + sections) to destination with hierarchy preservation.
+        
+        This unified method handles any combination of topics and sections, automatically
+        preserving hierarchy (sections include their children) and maintaining document order.
+        
+        Parameters
+        ----------
+        context : DitaContext
+            The DITA context containing the document structure
+        topic_refs : List[str]
+            List of topic href references to move
+        section_paths : List[List[int]]
+            List of section index paths to move
+        target_index_path : Optional[List[int]]
+            Destination path (None for root level)
+            
+        Returns
+        -------
+        OperationResult
+            Success/failure result with appropriate message
+        """
+        try:
+            logger.info("Edit: move_mixed_selection_to_target topics=%d sections=%d dest=%s", 
+                       len(topic_refs or []), len(section_paths or []), str(target_index_path))
+            
+            root = getattr(context, "ditamap_root", None)
+            if root is None:
+                return OperationResult(False, "No ditamap available in context.")
+            
+            # Analyze and validate the mixed selection
+            unified_nodes, is_valid, error_msg = self._analyze_mixed_selection(context, topic_refs, section_paths)
+            logger.info("Edit: move_mixed_selection_to_target analysis: nodes=%d valid=%s error=%s", 
+                       len(unified_nodes), is_valid, error_msg)
+            if not is_valid:
+                logger.error("Edit FAIL: move_mixed_selection_to_target validation failed: %s", error_msg)
+                return OperationResult(False, error_msg)
+            
+            if not unified_nodes:
+                return OperationResult(False, "No elements to move.")
+            
+            # Resolve destination parent element
+            if target_index_path is None:
+                dest_parent = root
+            else:
+                dest_parent = self._locate_node_by_index_path(context, target_index_path)
+                if dest_parent is None or getattr(dest_parent, "tag", None) not in ("topichead", "topicref", "map"):
+                    return OperationResult(False, "Destination not found.", {"target_index_path": list(target_index_path)})
+            
+            # Prevent moving into a descendant of any selected node
+            for node in unified_nodes:
+                if self._is_ancestor(node, dest_parent):
+                    return OperationResult(False, "Cannot move element into its own descendant.")
+            
+            # Keep only roots among selected nodes (preserve relative structure)
+            # This prevents moving both a section and its children separately
+            roots = []
+            for n in unified_nodes:
+                is_descendant = False
+                for other in unified_nodes:
+                    if other is n:
+                        continue
+                    if self._is_ancestor(other, n):
+                        is_descendant = True
+                        break
+                if not is_descendant:
+                    roots.append(n)
+            
+            logger.info("Edit: move_mixed_selection_to_target filtered roots: %d from %d nodes", 
+                       len(roots), len(unified_nodes))
+            if not roots:
+                logger.error("Edit FAIL: move_mixed_selection_to_target no root elements to move")
+                return OperationResult(False, "No root elements to move.")
+            
+            # Move each root element (with its complete subtree)
+            moved_count = 0
+            moved_items = []
+            
+            for node in roots:
+                old_parent = node.getparent()
+                if old_parent is None:
+                    continue
+                    
+                # Move the node to destination (append at end)
+                self._reparent_node(node, old_parent, dest_parent, 10**9)
+                
+                # Adapt level/style for the moved root
+                target_level = self._calculate_target_level(node, dest_parent)
+                self._apply_level_adaptation(node, target_level)
+                
+                moved_count += 1
+                
+                # Track what was moved for reporting
+                if getattr(node, "tag", None) == "topicref":
+                    href = node.get("href") if hasattr(node, "get") else None
+                    if href:
+                        moved_items.append(f"topic:{href}")
+                elif getattr(node, "tag", None) == "topichead":
+                    moved_items.append("section")
+            
+            if moved_count == 0:
+                return OperationResult(False, "No elements were moved.")
+            
+            # Persist as new baseline
+            self._invalidate_original_structure(context)
+            
+            result = OperationResult(
+                True, 
+                f"Moved {moved_count} element(s) to destination.", 
+                {"count": moved_count, "moved_items": moved_items}
+            )
+            logger.info("Edit OK: move_mixed_selection_to_target moved=%d", moved_count)
+            return result
+            
+        except Exception as e:
+            logger.error("Edit FAIL: move_mixed_selection_to_target error=%s", e, exc_info=True)
+            return OperationResult(False, "Failed to move mixed selection to destination.", {"error": str(e)})
+
     # -------------------------------------------------------------------------
     # Internal helpers (non-destructive, isolated)
     # -------------------------------------------------------------------------
+
+    def _analyze_mixed_selection(
+        self, 
+        context: DitaContext,
+        topic_refs: List[str], 
+        section_paths: List[List[int]]
+    ) -> tuple[List[Any], bool, str]:
+        """Analyze mixed selection and return (unified_nodes, is_valid, error_msg).
+        
+        This method validates mixed selections and resolves them to a unified list
+        of XML nodes that can be moved together while preserving hierarchy.
+        
+        Parameters
+        ----------
+        context : DitaContext
+            The DITA context containing the document structure
+        topic_refs : List[str]
+            List of topic href references
+        section_paths : List[List[int]]
+            List of section index paths
+            
+        Returns
+        -------
+        tuple[List[Any], bool, str]
+            - unified_nodes: List of XML nodes in document order
+            - is_valid: True if selection is valid for movement  
+            - error_msg: Error message if invalid, empty string if valid
+        """
+        try:
+            root = getattr(context, "ditamap_root", None)
+            if root is None:
+                return [], False, "No ditamap available in context"
+            
+            unified_nodes = []
+            
+            # Resolve topic references to XML nodes
+            for topic_ref in (topic_refs or []):
+                node = self._find_topic_ref(context, topic_ref)
+                if node is not None:
+                    unified_nodes.append(node)
+            
+            # Resolve section paths to XML nodes
+            for section_path in (section_paths or []):
+                node = self._locate_node_by_index_path(context, section_path)
+                if node is not None and getattr(node, "tag", None) == "topichead":
+                    unified_nodes.append(node)
+            
+            if not unified_nodes:
+                return [], False, "No valid elements found in selection"
+            
+            # Note: We don't need to validate topics vs sections here because:
+            # 1. The root-filtering logic later will automatically handle parent-child relationships
+            # 2. Sections naturally include all their children when moved
+            # 3. This allows users to select both sections and their children without error
+            
+            # Check contiguity - build linear view and verify selection forms contiguous group
+            try:
+                linear_view = self._build_linear_view(root)
+                node_positions = {}
+                for i, (node, _parent, _idx) in enumerate(linear_view):
+                    node_positions[node] = i
+                
+                # Get positions of selected nodes
+                selected_positions = []
+                for node in unified_nodes:
+                    if node in node_positions:
+                        selected_positions.append(node_positions[node])
+                
+                if selected_positions:
+                    selected_positions.sort()
+                    # Check if positions are contiguous (allowing for hierarchy gaps)
+                    # We'll be permissive here - just ensure no massive gaps that would indicate
+                    # completely unrelated parts of the document
+                    max_gap = 50  # Allow reasonable gaps for nested structures
+                    for i in range(1, len(selected_positions)):
+                        if selected_positions[i] - selected_positions[i-1] > max_gap:
+                            return [], False, "Selected elements are too far apart in document structure"
+                        
+            except Exception:
+                # Contiguity check failed, but don't fail the whole operation
+                pass
+            
+            # Sort unified nodes by document order
+            try:
+                linear_view = self._build_linear_view(root)
+                order_index = {}
+                for i, (node, _p, _idx) in enumerate(linear_view):
+                    order_index[node] = i
+                unified_nodes.sort(key=lambda n: order_index.get(n, 10**9))
+            except Exception:
+                # Sorting failed, keep original order
+                pass
+            
+            return unified_nodes, True, ""
+            
+        except Exception as e:
+            return [], False, f"Selection analysis failed: {str(e)}"
 
     # Adapter helpers (for monkeypatching in tests)
     def _find_topic_ref(self, context, topic_id):

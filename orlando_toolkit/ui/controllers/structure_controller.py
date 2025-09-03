@@ -1128,6 +1128,40 @@ class StructureController:
         except Exception:
             return OperationResult(success=False, message="Failed to move section")
 
+    def handle_send_mixed_selection_to(
+        self, 
+        target_index_path: Optional[List[int]], 
+        topic_refs: List[str],
+        section_paths: List[List[int]]
+    ) -> OperationResult:
+        """Handle unified send-to for mixed topic+section selections.
+        
+        This method provides a single entry point for moving any combination of
+        topics and sections, with automatic hierarchy preservation and validation.
+        
+        Parameters
+        ----------
+        target_index_path : Optional[List[int]]
+            Destination path (None for root level)
+        topic_refs : List[str]
+            List of topic href references to move
+        section_paths : List[List[int]]
+            List of section index paths to move
+            
+        Returns
+        -------
+        OperationResult
+            Success/failure result with appropriate message
+        """
+        try:
+            return self._recorded_edit(
+                lambda: self.editing_service.move_mixed_selection_to_target(
+                    self.context, topic_refs, section_paths, target_index_path
+                )
+            )
+        except Exception:
+            return OperationResult(success=False, message="Failed to move mixed selection")
+
     def list_send_to_destinations(self) -> List[Dict[str, object]]:
         """Return list of possible destinations for Send-to menu.
 

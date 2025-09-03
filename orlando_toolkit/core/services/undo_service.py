@@ -203,8 +203,8 @@ class UndoService:
 
     def can_undo(self) -> bool:
         """Return True if an undo operation is currently possible."""
-        # Consider undo available when at least one snapshot exists, matching tests.
-        return len(self._undo_stack) > 0
+        # Need at least two snapshots to perform an undo (baseline + post)
+        return len(self._undo_stack) >= 2
 
     def can_redo(self) -> bool:
         """Return True if a redo operation is currently possible."""

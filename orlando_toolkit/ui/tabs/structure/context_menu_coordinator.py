@@ -137,36 +137,46 @@ class ContextMenuCoordinator:
             pass
 
     def _build_send_to_entries(self, current_refs: List[str], info: Dict[str, object], destinations: List[dict]) -> List[tuple[str, Callable[[], None]]]:
+        """Build unified Send To entries for any selection type.
+        
+        This method handles mixed selections (topics + sections) by always using
+        the unified handler, regardless of what was right-clicked.
+        """
         entries: List[tuple[str, Callable[[], None]]] = []
         try:
-            is_section = bool(info.get("is_section")) if isinstance(info, dict) else False
-            if is_section:
-                try:
-                    selected_section_paths = self._tree.get_selected_sections_index_paths()
-                except Exception:
-                    selected_section_paths = []
-                if not selected_section_paths:
-                    item_id = info.get("item_id") or ""
-                    if item_id:
-                        try:
-                            selected_section_paths = [self._tree.get_index_path_for_item_id(item_id)]
-                        except Exception:
-                            selected_section_paths = []
-                def add_entry(label, tpath):
-                    if len(selected_section_paths) > 1:
-                        entries.append((str(label), (lambda sps=list(selected_section_paths), t=tpath: self._emit("send_sections_to", (sps, t)))))
-                    else:
-                        s = selected_section_paths[0] if selected_section_paths else []
-                        entries.append((str(label), (lambda sp=s, t=tpath: self._emit("send_section_to", (sp, t)))))
-            else:
-                topic_refs = list(current_refs or [])
-                def add_entry_topics(label, tpath):
-                    entries.append((str(label), (lambda r=topic_refs, t=tpath: self._emit("send_topics_to", (r, t)))))
-                for d in destinations:
+            # Get both topics and sections from current selection
+            selected_topics = list(current_refs or [])
+            selected_sections = []
+            try:
+                selected_sections = self._tree.get_selected_sections_index_paths()
+            except Exception:
+                selected_sections = []
+            
+            # If no explicit selection, use clicked item
+            if not selected_topics and not selected_sections:
+                is_section = bool(info.get("is_section"))
+                item_id = info.get("item_id") or ""
+                if is_section and item_id:
                     try:
-                        add_entry_topics(d.get("label"), d.get("index_path"))
+                        selected_sections = [self._tree.get_index_path_for_item_id(item_id)]
                     except Exception:
-                        continue
+                        pass
+                # Note: topics already captured in current_refs parameter
+            
+            # Build entries using unified handler - works for any combination
+            def add_entry(label, tpath):
+                entries.append((
+                    str(label), 
+                    lambda topics=selected_topics, sections=selected_sections, t=tpath: 
+                        self._emit("send_mixed_selection_to", (topics, sections, t))
+                ))
+            
+            for d in destinations:
+                try:
+                    add_entry(d.get("label"), d.get("index_path"))
+                except Exception:
+                    continue
+                    
         except Exception:
             return []
         return entries

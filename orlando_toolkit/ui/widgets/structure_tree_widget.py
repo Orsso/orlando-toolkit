@@ -353,6 +353,7 @@ class StructureTreeWidget(ttk.Frame):
 
         # Update selection in a single operation to avoid UI side effects
         self._tree.selection_set(ids)
+        
         # Focus the first if present
         if ids:
             self._tree.focus(ids[0])

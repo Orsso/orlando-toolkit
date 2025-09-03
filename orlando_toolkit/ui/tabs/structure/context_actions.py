@@ -341,4 +341,40 @@ class ContextActions:
         except Exception:
             pass
 
+    def send_mixed_selection_to(
+        self, 
+        topic_refs: List[str], 
+        section_paths: List[List[int]], 
+        target_index_path: Optional[List[int]]
+    ) -> None:
+        """Unified handler for mixed topic+section selections.
+        
+        This method handles any combination of topics and sections in a single
+        operation, with automatic hierarchy preservation and validation.
+        
+        Parameters
+        ----------
+        topic_refs : List[str]
+            List of topic href references to move
+        section_paths : List[List[int]]
+            List of section index paths to move
+        target_index_path : Optional[List[int]]
+            Destination path (None for root level)
+        """
+        ctrl = self._get_controller()
+        if ctrl is None:
+            return
+        try:
+            res = ctrl.handle_send_mixed_selection_to(target_index_path, topic_refs, section_paths)
+            if getattr(res, "success", False):
+                self._refresh()
+                # Only restore topic selection (sections don't have stable identifiers)
+                if topic_refs:
+                    try:
+                        self._tree.update_selection(topic_refs)  # type: ignore[attr-defined]
+                    except Exception:
+                        pass
+        except Exception:
+            pass
+
 

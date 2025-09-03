@@ -1438,6 +1438,9 @@ class StructureTab(ttk.Frame):
             elif action == "send_sections_to":
                 paths, target = payload  # type: ignore[misc]
                 self._ctx_actions.send_sections_to(paths, target)
+            elif action == "send_mixed_selection_to":
+                topics, sections, target = payload  # type: ignore[misc]
+                self._ctx_actions.send_mixed_selection_to(topics, sections, target)
         except Exception:
             pass
 
