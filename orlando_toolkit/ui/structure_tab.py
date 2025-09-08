@@ -716,16 +716,23 @@ class StructureTab(ttk.Frame):
             logger.error(f"Error updating plugin UI visibility: {e}")
 
     def _refresh_tree(self) -> None:
-        """Delegate to TreeRefreshCoordinator."""
+        """Delegate to TreeRefreshCoordinator with a brief busy overlay."""
         try:
-            if getattr(self, "_tree_refresh", None) is not None:
-                self._tree_refresh.refresh()  # type: ignore[attr-defined]
-            return
-        except Exception:
-            pass
-        # Fallback: clear tree if no coordinator
+            self._set_busy(True)
+            try:
+                if getattr(self, "_tree_refresh", None) is not None:
+                    self._tree_refresh.refresh()  # type: ignore[attr-defined]
+                return
+            except Exception:
+                pass
+            # Fallback: clear tree if no coordinator
             try:
                 self._tree.clear()
+            except Exception:
+                pass
+        finally:
+            try:
+                self._set_busy(False)
             except Exception:
                 pass
 
@@ -1320,12 +1327,21 @@ class StructureTab(ttk.Frame):
         try:
             if nav_id.startswith("section_"):
                 # Section navigation - select section directly using XML nodes
+                mem_str = nav_id.replace("section_", "")
+                mem_id = None
+                try:
+                    mem_id = int(mem_str)
+                except Exception:
+                    mem_id = None
                 for xml_node in self._tree._xml_node_to_id.keys():
                     try:
-                        if (hasattr(xml_node, 'get') and hasattr(xml_node, 'tag') and
-                            xml_node.tag == 'topichead' and 
-                            xml_node.get('id') == nav_id.replace("section_", "")):
+                        if (hasattr(xml_node, 'tag') and xml_node.tag == 'topichead' and
+                            mem_id is not None and id(xml_node) == mem_id):
                             self._tree.update_selection_by_xml_nodes([xml_node])
+                            try:
+                                self._tree.focus_item_centered(xml_node)  # type: ignore[attr-defined]
+                            except Exception:
+                                pass
                             break
                     except Exception:
                         continue
@@ -1340,6 +1356,11 @@ class StructureTab(ttk.Frame):
                             try:
                                 if getattr(self, "_preview_coordinator", None) is not None and hasattr(self._preview_coordinator, 'render_for_node'):
                                     self._preview_coordinator.render_for_node(xml_node)  # type: ignore[attr-defined]
+                            except Exception:
+                                pass
+                            try:
+                                if hasattr(self._tree, 'focus_item_centered_by_ref'):
+                                    self._tree.focus_item_centered_by_ref(nav_id)  # type: ignore[attr-defined]
                             except Exception:
                                 pass
                             break

@@ -57,11 +57,15 @@ def populate_tree(tree: object, context: object, max_depth: int = 999) -> None:
                 if not hasattr(tree, '_has_been_populated'):
                     tree.expand_all()  # Full expansion on first document load
                     tree._has_been_populated = True
-                tree._tree.update_idletasks()
+            except Exception:
+                pass
+            # Defer expensive UI updates to idle to reduce flicker
+            try:
+                tree.after(0, getattr(tree._tree, 'update_idletasks', lambda: None))  # type: ignore[attr-defined]
             except Exception:
                 pass
             try:
-                tree._update_marker_bar_positions()  # type: ignore[attr-defined]
+                tree.after(0, getattr(tree, '_update_marker_bar_positions', lambda: None))  # type: ignore[attr-defined]
             except Exception:
                 pass
             return
@@ -134,26 +138,15 @@ def populate_tree(tree: object, context: object, max_depth: int = 999) -> None:
         if not hasattr(tree, '_has_been_populated'):
             tree.expand_all()  # Full expansion on first document load
             tree._has_been_populated = True
-        tree._tree.update_idletasks()
-        try:
-            tree.after(0, tree._tree.update_idletasks)
-        except Exception:
-            pass
     except Exception:
         pass
-
+    # Defer heavy UI updates; avoid mass see() to reduce visible jumps
     try:
-        for iid in _iter_all_item_ids(tree):
-            try:
-                tree._tree.see(iid)
-            except Exception:
-                continue
-        tree._tree.update_idletasks()
+        tree.after(0, getattr(tree._tree, 'update_idletasks', lambda: None))  # type: ignore[attr-defined]
     except Exception:
         pass
-
     try:
-        tree._update_marker_bar_positions()  # type: ignore[attr-defined]
+        tree.after(0, getattr(tree, '_update_marker_bar_positions', lambda: None))  # type: ignore[attr-defined]
     except Exception:
         pass
 

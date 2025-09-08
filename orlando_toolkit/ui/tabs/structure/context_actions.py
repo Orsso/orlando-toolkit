@@ -178,9 +178,32 @@ class ContextActions:
                     return
             except Exception:
                 pass
+
+            # Predict receiver target href (best-effort) before mutation
+            target_href = None
+            try:
+                from orlando_toolkit.ui.tabs.structure.navigation_utils import predict_merge_target_href_for_ref
+                ctx = getattr(ctrl, "context", None)
+                target_href = predict_merge_target_href_for_ref(ctx, self._tree, refs[0])
+            except Exception:
+                target_href = None
+
             res = ctrl.handle_merge(refs)  # type: ignore[attr-defined]
             if getattr(res, "success", False):
                 self._refresh()
+
+                # Ensure selection targets the receiver element
+                try:
+                    final_href = target_href or (refs[0] if isinstance(refs[0], str) and refs[0] else None)
+                    if final_href and hasattr(self._tree, 'update_selection'):
+                        self._tree.update_selection([final_href])  # type: ignore[attr-defined]
+                        try:
+                            if hasattr(self._tree, 'focus_item_centered_by_ref'):
+                                self._tree.focus_item_centered_by_ref(final_href)  # type: ignore[attr-defined]
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
         except Exception:
             pass
 

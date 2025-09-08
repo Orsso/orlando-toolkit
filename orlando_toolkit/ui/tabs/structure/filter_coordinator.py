@@ -150,8 +150,21 @@ class FilterCoordinator:
                     except Exception:
                         pass
                     return
+                # Capture yview before refresh to reduce jumps
+                try:
+                    y_first, _y_last = tree._tree.yview()  # type: ignore[attr-defined]
+                except Exception:
+                    y_first = None
+
                 # Refresh tree and restore/center selection
                 refresh_tree()
+
+                # Restore yview snapshot first
+                try:
+                    if y_first is not None:
+                        tree._tree.yview_moveto(float(y_first))  # type: ignore[attr-defined]
+                except Exception:
+                    pass
                 try:
                     if original_nodes and hasattr(tree, 'update_selection_by_xml_nodes'):
                         tree.update_selection_by_xml_nodes(original_nodes)  # type: ignore[attr-defined]
@@ -165,6 +178,12 @@ class FilterCoordinator:
                                 tree.focus_item_centered_by_ref(original_ref)  # type: ignore[attr-defined]
                         except Exception:
                             pass
+                except Exception:
+                    pass
+                # Fallback if selection vanished: center predicted target node
+                try:
+                    if (not original_nodes) and (not original_ref) and predicted_node is not None and hasattr(tree, 'focus_item_centered'):
+                        tree.focus_item_centered(predicted_node)  # type: ignore[attr-defined]
                 except Exception:
                     pass
                 try:

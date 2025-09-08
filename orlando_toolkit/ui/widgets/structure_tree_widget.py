@@ -1251,14 +1251,33 @@ class StructureTreeWidget(ttk.Frame):
         return result
 
     def restore_expanded_xml_nodes(self, nodes: List[ET.Element]) -> None:
-        """Restore expansion state by opening the provided XML nodes when present."""
+        """Restore expansion state by opening the provided XML nodes when present.
+
+        Ensures ancestor chains are opened first so targets become visible.
+        """
         try:
             for node in (nodes or []):
                 try:
+                    # Open ancestors first (best-effort)
+                    try:
+                        ancestors: List[ET.Element] = []
+                        parent = getattr(node, 'getparent', lambda: None)()
+                        while parent is not None and parent in self._xml_node_to_id:
+                            ancestors.append(parent)
+                            parent = getattr(parent, 'getparent', lambda: None)()
+                        for anc in reversed(ancestors):
+                            anc_id = self._xml_node_to_id.get(anc)
+                            if anc_id:
+                                self._tree.item(anc_id, open=True)
+                                self._expanded_item_ids.add(anc_id)
+                                self._expanded_xml_nodes.add(anc)
+                    except Exception:
+                        pass
+
+                    # Open the node itself
                     item_id = self._xml_node_to_id.get(node)
                     if item_id:
                         self._tree.item(item_id, open=True)
-                        # Update caches
                         self._expanded_item_ids.add(item_id)
                         self._expanded_xml_nodes.add(node)
                 except Exception:

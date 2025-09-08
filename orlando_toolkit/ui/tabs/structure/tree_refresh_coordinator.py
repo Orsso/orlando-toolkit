@@ -21,13 +21,20 @@ class TreeRefreshCoordinator:
         tree: object,
         toolbar: object,
         get_filter_panel: Callable[[], Optional[object]] | None = None,
+        set_busy: Optional[Callable[[bool], None]] = None,
     ) -> None:
         self._get_controller = controller_getter
         self._tree = tree
         self._toolbar = toolbar
         self._get_filter_panel = get_filter_panel or (lambda: None)
+        self._set_busy = set_busy or (lambda _b: None)
 
     def refresh(self) -> None:
+        # Wrap in optional busy indicator
+        try:
+            self._set_busy(True)
+        except Exception:
+            pass
         ctrl = self._get_controller()
         tree = self._tree
         if ctrl is None or not hasattr(ctrl, "context") or getattr(ctrl, "context", None) is None:
@@ -123,6 +130,11 @@ class TreeRefreshCoordinator:
         except Exception:
             try:
                 self._toolbar.enable_buttons(False)
+            except Exception:
+                pass
+        finally:
+            try:
+                self._set_busy(False)
             except Exception:
                 pass
 
