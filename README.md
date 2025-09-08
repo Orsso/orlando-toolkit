@@ -135,7 +135,7 @@ Interested in creating your own plugin? See the [**Plugin Development Guide**](d
 - Version management through repository tags
 
 #### Compatibility Note
-> **Warning**: Plugins are primarily tested on Windows. Unix-based systems may require additional configuration.
+> **Warning**: Plugins are primarily tested on Windows. Unix-based systems may require additional configuration. 	¯\_(ツ)_/¯
 
 </details>
 

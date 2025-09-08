@@ -1122,6 +1122,15 @@ class StructureEditingService:
             if current_parent is target_parent:
                 # If the previous item is a section, conditionally enter
                 if getattr(target_node, "tag", None) == "topichead":
+                    # Allow entering empty sections regardless of expansion state
+                    try:
+                        has_structural_children = any(ch.tag in ("topicref", "topichead") for ch in list(target_node))
+                    except Exception:
+                        has_structural_children = False
+                    if not has_structural_children:
+                        self._enter_section_last(target_node, node)
+                        logger.debug("move_up_intelligent: ENTER empty previous section (regardless of expansion)")
+                        return True
                     is_open = self._is_open_section(target_node)
                     if is_open:
                         self._enter_section_last(target_node, node)
@@ -1235,6 +1244,17 @@ class StructureEditingService:
                     return False
                 current_index = self._find_node_in_linear_view(linear_view, node)
                 if current_index < 0 or current_index >= len(linear_view) - 1:
+                    # Boundary case: if this node is the last structural child of a section,
+                    # allow exiting down to the grandparent (placing after the section)
+                    try:
+                        siblings = [el for el in list(current_parent) if getattr(el, 'tag', None) in ("topicref", "topichead")]
+                        at_last = bool(siblings) and (siblings[-1] is current_node)
+                    except Exception:
+                        at_last = False
+                    if at_last and getattr(current_parent, 'tag', None) == 'topichead':
+                        if self._exit_down_to_grandparent(current_parent, node):
+                            logger.debug("move_down_intelligent: EXIT section to grandparent at document end")
+                            return True
                     return False
                 target_index = current_index + 1
                 target_node, target_parent, target_index_in_parent = linear_view[target_index]
@@ -1255,6 +1275,15 @@ class StructureEditingService:
             # at the same grandparent level, first exit current section and land after it
             # (symmetric to the UP behavior), instead of entering the next section directly.
             if getattr(target_node, "tag", None) == "topichead":
+                # Allow entering empty sections regardless of expansion state
+                try:
+                    has_structural_children = any(ch.tag in ("topicref", "topichead") for ch in list(target_node))
+                except Exception:
+                    has_structural_children = False
+                if not has_structural_children:
+                    self._enter_section_first(target_node, node)
+                    logger.debug("move_down_intelligent: ENTER empty next section (regardless of expansion)")
+                    return True
                 is_open = self._is_open_section(target_node)
                 if is_open:
                     self._enter_section_first(target_node, node)
