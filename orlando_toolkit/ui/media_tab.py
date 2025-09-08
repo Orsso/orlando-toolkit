@@ -85,7 +85,21 @@ class MediaTab(ttk.Frame):
         ttk.Label(options, text="Prefix:").grid(row=0, column=0, sticky="w", padx=(0, 8), pady=4)
         self.prefix_entry = ttk.Entry(options)
         self.prefix_entry.grid(row=0, column=1, sticky="ew", pady=4)
-        self.prefix_entry.bind("<KeyRelease>", lambda _e: (self.update_image_names(), self.update_video_names()))
+        # Debounce frequent updates while typing to avoid UI lag with many images
+        self._prefix_debounce_after_id: Optional[str] = None
+        def _on_prefix_key(_: object) -> None:
+            try:
+                if self._prefix_debounce_after_id:
+                    try:
+                        self.after_cancel(self._prefix_debounce_after_id)
+                    except Exception:
+                        pass
+                # Delay updates slightly to batch keystrokes
+                self._prefix_debounce_after_id = self.after(250, self._apply_prefix_change)
+            except Exception:
+                # Fallback: direct update
+                self._apply_prefix_change()
+        self.prefix_entry.bind("<KeyRelease>", _on_prefix_key)
 
         # Notebook tabs for Images/Videos
         self.notebook = ttk.Notebook(main_frame)
@@ -358,6 +372,16 @@ class MediaTab(ttk.Frame):
                 self.image_listbox.see(idx)
             except ValueError:
                 pass
+
+    def _apply_prefix_change(self) -> None:
+        """Apply debounced prefix change to both images and videos."""
+        try:
+            self._prefix_debounce_after_id = None
+        except Exception:
+            pass
+        # Update image and video names based on the current prefix
+        self.update_image_names()
+        self.update_video_names()
 
     def update_video_names(self) -> None:
         """Refresh the video list display based on current prefix and mapping."""

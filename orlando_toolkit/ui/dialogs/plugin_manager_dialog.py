@@ -588,6 +588,7 @@ class SimplePluginManagerDialog:
             # Hardcoded official plugin URLs
             OFFICIAL_URLS = [
                 "https://github.com/orsso/orlando-docx-plugin"
+                "https://github.com/Orsso/orlando-video-plugin"
             ]
             
             # Check which ones are missing from both fetched AND installed plugins

@@ -1723,10 +1723,22 @@ class OrlandoToolkit:
         # No further action: Structure tab already filtered in real time
 
     def on_metadata_change(self) -> None:
-        # TODO: Implement image name updating in MediaTab
-        # if self.media_tab:
-        #     self.media_tab.update_image_names()
-        pass
+        # Immediately propagate metadata-linked UI updates
+        try:
+            # Refresh image/video names if Media tab exists
+            if self.media_tab is not None:
+                # Update images
+                try:
+                    self.media_tab.update_image_names()
+                except Exception:
+                    pass
+                # Update videos (they use same prefix and manual_code)
+                try:
+                    self.media_tab.update_video_names()
+                except Exception:
+                    pass
+        except Exception:
+            pass
 
 
  
