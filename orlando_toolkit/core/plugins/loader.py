@@ -149,11 +149,21 @@ class PluginLoader:
                 continue
             
             try:
-                plugin_info = self._discover_single_plugin(item)
-                if plugin_info:
-                    discovered.append(plugin_info)
-                    self._plugins[plugin_info.plugin_id] = plugin_info
-                    self._logger.info("Discovered plugin: %s", plugin_info)
+                new_info = self._discover_single_plugin(item)
+                if new_info:
+                    # Preserve existing loaded/active instances to avoid duplicate registrations
+                    existing = self._plugins.get(new_info.plugin_id)
+                    if existing and (existing.is_loaded() or existing.is_active()):
+                        # Update metadata and directory, keep instance/state
+                        existing.metadata = new_info.metadata
+                        existing.plugin_dir = new_info.plugin_dir
+                        discovered.append(existing)
+                        self._plugins[new_info.plugin_id] = existing
+                        self._logger.info("Discovered plugin (preserved state): %s", existing)
+                    else:
+                        discovered.append(new_info)
+                        self._plugins[new_info.plugin_id] = new_info
+                        self._logger.info("Discovered plugin: %s", new_info)
                     
             except Exception as e:
                 self._logger.error("Failed to discover plugin in %s: %s", item, e)
@@ -467,6 +477,18 @@ class PluginLoader:
             return True
         
         try:
+            # Defensive cleanup: remove any stale registrations from previous runs
+            # to avoid duplicate registration conflicts during activation.
+            try:
+                self.service_registry.unregister_plugin_services(plugin_id)
+            except Exception:
+                pass
+            try:
+                if hasattr(self.app_context, 'ui_registry') and self.app_context.ui_registry:
+                    self.app_context.ui_registry.cleanup_plugin_components(plugin_id)
+            except Exception:
+                pass
+            
             # Call activation lifecycle hook
             plugin_info.instance.on_activate()
             plugin_info.instance._set_state(PluginState.ACTIVE)

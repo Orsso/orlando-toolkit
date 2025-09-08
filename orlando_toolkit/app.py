@@ -14,10 +14,14 @@ import tempfile
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
+from urllib.request import Request, urlopen
+from urllib.error import URLError, HTTPError
 from copy import deepcopy
 
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
+import subprocess
+import sys
 
 from orlando_toolkit.core.models import DitaContext
 from orlando_toolkit.core.models.ui_config import (
@@ -121,6 +125,9 @@ class OrlandoToolkit:
         self.buttons_container: Optional[ttk.Frame] = None
         self.loading_container: Optional[ttk.Frame] = None
         self.version_label: Optional[ttk.Label] = None
+        self.version_area: Optional[ttk.Frame] = None
+        self.update_button: Optional[ttk.Button] = None
+        self._update_available_version: Optional[str] = None
 
         # Initialize plugin system and load any previously activated plugins
         self._initialize_plugin_system()
@@ -194,6 +201,12 @@ class OrlandoToolkit:
         
         # Version label in bottom-right
         self.create_version_label()
+
+        # Utility links in bottom-left (About, Update)
+        self.create_utility_links()
+
+        # Auto-check for updates on splash load
+        self.schedule_auto_update_check()
 
     def create_management_button_top_right(self) -> None:
         """Create plugin management button in top-right corner."""
@@ -352,6 +365,200 @@ class OrlandoToolkit:
 
         # LoadingSpinner will be created on-demand
 
+    def create_utility_links(self) -> None:
+        """Create About and Update links on the splash screen."""
+        try:
+            # Container anchored bottom-left
+            util_frame = ttk.Frame(self.home_frame)
+            util_frame.place(relx=0.0, rely=1.0, x=8, y=-6, anchor="sw")
+
+            # About link
+            about_link = ttk.Label(util_frame, text="About", cursor="hand2", foreground="#888888")
+            about_link.pack(side="left")
+            about_link.bind("<Button-1>", lambda e: show_about_dialog(self.root))
+        except Exception:
+            pass
+
+    # ------------------------------------------------------------------
+    # Updater integration (leverages external installer logic)
+    # ------------------------------------------------------------------
+
+    def check_for_app_update(self) -> None:
+        """Check GitHub for latest app version and offer to run the updater.
+        
+        Uses a background thread to avoid freezing the UI. When an update is
+        available, prompts the user and, upon confirmation, launches the
+        installer/updater in silent mode, then closes the app so files can be
+        swapped safely.
+        """
+        try:
+            # Show spinner and disable UI
+            self._show_loading_spinner(title="Checking for updates", subtitle="Contacting server…")
+            self._disable_all_ui_elements()
+
+            def worker():
+                latest = self._get_latest_version()
+                current = (get_app_version() or "vdev").lstrip("v")
+
+                def _done(msg: str):
+                    try:
+                        self.status_label.config(text=msg)
+                    except Exception:
+                        pass
+
+                if not latest:
+                    self.root.after(0, lambda: [
+                        self._hide_loading_spinner(),
+                        self._enable_all_ui_elements(),
+                        messagebox.showinfo("Update", "Could not determine latest version right now."),
+                    ])
+                    return
+
+                if latest == current:
+                    self.root.after(0, lambda: [
+                        self._hide_loading_spinner(),
+                        self._enable_all_ui_elements(),
+                        messagebox.showinfo("Update", f"You are up to date (v{current})."),
+                    ])
+                    return
+
+                # Update available
+                def prompt_and_update():
+                    self._hide_loading_spinner()
+                    self._enable_all_ui_elements()
+                    proceed = messagebox.askyesno(
+                        "Update Available",
+                        f"A new version is available (v{latest}).\n\nUpdate now? The app will close during the update.",
+                    )
+                    if not proceed:
+                        return
+                    # Launch updater, then close the app
+                    launched = self._launch_silent_updater()
+                    if launched:
+                        messagebox.showinfo(
+                            "Updating",
+                            "The updater is running. The application will now close.\n\n"
+                            "After the update completes, launch Orlando Toolkit from the desktop shortcut.",
+                        )
+                        try:
+                            self.root.after(200, self.root.destroy)
+                        except Exception:
+                            os._exit(0)
+                    else:
+                        messagebox.showerror("Update", "Failed to start updater.")
+
+                self.root.after(0, prompt_and_update)
+
+            threading.Thread(target=worker, daemon=True).start()
+        except Exception as e:
+            logger.error("Update check failed: %s", e)
+            try:
+                self._hide_loading_spinner()
+                self._enable_all_ui_elements()
+            except Exception:
+                pass
+            messagebox.showerror("Update", f"Update check failed:\n\n{e}")
+
+    def _get_latest_version(self) -> Optional[str]:
+        """Fetch latest version (X.Y.Z) from GitHub releases without API token."""
+        try:
+            url = "https://github.com/Orsso/orlando-toolkit/releases/latest"
+            req = Request(url, method="HEAD")
+            with urlopen(req, timeout=10) as resp:
+                loc = resp.getheader("Location") or resp.geturl()
+                if not loc:
+                    return None
+                tag = loc.rstrip("/").split("/")[-1]
+                if tag.lower().startswith("v"):
+                    tag = tag[1:]
+                # Basic sanity check
+                if tag and all(part.isdigit() for part in tag.split(".")):
+                    return tag
+        except HTTPError:
+            pass
+        except URLError:
+            pass
+        except Exception:
+            pass
+        return None
+
+    def _launch_silent_updater(self) -> bool:
+        """Download and execute the official installer/updater silently.
+        
+        Prefer running a local `install.bat` if present next to the app root
+        (developer mode). Otherwise download the released `OTK_Installer.bat`
+        and run it with silent flags. The installer handles version detection
+        and swap.
+        """
+        try:
+            # Try local install.bat first (developer environments)
+            try:
+                repo_root = Path(__file__).resolve().parents[1]
+                local_installer = repo_root.parent / "install.bat"
+            except Exception:
+                local_installer = None
+
+            env = os.environ.copy()
+            env["SILENT"] = "1"
+
+            if local_installer and local_installer.exists():
+                # Run local installer in a detached process
+                subprocess.Popen(
+                    ["cmd", "/c", f"\"{str(local_installer)}\""],
+                    creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP,
+                    close_fds=False,
+                    cwd=str(local_installer.parent),
+                    env=env,
+                )
+                return True
+
+            # Fallback: download official installer from Releases and run it
+            ps_script = (
+                "$tmp = [System.IO.Path]::Combine($env:TEMP,'OTK_Installer.bat'); "
+                "$u='https://github.com/Orsso/orlando-toolkit/releases/download/Installer/OTK_Installer.bat'; "
+                "try { Invoke-WebRequest -UseBasicParsing -Uri $u -OutFile $tmp } catch { exit 1 }; "
+                "$env:SILENT='1'; "
+                "Start-Process -FilePath 'cmd.exe' -ArgumentList @('/c', '""' + $tmp + '""') -WindowStyle Hidden"
+            )
+            subprocess.Popen(
+                ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", ps_script],
+                creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP,
+                close_fds=False,
+                env=env,
+            )
+            return True
+        except Exception as e:
+            logger.error("Failed to start updater: %s", e)
+            return False
+
+    def schedule_auto_update_check(self) -> None:
+        """Schedule automatic, non-intrusive update check after UI loads.
+        
+        On success, if an update is available, highlight the update button and
+        change its label to indicate the target version.
+        """
+        try:
+            def do_check():
+                def worker():
+                    latest = self._get_latest_version()
+                    current = (get_app_version() or "vdev").lstrip("v")
+                    if not latest or latest == current:
+                        return
+                    # Update available: reflect in UI
+                    def apply_ui():
+                        self._update_available_version = latest
+                        if self.update_button and self.update_button.winfo_exists():
+                            try:
+                                self.update_button.configure(text=f"Update available: v{latest}", style="Accent.TButton")
+                            except Exception:
+                                self.update_button.configure(text=f"Update available: v{latest}")
+                    self.root.after(0, apply_ui)
+                threading.Thread(target=worker, daemon=True).start()
+            # Run shortly after splash is visible
+            self.root.after(800, do_check)
+        except Exception:
+            pass
+
     def _create_smart_progress_callback(self) -> callable:
         """Create progress callback that updates LoadingSpinner when visible, status_label otherwise."""
         def smart_progress_callback(message: str) -> None:
@@ -406,15 +613,31 @@ class OrlandoToolkit:
             pass
 
     def create_version_label(self) -> None:
-        """Create version label in bottom-right corner."""
+        """Create version label and update control in bottom-right corner."""
         try:
             version_text = get_app_version()
-            if self.version_label is None or not self.version_label.winfo_exists():
-                self.version_label = ttk.Label(self.home_frame, text=version_text, 
-                                             font=("Segoe UI", 9), foreground="#888888")
-                self.version_label.place(relx=1.0, rely=1.0, x=-8, y=-6, anchor="se")
+            # Ensure a container for version + update control
+            if self.version_area is None or not self.version_area.winfo_exists():
+                self.version_area = ttk.Frame(self.home_frame)
+                self.version_area.place(relx=1.0, rely=1.0, x=-8, y=-6, anchor="se")
+
+                # Version label
+                self.version_label = ttk.Label(self.version_area, text=version_text,
+                                               font=("Segoe UI", 9), foreground="#888888")
+                self.version_label.pack(side="left")
+
+                # Spacer
+                ttk.Label(self.version_area, text="  ").pack(side="left")
+
+                # Update button (will be restyled/text-updated on auto-check)
+                self.update_button = ttk.Button(self.version_area,
+                                                text="Check for updates",
+                                                command=self.check_for_app_update,
+                                                style="TButton")
+                self.update_button.pack(side="left")
             else:
-                self.version_label.configure(text=version_text)
+                if self.version_label and self.version_label.winfo_exists():
+                    self.version_label.configure(text=version_text)
         except Exception:
             pass
 

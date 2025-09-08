@@ -36,7 +36,7 @@ logger = logging.getLogger(__name__)
 # Official plugins available for installation
 OFFICIAL_PLUGINS = [
     {"name": "DOCX Converter", "url": "https://github.com/orsso/orlando-docx-plugin"},
-    {"name": "PDF Converter", "url": "https://github.com/orsso/orlando-pdf-plugin"}
+    {"name": "Video Library", "url": "https://github.com/orsso/orlando-docx-plugin"}
 ]
 
 
@@ -468,13 +468,45 @@ class PluginManager:
                 metadata=metadata
             )
             
-            # Refresh plugin loader if available
+            # Refresh plugin loader if available, preserving activation states
             if self.plugin_loader:
                 try:
+                    # Capture currently active plugin IDs before discovery
+                    previously_active = set(self.get_active_plugin_ids())
+
+                    # Proactively clear registrations for previously-active plugins to avoid stale conflicts
+                    for pid in previously_active:
+                        try:
+                            self.service_registry.unregister_plugin_services(pid)
+                        except Exception:
+                            pass
+                        try:
+                            if self.plugin_loader.app_context and getattr(self.plugin_loader.app_context, 'ui_registry', None):
+                                self.plugin_loader.app_context.ui_registry.cleanup_plugin_components(pid)
+                        except Exception:
+                            pass
+
+                    # Rediscover plugins (updates metadata, may update internal maps)
                     self.plugin_loader.discover_plugins()
-                    result.add_warning("Plugin loader refreshed - restart may be required for full activation")
+
+                    # Restore activation state only for plugins that lost ACTIVE state
+                    for pid in previously_active:
+                        try:
+                            info = self.plugin_loader.get_plugin_info(pid)
+                            if info is None:
+                                continue
+                            if info.is_active():
+                                continue  # Already active, do not re-activate
+                            self.plugin_loader.activate_plugin(pid)
+                        except Exception:
+                            # Non-fatal: keep going for other plugins
+                            pass
+
+                    # Persist states after restoration
+                    self.save_plugin_states()
+                    result.add_warning("Plugin loader refreshed and previous activation states restored")
                 except Exception as e:
-                    result.add_warning(f"Failed to refresh plugin loader: {e}")
+                    result.add_warning(f"Failed to refresh/restore plugin loader state: {e}")
             
             self._logger.info("Plugin installation completed successfully: %s", metadata.name)
             return result
