@@ -58,10 +58,10 @@ python run.py
 - Search topics with filter bar
 
 **Editing:**
-- **Move:** Drag topics or use up/down buttons
-- **Rename:** Double-click topic titles
-- **Delete:** Select and press Delete key
-- **Merge:** Use depth limits to combine deep hierarchies
+- **Move:** Use up/down buttons or the 'send to' feature in the right click contextual menu
+- **Rename:** 'Rename' in the contextual menu
+- **Delete:** Select and press Delete key or 'Delete' in contextual menu
+- **Merge:** Use depth limits to combine deep hierarchies or multi selection + 'Merge' in contextual menu
 
 **Plugin Features:**
 - Some plugins add format-specific tools (heading filters, style markers)
@@ -69,10 +69,10 @@ python run.py
 
 ### Images and Metadata
 
-**Images Tab:**
-- Preview embedded images
-- Resize or replace images
-- Manage image references
+**Images/Media Tab:**
+- Preview embedded images (and videos when a video-capable plugin is the source)
+- Rename or replace media assets
+- Manage media references
 
 **Metadata Tab:**
 - Edit document title and properties
@@ -86,7 +86,7 @@ python run.py
 2. Choose output location
 3. Application creates ZIP with:
    - `DATA/topics/` - Generated DITA topics
-   - `DATA/media/` - Images and media files  
+   - `DATA/media/` - Images (and videos when supported by the plugin)  
    - `DATA/<code>.ditamap` - Main DITA map
 
 ## Plugin Ecosystem

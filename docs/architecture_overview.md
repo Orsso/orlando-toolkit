@@ -16,7 +16,7 @@
 flowchart TD
   subgraph UI
     A1["Tkinter app<br/>run.py → OrlandoToolkit"]
-    A2["Tabs & Widgets<br/>ui/ (Structure, Images, Metadata)"]
+    A2["Tabs & Widgets<br/>ui/ (Structure, Media, Metadata)"]
     A3["Controller<br/>StructureController"]
   end
   subgraph Core
@@ -59,7 +59,7 @@ orlando_toolkit/
   ui/
     controllers/         # `StructureController`
     widgets/             # Structure tree, search, toolbar, preview panel…
-    *_tab.py             # Structure / Images / Metadata tabs
+    *_tab.py             # Structure / Media / Metadata tabs
 ```
 
 Related sub-docs:
@@ -75,7 +75,7 @@ Summary of the primary flow (see the full sequence in [Runtime Flow](runtime_flo
 - `run.py` sets up logging, theme, icon, and instantiates `OrlandoToolkit`.
 - User selects a document → `ConversionService.convert()` uses plugins to build an in-memory `DitaContext`.
 - The app shows a post-conversion summary on the home screen with counts and inline metadata editing.
-- User continues to the main tabs: Structure, Images, Metadata.
+- User continues to the main tabs: Structure, Media, Metadata.
 - On Export, `ConversionService.prepare_package()` applies unified depth/style filtering and renaming; then `write_package()` saves a `DATA/` tree and zips it.
 
 Notes:
@@ -88,9 +88,9 @@ Notes:
 
 Document conversion through plugin system:
 - Plugin discovery: `ServiceRegistry` finds compatible `DocumentHandler` for file type
-- Document parsing: Plugin extracts content, images, and metadata from source format  
-- DITA generation: Plugin converts to `DitaContext` with topics, images, and structure
-- UI integration: Plugins register capabilities for format-specific features
+- Document parsing: Plugin extracts content, media, and metadata from source format  
+- DITA generation: Plugin converts to `DitaContext` with topics, media, and structure
+- UI integration: via `UIRegistry` (panel factories, marker providers, workflow launchers) and per-plugin capabilities (e.g., heading_filter, video_preview)
 
 ---
 
@@ -114,8 +114,7 @@ Models:
 `ConfigManager` loads packaged defaults and merges `~/.orlando_toolkit/*.yml` when present. Safe fallbacks apply if PyYAML is missing.
 
 Available sections and current state:
-- `color_rules` → has a packaged default (`default_color_rules.yml`).
-- `style_map`, `image_naming`, `logging` → loaded if provided by the user; otherwise empty defaults.
+- `preview_styles`, `style_map`, `image_naming`, `logging` → loaded if provided by the user; otherwise empty defaults.
 
 See [orlando_toolkit/config/README.md](../orlando_toolkit/config/README.md).
 

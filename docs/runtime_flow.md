@@ -10,8 +10,15 @@ sequenceDiagram
     participant Prev as "Preview"
     participant FS as "File System"
 
-    User->>GUI: Select Document
-    GUI->>Svc: convert(path, metadata)
+    alt Plugin-owned workflow (WorkflowLauncher)
+        User->>GUI: Launch plugin workflow
+        GUI->>Plugin: register_workflow_launcher(...).launch()
+        Plugin-->>Svc: convert(path, metadata)
+    else Default workflow
+        User->>GUI: Select Document
+        GUI->>Svc: convert(path, metadata)
+    end
+
     Svc->>Conv: Plugin Handler convert_to_dita()
     Conv-->>Svc: DitaContext
     Svc-->>GUI: context ready
@@ -39,4 +46,7 @@ sequenceDiagram
     Svc-->>GUI: .zip ready
     GUI-->>User: Save dialog
 ```
+
+Notes:
+- When a plugin registers a WorkflowLauncher, it owns file selection and progress. On success it must call app_ui.on_conversion_success(context). Otherwise, the default flow applies.
 

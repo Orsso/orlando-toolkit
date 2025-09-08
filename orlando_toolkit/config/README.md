@@ -7,22 +7,23 @@ Use `ConfigManager()`:
 from orlando_toolkit.config import ConfigManager
 cfg = ConfigManager()
 style_map = cfg.get_style_map()
-color_rules = cfg.get_color_rules()
+preview_styles = cfg.get_preview_styles()
+image_naming = cfg.get_image_naming()
 ```
 
 Behavior:
-- Loads packaged defaults when available, then merges user overrides from `~/.orlando_toolkit/`.
+- Loads packaged defaults, then merges user overrides from `%LOCALAPPDATA%\\OrlandoToolkit\\config` (Windows) or `~/.orlando_toolkit/` (Unix).
 - Safe fallbacks if PyYAML is missing (built-in empty dicts).
+- Many format-specific settings are now owned by plugins; core only exposes the sections below.
 
 Sections:
-- `color_rules` – packaged default (`default_color_rules.yml`) used by inline color → `outputclass` mapping.
+- `preview_styles` – outputclass → CSS mapping for HTML preview (`preview_styles.yml`).
 - `style_map` – Word styles → heading level mapping (`default_style_map.yml`).
 - `image_naming` – image filename generation templates (`image_naming.yml`).
 - `logging` – logging configuration using Python dictConfig format (`logging.yml`).
-- `style_detection` – document structure analysis behavior (`style_detection.yml`).
 
-User overrides (filenames under `~/.orlando_toolkit/`):
-- `default_style_map.yml`, `default_color_rules.yml`, `image_naming.yml`, `logging.yml`, `style_detection.yml`
+User overrides (filenames under `%LOCALAPPDATA%\\OrlandoToolkit\\config` on Windows or `~/.orlando_toolkit/` on Unix):
+- `default_style_map.yml`, `preview_styles.yml`, `image_naming.yml`, `logging.yml`
 
 ## Configuration Schemas
 
@@ -49,31 +50,19 @@ index_start: 1
 index_zero_pad: 0
 ```
 
-### style_detection.yml
+### preview_styles.yml
 
-Structural analysis control:
+Maps DITA outputclass values to CSS for HTML preview rendering. Example:
 
 ```yaml
-# Enables structural inference (adding missing title styles based on content patterns)
-enable_structural_style_inference: true
-
-# Upward compatibility (old keys still read if present)
-use_enhanced_style_detection: true
-use_structural_analysis: true
-
-# Minimum number of paragraphs required for a style to
-min_following_paragraphs: 3
-
-# Enables generic detection by name (e.g., “HEADING 5
-generic_heading_match: true
+css_styles:
+  background-color-yellow: 'background-color:#fff2cc;'
+  color-blue: 'color:#0070c0;'
 ```
 
-Priority and merging of strategies:
-- Word base (outline, inheritance, built-in styles, numbering) → primary source
-- Structural inference (if enabled) → complete only (does not overwrite)
-- Packaged STYLE_MAP → complete only (does not overwrite)
-- Generic heading match → complete only (does not overwrite)
-- User overrides (`metadata.style_heading_map`) → highest priority (may overwrite)
+Notes:
+- These styles affect preview only; they do not change exported DITA.
+- Override by placing `preview_styles.yml` in the user config directory.
 
 ### logging.yml
 
@@ -94,3 +83,5 @@ Maps Word style names to heading levels:
 Links:
 - Architecture: [docs/architecture_overview.md](../../docs/architecture_overview.md)
 - Runtime flow: [docs/runtime_flow.md](../../docs/runtime_flow.md)
+- Plugin development: [docs/PLUGIN_DEVELOPMENT_GUIDE.md](../../docs/PLUGIN_DEVELOPMENT_GUIDE.md)
+- Plugin configuration: see each plugin's `config.yml` and documentation

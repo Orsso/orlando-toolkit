@@ -20,7 +20,7 @@ Orlando Toolkit provides a streamlined interface for working with DITA (Darwin I
 
 ## Installation
 
-**Quick Install:** Download and run the [Installer](https://github.com/Orsso/orlando-toolkit/releases/download/Installer/OTK_Installer.bat) (*can be used to update the app.*)
+**Quick Install:** Download and run the [Installer](https://github.com/Orsso/orlando-toolkit/releases/download/Installer/OTK_Installer.bat)
 
 **From Source:**
 ```bash
@@ -41,7 +41,8 @@ Orlando Toolkit supports format conversion through a plugin architecture where p
 4. Activate the plugin to enable functionality
 
 **Available Plugins:**
-- **DOCX Plugin**: [orlando-docx-plugin](https://github.com/orsso/orlando-docx-plugin) - Convert Microsoft Word documents to DITA
+- **DOCX Plugin**: [orlando-docx-plugin](https://github.com/orsso/orlando-docx-plugin) — Convert Microsoft Word documents to DITA
+- **Video Library Plugin**: [orlando-video-plugin](https://github.com/orsso/orlando-video-plugin) — Convert video files to DITA with inline preview
 - **Plugin Development**: [docs/PLUGIN_DEVELOPMENT_GUIDE.md](docs/PLUGIN_DEVELOPMENT_GUIDE.md)
 
 **Plugin Management:**
@@ -49,10 +50,12 @@ Orlando Toolkit supports format conversion through a plugin architecture where p
 - Each plugin is a standalone GitHub repository with complete packaging
 - Plugin updates are managed through repository versions
 
+*Note : plug-ins are NOT tested under Unix based systems, tinkering might be required*
+
 ## Getting Started
 
 1. **DITA-Only Mode**: Open existing DITA archives directly 
-2. **Plugin Mode**: Install plugins to convert from other formats (DOCX, PDF, Markdown, etc.)
+2. **Plugin Mode**: Install plugins to convert from other formats
 3. **Structure Editing**: Use the tree interface to reorganize topics and sections
 4. **Export**: Generate complete DITA packages for downstream publishing
 

@@ -2,7 +2,7 @@
 
 Core processing layer used by all front-end interfaces.
 
-- `models/` – dataclasses like `DitaContext` and `HeadingNode` that travel through the pipeline.
+- `models/` – dataclasses like `DitaContext` and `HeadingNode` that travel through the pipeline (DitaContext includes images and videos stores).
 - `importers/` – DITA archive import functionality.
 - `package_utils.py` – packaging helpers for DITA output (`save_dita_package`, renamers).
 - `preview/` – read-only XML/HTML preview utilities (minimal XSLT + temp image materialization).
@@ -14,8 +14,11 @@ Core processing layer used by all front-end interfaces.
   - `marker_providers.py` – Scrollbar marker system for plugins
 - `services/` – high-level APIs:
   - `ConversionService` (convert, prepare, write ZIP)
+  - `StructureEditingService` (structure edits, depth/style filtering)
   - `PreviewService` (XML/HTML preview)
   - `UndoService` (immutable snapshots for undo/redo)
+  - `HeadingAnalysisService` (derive effective depth, structure signals)
+  - `ProgressService` (UI progress callbacks)
 - `merge.py` – unified depth/style merge helpers used for structure filtering.
 - `utils.py` – helpers (slugify, XML save, ID generation, section numbering… ).
 
