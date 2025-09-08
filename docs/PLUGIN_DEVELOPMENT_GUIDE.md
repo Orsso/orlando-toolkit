@@ -1,21 +1,42 @@
 # Plugin Development Guide
 
-Goal: provide a single, accurate source of truth for developing Orlando Toolkit plugins. Technical and to the point.
+[![Back to Main README](https://img.shields.io/badge/←%20Back%20to-README-blue)](../README.md)
+[![Architecture](https://img.shields.io/badge/See%20Also-Architecture%20Overview-green)](architecture_overview.md)
+[![Runtime Flow](https://img.shields.io/badge/See%20Also-Runtime%20Flow-green)](runtime_flow.md)
 
-Contents
-- Concepts and layout
-- Manifest (plugin.json)
-- Lifecycle and AppContext
-- ServiceRegistry integrations
-  - DocumentHandler
-  - FilterProvider
-- UIRegistry integrations
-  - PanelFactory
-  - WorkflowLauncher
-  - Capabilities and markers
-- Data model notes (videos)
-- Conventions and pitfalls
-- Minimal examples
+> **Goal**: Provide a single, accurate source of truth for developing Orlando Toolkit plugins.
+
+## Table of Contents
+
+- [Quick Start](#quick-start)
+- [Concepts and Layout](#concepts-and-layout)
+- [Plugin Manifest](#plugin-manifest-pluginjson)
+- [Lifecycle and AppContext](#lifecycle-and-appcontext)
+- [Service Registry](#serviceregistry-integrations)
+  - [DocumentHandler](#documenthandler-conversion)
+  - [FilterProvider](#filterprovider-structure-filter-data)
+- [UI Registry](#uiregistry-integrations)
+  - [PanelFactory](#panelfactory-right-side-panels)
+  - [WorkflowLauncher](#workflowlauncher-optional)
+  - [Capabilities and Markers](#capabilities-and-markers)
+- [Data Model Notes](#data-model-notes-videos)
+- [Best Practices](#conventions-and-pitfalls)
+- [Code Examples](#minimal-examples)
+
+---
+
+## Quick Start
+
+<details>
+<summary><strong>TL;DR - Essential Steps</strong></summary>
+
+1. **Create** plugin directory with `plugin.json`
+2. **Implement** entry point class inheriting from `BasePlugin`
+3. **Register** services in `on_activate()`
+4. **Implement** required interfaces (`DocumentHandler`, etc.)
+5. **Test** with Orlando Toolkit
+
+</details>
 
 ## Concepts and layout
 

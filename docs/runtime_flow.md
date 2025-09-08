@@ -1,5 +1,13 @@
 # Runtime Flow
 
+[![Back to Main README](https://img.shields.io/badge/←%20Back%20to-README-blue)](../README.md)
+[![Architecture](https://img.shields.io/badge/See%20Also-Architecture%20Overview-green)](architecture_overview.md)
+[![Plugin Guide](https://img.shields.io/badge/See%20Also-Plugin%20Development-green)](PLUGIN_DEVELOPMENT_GUIDE.md)
+
+## Overview
+
+This document illustrates the end-to-end execution flow of Orlando Toolkit, from document selection through final export.
+
 ```mermaid
 sequenceDiagram
     participant User

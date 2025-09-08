@@ -1,6 +1,13 @@
 # orlando_toolkit.core
 
-Core processing layer used by all front-end interfaces.
+[![Back to Main README](https://img.shields.io/badge/←%20Back%20to-README-blue)](../../README.md)
+[![Documentation Index](https://img.shields.io/badge/←%20Docs-Index-green)](../../docs/README.md)
+
+**Core processing layer used by all front-end interfaces.**
+
+## Overview
+
+The core module provides the fundamental processing capabilities for Orlando Toolkit, including document conversion, plugin management, and DITA processing.
 
 - `models/` – dataclasses like `DitaContext` and `HeadingNode` that travel through the pipeline (DitaContext includes images and videos stores).
 - `importers/` – DITA archive import functionality.

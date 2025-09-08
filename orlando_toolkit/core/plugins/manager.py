@@ -33,13 +33,6 @@ from .exceptions import (
 logger = logging.getLogger(__name__)
 
 
-# Official plugins available for installation
-OFFICIAL_PLUGINS = [
-    {"name": "DOCX Converter", "url": "https://github.com/orsso/orlando-docx-plugin"},
-    {"name": "Video Library", "url": "https://github.com/orsso/orlando-docx-plugin"}
-]
-
-
 class PluginInstallResult:
     """Result of a plugin installation operation."""
     
@@ -172,67 +165,7 @@ class PluginManager:
     # -------------------------------------------------------------------------
     # Two-Phase Plugin Installation (Fetch → Install)
     # -------------------------------------------------------------------------
-    
-    def get_official_plugins_not_added(self) -> List[dict]:
-        """Return official plugins not yet fetched or installed.
-        
-        Returns:
-            List of official plugin dictionaries not yet in fetched plugins or installed
-        """
-        installed_plugins = self.get_installed_plugins()
-        
-        # Check if plugin is fetched or installed
-        available_plugins = []
-        for plugin in OFFICIAL_PLUGINS:
-            url = plugin["url"]
-            
-            # Skip if already fetched
-            if url in self._fetched_plugins:
-                continue
-                
-            # Skip if already installed (check multiple methods)
-            plugin_installed = False
-            for installed_id in installed_plugins:
-                try:
-                    metadata = self.get_plugin_metadata(installed_id)
-                    if metadata:
-                        # Method 1: Check if homepage URL matches the official plugin URL
-                        if hasattr(metadata, 'homepage') and metadata.homepage:
-                            if metadata.homepage == url:
-                                self._logger.debug("Found installed plugin by homepage URL: %s", installed_id)
-                                plugin_installed = True
-                                break
-                        
-                        # Method 2: Check plugin directory name matches expected pattern
-                        # For github.com/owner/repo-name, the directory would be repo-name
-                        expected_dir = url.split('/')[-1].replace('.git', '')
-                        if installed_id == expected_dir:
-                            self._logger.debug("Found installed plugin by directory name: %s", installed_id)
-                            plugin_installed = True
-                            break
-                        
-                        # Method 3: Check if name attribute matches expected pattern
-                        if hasattr(metadata, 'name') and metadata.name:
-                            if metadata.name == expected_dir:
-                                self._logger.debug("Found installed plugin by metadata name: %s", installed_id)
-                                plugin_installed = True
-                                break
-                                
-                except Exception as e:
-                    self._logger.debug("Exception checking plugin metadata for %s: %s", installed_id, e)
-                    
-                # Method 4: Fall back to name-based matching
-                if ("docx" in plugin["name"].lower() and "docx" in installed_id.lower()) or \
-                   ("pdf" in plugin["name"].lower() and "pdf" in installed_id.lower()):
-                    self._logger.debug("Found installed plugin by name pattern: %s", installed_id)
-                    plugin_installed = True
-                    break
-            
-            if not plugin_installed:
-                available_plugins.append(plugin)
-        
-        return available_plugins
-    
+
     def add_plugin_from_github(self, repo_url: str) -> dict:
         """Fetch plugin metadata and image from GitHub (does not install).
         
@@ -273,7 +206,7 @@ class PluginManager:
                 "image_data": result.get("image_data"),
                 "has_image": result.get("has_image", False),
                 "fetch_time": str(int(time.time())),  # Simple timestamp
-                "is_official": repo_url in [p["url"] for p in OFFICIAL_PLUGINS]
+                # Official flag removed; UI is the source of truth
             }
             
             # Save to JSON file

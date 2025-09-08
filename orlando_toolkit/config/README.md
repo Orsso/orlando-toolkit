@@ -1,6 +1,13 @@
 # orlando_toolkit.config
 
-YAML-based settings with user overrides.
+[![Back to Main README](https://img.shields.io/badge/←%20Back%20to-README-blue)](../../README.md)
+[![Documentation Index](https://img.shields.io/badge/←%20Docs-Index-green)](../../docs/README.md)
+
+**YAML-based configuration system with user overrides.**
+
+## Overview
+
+The configuration module provides a flexible, layered configuration system that supports default settings with user customization.
 
 Use `ConfigManager()`:
 ```python

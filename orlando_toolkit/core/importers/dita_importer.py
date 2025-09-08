@@ -190,15 +190,17 @@ class DitaPackageImporter:
         # Load all referenced topics
         topics = self._load_topics(ditamap_root, topics_dir)
         
-        # Find media directory and load images
+        # Find media directory and load images/videos
         media_dir = self._find_media_directory(root_dir, ditamap_path)
         images = self._load_images(media_dir)
+        videos = self._load_videos(media_dir)
         
         # Build and return DitaContext
         context = DitaContext(
             ditamap_root=ditamap_root,
             topics=topics,
             images=images,
+            videos=videos,
             metadata=merged_metadata
         )
         
@@ -294,10 +296,14 @@ class DitaPackageImporter:
         
         for candidate in candidates:
             if candidate.exists() and candidate.is_dir():
-                # Check if it contains image files
+                # Check if it contains image or video files
                 image_extensions = {'.png', '.jpg', '.jpeg', '.gif', '.bmp', '.svg', '.tiff', '.webp'}
-                has_images = any(f.suffix.lower() in image_extensions for f in candidate.iterdir() if f.is_file())
-                if has_images:
+                video_extensions = {'.mp4', '.mov', '.avi', '.mkv', '.webm', '.m4v', '.wmv'}
+                has_media = any(
+                    f.is_file() and (f.suffix.lower() in image_extensions or f.suffix.lower() in video_extensions)
+                    for f in candidate.iterdir()
+                )
+                if has_media:
                     self.logger.debug("Found media directory: %s", candidate)
                     return candidate
         
@@ -449,6 +455,42 @@ class DitaPackageImporter:
                 continue
         
         return images
+
+    def _load_videos(self, media_dir: Optional[Path]) -> Dict[str, bytes]:
+        """Load all videos from the media directory.
+        
+        Args:
+            media_dir: Directory containing media files, or None
+            
+        Returns:
+            Dictionary mapping video filenames to their binary content
+        """
+        videos: Dict[str, bytes] = {}
+        
+        if not media_dir or not media_dir.exists():
+            return videos
+        
+        # Supported video extensions (common set)
+        video_extensions = {'.mp4', '.mov', '.avi', '.mkv', '.webm', '.m4v', '.wmv'}
+        
+        for video_path in media_dir.iterdir():
+            if not video_path.is_file():
+                continue
+            
+            if video_path.suffix.lower() not in video_extensions:
+                continue
+            
+            try:
+                with open(video_path, 'rb') as f:
+                    videos[video_path.name] = f.read()
+                self.logger.debug("Loaded video: %s (%d bytes)", 
+                                video_path.name, len(videos[video_path.name]))
+                
+            except OSError as e:
+                self.logger.error("Failed to read video %s: %s", video_path.name, e)
+                continue
+        
+        return videos
     
     def _get_current_timestamp(self) -> str:
         """Get current timestamp in ISO format.

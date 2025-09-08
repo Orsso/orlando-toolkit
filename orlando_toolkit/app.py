@@ -586,12 +586,28 @@ class OrlandoToolkit:
                 self.loading_container = ttk.Frame(self.home_center)
                 self.loading_container.pack()
             
+            # Ensure any existing spinner is bound to the current container
+            if self.loading_spinner:
+                try:
+                    same_parent = getattr(self.loading_spinner, "_parent", None) is self.loading_container
+                    if not same_parent or not self.loading_container.winfo_exists():
+                        # Old instance bound to destroyed parent — discard it
+                        try:
+                            self.loading_spinner.hide()
+                        except Exception:
+                            pass
+                        self.loading_spinner = None
+                except Exception:
+                    # If any check fails, recreate spinner
+                    self.loading_spinner = None
+            
             # Create spinner targeting the loading container
             if not self.loading_spinner:
                 self.loading_spinner = LoadingSpinner(self.loading_container, title=title, subtitle=subtitle)
-            if self.loading_spinner:
-                self.loading_spinner.update_message(title, subtitle)
-                self.loading_spinner.show()
+            
+            # Update and show
+            self.loading_spinner.update_message(title, subtitle)
+            self.loading_spinner.show()
         except Exception:
             pass
 
@@ -600,6 +616,8 @@ class OrlandoToolkit:
         try:
             if self.loading_spinner:
                 self.loading_spinner.hide()
+                # Reset instance to avoid reusing a spinner bound to a destroyed parent
+                self.loading_spinner = None
             
             # Remove the loading container
             if hasattr(self, 'loading_container') and self.loading_container:

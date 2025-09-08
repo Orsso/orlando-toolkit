@@ -1,12 +1,30 @@
-## Orlando Toolkit — Architecture Overview
+# Orlando Toolkit — Architecture Overview
 
----
+[![Back to Main README](https://img.shields.io/badge/←%20Back%20to-README-blue)](../README.md)
+[![Plugin Guide](https://img.shields.io/badge/See%20Also-Plugin%20Development-green)](PLUGIN_DEVELOPMENT_GUIDE.md)
+[![Runtime Flow](https://img.shields.io/badge/See%20Also-Runtime%20Flow-green)](runtime_flow.md)
 
-- UI overview: see `orlando_toolkit/app.py` and `orlando_toolkit/ui/`
-- Core processing: see `orlando_toolkit/core/` and its [README](../orlando_toolkit/core/README.md)
-- Plugin architecture: see [Plugin Development Guide](PLUGIN_DEVELOPMENT_GUIDE.md)
-- Configuration: see `orlando_toolkit/config/` and its [README](../orlando_toolkit/config/README.md)
-- End-to-end runtime: see [Runtime Flow](runtime_flow.md)
+## Table of Contents
+
+- [High-level Architecture](#1-high-level-architecture)
+- [Code Layout](#2-code-layout)
+- [Runtime Workflow](#3-runtime-workflow)
+- [Plugin-based Conversion](#4-plugin-based-conversion)
+- [Services and Editing](#5-services-and-editing)
+- [Configuration](#6-configuration)
+- [Packaging and Resources](#7-packaging-and-resources)
+- [Build & Distribution](#8-build--distribution)
+- [Related Documentation](#9-links)
+
+## Quick Reference
+
+| Component | Location | Documentation |
+|-----------|----------|---------------|
+| **UI Layer** | `orlando_toolkit/app.py` & `orlando_toolkit/ui/` | [UI README](../orlando_toolkit/ui/README.md) |
+| **Core Processing** | `orlando_toolkit/core/` | [Core README](../orlando_toolkit/core/README.md) |
+| **Plugin System** | `orlando_toolkit/core/plugins/` | [Plugin Development Guide](PLUGIN_DEVELOPMENT_GUIDE.md) |
+| **Configuration** | `orlando_toolkit/config/` | [Config README](../orlando_toolkit/config/README.md) |
+| **Runtime Flow** | Cross-component | [Runtime Flow](runtime_flow.md) |
 
 ---
 

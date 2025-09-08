@@ -1,6 +1,13 @@
 # orlando_toolkit.ui
 
-Tkinter widgets used by the desktop app.
+[![Back to Main README](https://img.shields.io/badge/←%20Back%20to-README-blue)](../../README.md)
+[![Documentation Index](https://img.shields.io/badge/←%20Docs-Index-green)](../../docs/README.md)
+
+**Tkinter widgets and user interface components for the desktop application.**
+
+## Overview
+
+The UI module contains all user interface components, controllers, and widgets that make up the Orlando Toolkit desktop application.
 
 Tabs
 - **StructureTab** – browse/edit structure, depth/style filters, preview.
