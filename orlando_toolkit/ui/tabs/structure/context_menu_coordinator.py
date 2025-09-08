@@ -32,7 +32,17 @@ class ContextMenuCoordinator:
 
     def show(self, event: object, refs: List[str]) -> None:
         try:
-            current_refs = refs or self._tree.get_selected_items()
+            if refs:
+                current_refs = refs
+            else:
+                # Get selected XML nodes and extract hrefs
+                selected_nodes = self._tree.get_selected_xml_nodes()
+                current_refs = []
+                for node in selected_nodes:
+                    if hasattr(node, 'get') and hasattr(node, 'tag') and node.tag == 'topicref':
+                        href = node.get('href')
+                        if href:
+                            current_refs.append(href)
         except Exception:
             current_refs = list(refs or [])
 

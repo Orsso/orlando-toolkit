@@ -39,10 +39,15 @@ class PreviewCoordinator:
         self._job_seq: int = 0
 
     # -------------------------------------------------------------- Public API
-    def render_for_ref(self, topic_ref: str) -> None:
+
+    def render_for_node(self, node: object) -> None:
+        """Render preview for an XML element (topicref or topichead).
+        - topicref: full topic HTML/XML
+        - topichead: minimal section/heading view
+        """
         ctrl = self._get_controller()
         panel = self._panel
-        if not ctrl or not panel or not isinstance(topic_ref, str):
+        if not ctrl or not panel or node is None:
             return
 
         # Determine mode (html|xml)
@@ -53,7 +58,7 @@ class PreviewCoordinator:
 
         # Pre-state
         try:
-            panel.set_title(f"Preview — {topic_ref or 'Untitled'}")
+            panel.set_title("Preview")
             panel.set_loading(True)
         except Exception:
             pass
@@ -68,8 +73,8 @@ class PreviewCoordinator:
         def _work():
             try:
                 if mode == "xml":
-                    return ("xml", ctrl.compile_preview(topic_ref))  # type: ignore[attr-defined]
-                return ("html", ctrl.render_html_preview(topic_ref))  # type: ignore[attr-defined]
+                    return ("xml", ctrl.compile_preview_for_node(node))  # type: ignore[attr-defined]
+                return ("html", ctrl.render_html_preview_for_node(node))  # type: ignore[attr-defined]
             except Exception as ex:  # pragma: no cover
                 return ("err", ex)
 
@@ -87,19 +92,23 @@ class PreviewCoordinator:
                 res = payload
                 if getattr(res, "success", False) and isinstance(getattr(res, "content", None), str):
                     content = getattr(res, "content")
-                    if mode == "xml":
-                        try:
+                    # For XML mode, escape and wrap so raw tags are visible
+                    try:
+                        if mode == "xml":
                             from html import escape as _escape
                             content = f"<pre style=\"white-space:pre-wrap;\">{_escape(content)}</pre>"
-                        except Exception:
-                            pass
+                    except Exception:
+                        pass
                     try:
                         panel.set_content(content)
                     except Exception:
                         pass
-                    # Update breadcrumb
+                    # Update breadcrumb for topic nodes
                     try:
-                        self._update_breadcrumb_for_ref(topic_ref)
+                        if hasattr(node, 'tag') and getattr(node, 'tag', None) == 'topicref':
+                            href = node.get('href') if hasattr(node, 'get') else ''
+                            if href:
+                                self._update_breadcrumb_for_ref(href)
                     except Exception:
                         pass
                 else:
@@ -121,18 +130,34 @@ class PreviewCoordinator:
 
         self._run_in_thread(_work, _done)
 
-    def update_for_selection(self, selection_refs: list[str]) -> None:
-        try:
-            topic_ref = selection_refs[0] if selection_refs else ""
-        except Exception:
-            topic_ref = ""
-        if not topic_ref:
+    def update_for_selection(self, selection_nodes: list[object]) -> None:
+        """Update preview for a selection of XML nodes.
+        Preference order:
+        - First topicref among nodes (auto-advance behavior)
+        - Else first node (section) renders minimal heading view
+        - Empty selection clears preview
+        """
+        nodes = list(selection_nodes or [])
+        if not nodes:
             try:
                 self._panel.clear()
             except Exception:
                 pass
             return
-        self.render_for_ref(topic_ref)
+        # Find first topicref in provided nodes
+        topic_node = None
+        for n in nodes:
+            try:
+                if hasattr(n, 'tag') and getattr(n, 'tag', None) == 'topicref':
+                    topic_node = n
+                    break
+            except Exception:
+                continue
+        if topic_node is not None:
+            self.render_for_node(topic_node)
+            return
+        # Fallback: render the first node (section minimal view)
+        self.render_for_node(nodes[0])
 
     def on_mode_changed(self) -> None:
         # Caller should pass current selection

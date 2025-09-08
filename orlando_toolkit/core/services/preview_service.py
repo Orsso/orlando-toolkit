@@ -150,9 +150,45 @@ class PreviewService:
                 },
             )
 
-    def compile_preview(self, context: DitaContext, topic_ref: str) -> PreviewResult:
-        """Alias for compile_topic_preview to keep controller naming stable."""
-        return self.compile_topic_preview(context, topic_ref)
+
+    # XML-element based preview APIs
+    def compile_node_preview(self, context: DitaContext, node: object) -> PreviewResult:
+        """Compile XML for a topicref or topichead element without re-resolving by href."""
+        # Validate context
+        if context is None or not isinstance(context, DitaContext):
+            return PreviewResult(success=False, content=None, message="Invalid context.", details={"reason": "invalid_input", "field": "context"})
+        # Validate node
+        if node is None or not hasattr(node, 'tag'):
+            return PreviewResult(success=False, content=None, message="Invalid XML node.", details={"reason": "invalid_input", "field": "node"})
+        try:
+            xml = xml_compiler.get_raw_topic_xml(context, node)  # type: ignore[arg-type]
+            if isinstance(xml, str):
+                return PreviewResult(success=True, content=xml, message="", details=None)
+            return PreviewResult(success=False, content=None, message="XML compilation is not available.", details={"reason": "not_implemented"})
+        except Exception as exc:
+            return PreviewResult(success=False, content=None, message="Failed to compile XML preview.", details={"reason": "exception", "exception_type": exc.__class__.__name__})
+
+    def render_html_preview_for_node(self, context: DitaContext, node: object) -> PreviewResult:
+        """Render HTML for a topicref or topichead element without re-resolving by href."""
+        if context is None or not isinstance(context, DitaContext):
+            return PreviewResult(success=False, content=None, message="Invalid context.", details={"reason": "invalid_input", "field": "context"})
+        if node is None or not hasattr(node, 'tag'):
+            return PreviewResult(success=False, content=None, message="Invalid XML node.", details={"reason": "invalid_input", "field": "node"})
+        try:
+            html = xml_compiler.render_html_preview(context, node)  # type: ignore[arg-type]
+            if isinstance(html, str):
+                return PreviewResult(success=True, content=html, message="", details=None)
+            return PreviewResult(success=False, content=None, message="HTML rendering is not available.", details={"reason": "not_implemented"})
+        except Exception as exc:
+            # Fallback to minimal HTML from XML
+            try:
+                xml_attempt = xml_compiler.get_raw_topic_xml(context, node)  # type: ignore[arg-type]
+                if isinstance(xml_attempt, str):
+                    wrapped = self._xml_to_minimal_html(xml_attempt)
+                    return PreviewResult(success=True, content=wrapped, message="", details=None)
+            except Exception:
+                pass
+            return PreviewResult(success=False, content=None, message="Failed to render HTML preview.", details={"reason": "exception", "exception_type": exc.__class__.__name__})
 
     def render_html_preview(self, context: DitaContext, topic_ref: str) -> PreviewResult:
         """Render a topic as HTML suitable for quick preview.
@@ -248,28 +284,6 @@ class PreviewService:
                 },
             )
 
-    def get_raw_xml(self, context: DitaContext, topic_ref: str) -> PreviewResult:
-        """Return the raw XML for a topic without additional decoration.
-
-        Parameters
-        ----------
-        context : DitaContext
-            Active DITA processing context.
-        topic_ref : str
-            Topic reference path or identifier within the context.
-
-        Returns
-        -------
-        PreviewResult
-            On success, ``content`` contains XML as a string.
-
-        Notes
-        -----
-        - Equivalent to ``compile_topic_preview`` semantically, but explicitly
-          positioned as a raw retrieval API to help distinguish intent.
-        """
-        # Delegate to the same XML compilation flow for clarity and consistency.
-        return self.compile_topic_preview(context, topic_ref)
 
     # -----------------------------
     # Internal helpers
@@ -508,14 +522,3 @@ class PreviewService:
 
         return None
 
-    def _format_traceback_head(self) -> str:
-        """Return a condensed first line of the current exception; kept for potential future use."""
-        try:
-            import sys
-            etype, value, _tb = sys.exc_info()
-            if etype is None:
-                return ""
-            # Concise single-line summary without full traceback to avoid verbose diagnostics
-            return f"{etype.__name__}: {value}"
-        except Exception:
-            return ""

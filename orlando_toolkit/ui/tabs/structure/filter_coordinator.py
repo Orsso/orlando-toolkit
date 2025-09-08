@@ -92,8 +92,8 @@ class FilterCoordinator:
         run_in_thread: Callable[[Callable[[], object], Optional[Callable[[object], None]]], None],
         set_busy: Callable[[bool], None],
         refresh_tree: Callable[[], None],
-        get_current_selection: Callable[[], List[str]],
-        predict_target: Callable[[str], Optional[str]],
+        get_current_selection: Callable[[], list],
+        predict_target: Callable[[object], Optional[object]],
     ) -> None:
         ctrl = self._get_controller()
         panel = self._panel
@@ -107,15 +107,24 @@ class FilterCoordinator:
             style_excl_map = None
 
         # Pre-calc selection and predicted target
+        original_nodes: list = []
         original_ref: str = ""
-        predicted_target: Optional[str] = None
+        predicted_node: Optional[object] = None
         try:
             sel = list(get_current_selection() or [])
-            if sel:
-                original_ref = sel[0]
-                predicted_target = predict_target(original_ref)
+            # Prefer XML nodes
+            if sel and hasattr(sel[0], 'tag'):
+                original_nodes = sel
+                try:
+                    predicted_node = predict_target(sel[0])
+                except Exception:
+                    predicted_node = None
+            else:
+                # Legacy refs fallback
+                if sel:
+                    original_ref = sel[0]
         except Exception:
-            predicted_target = None
+            pass
 
         # Inform user about potential unmergable items
         try:
@@ -141,17 +150,21 @@ class FilterCoordinator:
                     except Exception:
                         pass
                     return
-                # Refresh tree and center viewport
+                # Refresh tree and restore/center selection
                 refresh_tree()
                 try:
-                    target_ref = original_ref
-                    try:
-                        if not target_ref or not tree.find_item_by_ref(target_ref):  # type: ignore[attr-defined]
-                            target_ref = predicted_target or ""
-                    except Exception:
-                        target_ref = predicted_target or target_ref
-                    if target_ref and hasattr(tree, 'focus_item_centered_by_ref'):
-                        tree.focus_item_centered_by_ref(target_ref)  # type: ignore[attr-defined]
+                    if original_nodes and hasattr(tree, 'update_selection_by_xml_nodes'):
+                        tree.update_selection_by_xml_nodes(original_nodes)  # type: ignore[attr-defined]
+                        try:
+                            tree.focus_item_centered(original_nodes[0])  # type: ignore[attr-defined]
+                        except Exception:
+                            pass
+                    elif original_ref:
+                        try:
+                            if hasattr(tree, 'focus_item_centered_by_ref'):
+                                tree.focus_item_centered_by_ref(original_ref)  # type: ignore[attr-defined]
+                        except Exception:
+                            pass
                 except Exception:
                     pass
                 try:

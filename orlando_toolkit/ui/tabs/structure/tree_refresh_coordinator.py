@@ -38,19 +38,24 @@ class TreeRefreshCoordinator:
                 pass
             return
 
-        # Capture expansion state
+        # Capture expansion state (XML-node based) and current scroll position
         try:
-            expanded_refs: Set[str] = set(tree.get_expanded_items())
+            expanded_nodes: List[object] = list(tree.get_expanded_xml_nodes())  # type: ignore[attr-defined]
         except Exception:
-            expanded_refs = set()
+            expanded_nodes = []
+        # Capture yview to reduce flashing/jumps during full refresh
         try:
-            expanded_sections: List[List[int]] = (
-                tree.get_expanded_section_index_paths()  # type: ignore[attr-defined]
-                if hasattr(tree, "get_expanded_section_index_paths")
-                else []
-            )
+            y_first, _y_last = tree._tree.yview()  # type: ignore[attr-defined]
+            yview_snapshot = float(y_first)
         except Exception:
-            expanded_sections = []
+            yview_snapshot = None
+
+        # Capture current selection before rebuilding tree
+        selected_elements = []
+        try:
+            selected_elements = tree.capture_current_selection()
+        except Exception:
+            pass
 
         # Apply exclusions on the tree before population
         try:
@@ -89,27 +94,30 @@ class TreeRefreshCoordinator:
         except Exception:
             pass
 
-        # Restore expansion state directly 
+        # Restore expansion state directly (XML-node based)
         try:
-            if expanded_sections and hasattr(tree, "restore_expanded_sections"):
-                tree.restore_expanded_sections(expanded_sections)  # type: ignore[attr-defined]
+            if expanded_nodes and hasattr(tree, "restore_expanded_xml_nodes"):
+                tree.restore_expanded_xml_nodes(expanded_nodes)  # type: ignore[attr-defined]
         except Exception:
             pass
+
+        # Restore scroll position to reduce flashing/jumps
         try:
-            if expanded_refs:
-                tree.restore_expanded_items(expanded_refs)
+            if yview_snapshot is not None:
+                tree._tree.yview_moveto(yview_snapshot)  # type: ignore[attr-defined]
         except Exception:
             pass
 
         # Re-apply selection and enable toolbar
         try:
-            selection = list(getattr(ctrl, "get_selection", lambda: [])())
+            # Restore captured selection
+            if selected_elements:
+                tree.restore_captured_selection(selected_elements)
+            
+            # Enable toolbar based on current selection
+            current_selection = tree.get_selected_xml_nodes()
             try:
-                tree.update_selection(selection)
-            except Exception:
-                pass
-            try:
-                self._toolbar.enable_buttons(bool(selection))
+                self._toolbar.enable_buttons(bool(current_selection))
             except Exception:
                 pass
         except Exception:

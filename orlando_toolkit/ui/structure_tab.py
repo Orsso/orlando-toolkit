@@ -33,6 +33,7 @@ import threading
 import tkinter as tk
 from tkinter import ttk
 import logging
+import xml.etree.ElementTree as ET
 
 # Required imports per specification
 from orlando_toolkit.core.models import DitaContext
@@ -302,6 +303,8 @@ class StructureTab(ttk.Frame):
         self._tree.grid(row=0, column=0, sticky="nsew")
         # Loading spinner (replaces hourglass cursor with elegant animation)
         self._loading_spinner = UniversalSpinner(left, "Refreshing structure...")
+        # Cache of last XML selection for preview/movement
+        self._last_selected_xml_nodes: List[ET.Element] = []
 
         # Preview panel on the right
         from orlando_toolkit.ui.widgets.preview_panel import PreviewPanel  # local import to avoid cycles
@@ -466,6 +469,9 @@ class StructureTab(ttk.Frame):
         try:
             self.bind_all("<Control-z>", self._on_shortcut_undo, add=True)
             self.bind_all("<Control-y>", self._on_shortcut_redo, add=True)
+            # Ensure Alt-based movement works when focus is in preview or other widgets
+            self.bind_all("<Alt-Up>",   lambda e: self._on_shortcut_move("up"), add=True)
+            self.bind_all("<Alt-Down>", lambda e: self._on_shortcut_move("down"), add=True)
         except Exception:
             pass
         # Ensure this widget can receive keyboard focus
@@ -486,6 +492,10 @@ class StructureTab(ttk.Frame):
         # Defer sash restoration until after all widgets are fully initialized  
         self._needs_sash_restore = True
             
+
+        # Wire movement predicates during initial setup
+        self._wire_movement_predicates()
+
         # Initialize empty legend
         try:
             self._update_style_legend()
@@ -516,6 +526,8 @@ class StructureTab(ttk.Frame):
         undo_service = UndoService(max_history=50)
         preview_service = PreviewService()
         self._controller = StructureController(context, editing_service, undo_service, preview_service)
+        # Re-wire movement predicates after controller replacement
+        self._wire_movement_predicates()
         self._sync_depth_control()
         # Defer tree refresh to avoid blocking with large documents
         self.after(100, self._perform_deferred_tree_refresh)
@@ -524,6 +536,8 @@ class StructureTab(ttk.Frame):
     def attach_controller(self, controller: StructureController) -> None:
         """Attach an externally created controller and refresh the UI."""
         self._controller = controller
+        # Re-wire movement predicates after controller attachment
+        self._wire_movement_predicates()
         self._sync_depth_control()
         # Defer tree refresh to avoid blocking with large documents
         self.after(100, self._perform_deferred_tree_refresh)
@@ -590,6 +604,29 @@ class StructureTab(ttk.Frame):
     # ---------------------------------------------------------------------------------
     # Internal helpers
     # ---------------------------------------------------------------------------------
+    
+    def _wire_movement_predicates(self) -> None:
+        """Wire movement predicates to respect UI expansion state and visible order."""
+        try:
+            ctrl = self._controller
+            if ctrl is not None and hasattr(ctrl, 'editing_service'):
+                # Wire section-open predicate
+                if hasattr(self._tree, 'is_node_expanded'):
+                    try:
+                        ctrl.editing_service.set_section_open_predicate(lambda node: self._tree.is_node_expanded(node))  # type: ignore[attr-defined]
+                        logging.getLogger(__name__).info("Movement: section-open predicate wired to tree.is_node_expanded")
+                    except Exception as e:
+                        logging.getLogger(__name__).warning("Movement: failed to wire section-open predicate: %s", e)
+                
+                # Wire visible neighbor resolver
+                if hasattr(self._tree, 'get_visible_neighbor_xml_node'):
+                    try:
+                        ctrl.editing_service.set_visible_neighbor_resolver(lambda node, direction: self._tree.get_visible_neighbor_xml_node(node, direction))  # type: ignore[attr-defined]
+                        logging.getLogger(__name__).info("Movement: visible-neighbor resolver wired to tree.get_visible_neighbor_xml_node")
+                    except Exception as e:
+                        logging.getLogger(__name__).warning("Movement: failed to wire visible-neighbor resolver: %s", e)
+        except Exception as e:
+            logging.getLogger(__name__).warning("Movement: failed to wire predicates: %s", e)
     
     def _perform_deferred_initialization(self) -> None:
         """Perform heavy initialization tasks after widget creation."""
@@ -1088,42 +1125,27 @@ class StructureTab(ttk.Frame):
         if ctrl is None:
             return
         try:
-            # Get current selection
-            selected_refs = getattr(ctrl, "selected_items", []) or []
+            # Capture current selection before operation
+            selected_elements = []
+            try:
+                selected_elements = self._tree.capture_current_selection()
+            except Exception:
+                pass
             
-            # Handle based on selection size and type
-            if len(selected_refs) <= 1:
-                # Single or no selection - use existing logic
-                result = ctrl.handle_move_operation(direction)  # returns OperationResult
-            elif len(selected_refs) >= 2 and direction in ["up", "down"]:
-                # Multi-selection for UP/DOWN - check if consecutive and handle accordingly
-                if hasattr(self._tree, "are_refs_successive_topics"):
-                    if self._tree.are_refs_successive_topics(selected_refs):
-                        # Use multi-topic move for consecutive topics
-                        result = ctrl.handle_multi_move_operation(direction, selected_refs)
-                    else:
-                        # Not consecutive - show error message and return
-                        result = type('OperationResult', (), {
-                            'success': False, 
-                            'message': 'Selected topics must be consecutive siblings to move together'
-                        })()
-                else:
-                    # Fallback to single topic move if validation method not available
-                    result = ctrl.handle_move_operation(direction)
+            # Prefer XML-centric movement
+            if hasattr(ctrl, 'handle_move_selection'):
+                result = ctrl.handle_move_selection(selected_elements, direction)  # type: ignore[attr-defined]
             else:
-                # Multi-selection for promote/demote - use single topic logic for now
+                # Legacy path: fall back to single-item operation
                 result = ctrl.handle_move_operation(direction)
-                
+
             if getattr(result, "success", False):
                 # After successful move, refresh tree and maintain selection
                 self._refresh_tree()
-                # Try to maintain selection after refresh
+                # Restore selection using unified system
                 try:
-                    if hasattr(self._tree, "update_selection") and selected_refs:
-                        ordered_refs = selected_refs
-                        if len(selected_refs) >= 2 and hasattr(self._tree, "get_ordered_consecutive_refs"):
-                            ordered_refs = self._tree.get_ordered_consecutive_refs(selected_refs) or selected_refs
-                        self._tree.update_selection(ordered_refs)
+                    if selected_elements:
+                        self._tree.restore_captured_selection(selected_elements)
                 except Exception:
                     pass
             else:
@@ -1146,33 +1168,8 @@ class StructureTab(ttk.Frame):
                 return
         except Exception:
             pass
-        # Fallback: keep previous logic if coordinator missing
-        ctrl = self._controller
-        if ctrl is None:
-            return
-        try:
-            results = ctrl.handle_search(term) or []
-            if results:
-                try:
-                    self._tree.set_highlight_refs(list(results))  # type: ignore[attr-defined]
-                except Exception:
-                    pass
-                try:
-                    self._tree.focus_item_centered_by_ref(results[0])  # type: ignore[attr-defined]
-                except Exception:
-                    pass
-                try:
-                    self._render_preview_for_ref(results[0], self._preview_panel)
-                except Exception:
-                    pass
-            else:
-                try:
-                    self._tree.clear_highlight_refs()  # type: ignore[attr-defined]
-                except Exception:
-                    pass
-            self._update_style_legend()
-        except Exception:
-            pass
+        # No fallback: SearchCoordinator is the single entrance for search handling (DRY)
+        return
 
     def _on_search_navigate(self, direction: "str") -> None:
         """Navigate among stored search results and update selection."""
@@ -1182,63 +1179,36 @@ class StructureTab(ttk.Frame):
                 return
         except Exception:
             pass
-        # Fallback
-        ctrl = self._controller
-        if ctrl is None:
-            return
-        try:
-            results: List[str] = list(getattr(ctrl, "search_results", []) or [])
-            if not results:
-                return
-            idx = getattr(ctrl, "search_index", -1)
-            if direction == "prev":
-                idx = max(0, idx - 1)
-            else:
-                idx = min(len(results) - 1, idx + 1)
-            try:
-                ctrl.search_index = idx  # type: ignore[attr-defined]
-            except Exception:
-                pass
-            try:
-                ctrl.select_items([results[idx]])
-            except Exception:
-                pass
-            try:
-                self._tree.update_selection([results[idx]])  # type: ignore[attr-defined]
-            except Exception:
-                pass
-            try:
-                self._tree.focus_item_centered_by_ref(results[idx])  # type: ignore[attr-defined]
-            except Exception:
-                pass
-            try:
-                self._render_preview_for_ref(results[idx], self._preview_panel)
-            except Exception:
-                pass
-        except Exception:
-            pass
+        # No fallback: rely solely on SearchCoordinator for navigation
+        return
 
     # ---------------------------------------------------------------------------------
     # Tree callbacks
     # ---------------------------------------------------------------------------------
 
-    def _render_preview_for_ref(self, topic_ref: str, panel: object) -> None:
-        """Delegate preview rendering to the coordinator."""
-        try:
-            if getattr(self, "_preview_coordinator", None) is not None:
-                self._preview_coordinator.render_for_ref(topic_ref)  # type: ignore[attr-defined]
-        except Exception:
-            pass
 
-    def _on_tree_selection_changed(self, refs: List[str]) -> None:
+    def _on_tree_selection_changed(self, selected_nodes: List[ET.Element]) -> None:
         """Update controller selection and toolbar enablement on selection change."""
         ctrl = self._controller
         if ctrl is None:
             return
         try:
-            ctrl.select_items(refs or [])
-            # Simple heuristic: enable toolbar when selection non-empty
-            self._toolbar.enable_buttons(bool(refs))
+            # Extract hrefs from XML nodes for controller (topic previews and legacy paths)
+            refs = []
+            for node in selected_nodes:
+                if hasattr(node, 'get') and hasattr(node, 'tag') and node.tag == 'topicref':
+                    href = node.get('href')
+                    if href:
+                        refs.append(href)
+            ctrl.select_items(refs)
+            # Cache XML nodes for preview and movement
+            try:
+                self._last_selected_xml_nodes = list(selected_nodes)
+            except Exception:
+                self._last_selected_xml_nodes = []  # type: ignore[assignment]
+            # Enable toolbar only when selection contains movable nodes (topics or sections)
+            movable = any(getattr(n, 'tag', None) in ('topicref', 'topichead') for n in (selected_nodes or []))
+            self._toolbar.enable_buttons(bool(movable))
         except Exception:
             self._toolbar.enable_buttons(False)
 
@@ -1331,34 +1301,17 @@ class StructureTab(ttk.Frame):
             # Keep UI resilient
             pass
 
-    def _on_tree_item_activated(self, item_refs: Optional[object]) -> None:
-        """Handle activation (double-click/Enter) on a tree item to update side preview panel.
-
-        Accepts either a single ref (str) or list of refs; normalizes to one topic_ref.
-        Routes preview rendering to the right-hand PreviewPanel according to current mode.
+    def _on_tree_item_activated(self, xml_node: Optional[ET.Element]) -> None:
+        """Handle activation (double-click/Enter) on a tree item and update preview.
+        XML-centric: render for the activated node.
         """
-        ctrl = self._controller
-        if ctrl is None:
+        if xml_node is None:
             return
-
-        # Normalize incoming refs: can be str or list[str]
-        topic_ref: str = ""
         try:
-            if isinstance(item_refs, str):
-                topic_ref = item_refs
-            elif isinstance(item_refs, (list, tuple)) and item_refs:
-                topic_ref = str(item_refs[0])
-            else:
-                topic_ref = ""
+            if getattr(self, "_preview_coordinator", None) is not None and hasattr(self._preview_coordinator, 'render_for_node'):
+                self._preview_coordinator.render_for_node(xml_node)  # type: ignore[attr-defined]
         except Exception:
-            topic_ref = ""
-
-        panel = getattr(self, "_preview_panel", None)
-        if panel is None:
-            return
-
-        # Delegate to helper method
-        self._render_preview_for_ref(topic_ref, panel)
+            pass
 
     # Breadcrumb rendering is handled by PreviewCoordinator
 
@@ -1366,40 +1319,49 @@ class StructureTab(ttk.Frame):
         """Handle breadcrumb navigation click."""
         try:
             if nav_id.startswith("section_"):
-                # Section navigation - find first child topic and navigate to it
-                self._navigate_to_section_by_id(nav_id)
+                # Section navigation - select section directly using XML nodes
+                for xml_node in self._tree._xml_node_to_id.keys():
+                    try:
+                        if (hasattr(xml_node, 'get') and hasattr(xml_node, 'tag') and
+                            xml_node.tag == 'topichead' and 
+                            xml_node.get('id') == nav_id.replace("section_", "")):
+                            self._tree.update_selection_by_xml_nodes([xml_node])
+                            break
+                    except Exception:
+                        continue
             else:
-                # Topic navigation - direct href navigation
-                if hasattr(self._tree, 'update_selection'):
-                    self._tree.update_selection([nav_id])
-                
-                panel = getattr(self, "_preview_panel", None)
-                if panel:
-                    self._render_preview_for_ref(nav_id, panel)
+                # Topic navigation - select topic directly using XML nodes
+                for xml_node in self._tree._xml_node_to_id.keys():
+                    try:
+                        if (hasattr(xml_node, 'get') and hasattr(xml_node, 'tag') and
+                            xml_node.tag == 'topicref' and xml_node.get('href') == nav_id):
+                            self._tree.update_selection_by_xml_nodes([xml_node])
+                            # Render preview for the node
+                            try:
+                                if getattr(self, "_preview_coordinator", None) is not None and hasattr(self._preview_coordinator, 'render_for_node'):
+                                    self._preview_coordinator.render_for_node(xml_node)  # type: ignore[attr-defined]
+                            except Exception:
+                                pass
+                            break
+                    except Exception:
+                        continue
         except Exception:
             pass
 
-    def _navigate_to_section_by_id(self, section_id: str) -> None:
-        """Navigate to a section by finding its first child topic."""
-        ctrl = self._controller
-        if not ctrl or not hasattr(ctrl, "context"):
-            return
-        try:
-            from orlando_toolkit.ui.tabs.structure.navigation_utils import find_first_topic_href_in_section
-            href = find_first_topic_href_in_section(ctrl.context, section_id)
-            if href:
-                try:
-                    self._tree.update_selection([href])  # type: ignore[attr-defined]
-                except Exception:
-                    pass
-                panel = getattr(self, "_preview_panel", None)
-                if panel:
-                    self._render_preview_for_ref(href, panel)
-        except Exception:
-            pass
 
-    def _on_tree_context_menu(self, event: "tk.Event", refs: List[str]) -> None:
+    def _on_tree_context_menu(self, event: "tk.Event", selected_nodes: List[ET.Element]) -> None:
         """Ensure latest selection and show context menu via coordinator."""
+        # Extract hrefs from XML nodes for context menu systems
+        refs = []
+        try:
+            for node in selected_nodes:
+                if hasattr(node, 'get') and hasattr(node, 'tag') and node.tag == 'topicref':
+                    href = node.get('href')
+                    if href:
+                        refs.append(href)
+        except Exception:
+            pass
+            
         try:
             if getattr(self, "_ctx_coordinator", None) is not None:
                 self._ctx_coordinator.show(event, refs)  # type: ignore[attr-defined]
@@ -1644,8 +1606,10 @@ class StructureTab(ttk.Frame):
                     run_in_thread=self._run_in_thread,
                     set_busy=self._set_busy,
                     refresh_tree=self._refresh_tree,
-                    get_current_selection=(lambda: list(ctrl.get_selection() or [])),
-                    predict_target=self._predict_merge_target_href_for_ref,
+                    # XML-centric selection
+                    get_current_selection=(lambda: list(self._tree.get_selected_xml_nodes() or [])),
+                    # Predictor not required in XML path; provide no-op
+                    predict_target=(lambda _node: None),
                 )
                 return
         except Exception:
@@ -1775,19 +1739,18 @@ class StructureTab(ttk.Frame):
             return
         try:
             if getattr(self, "_preview_coordinator", None) is not None:
-                self._preview_coordinator.update_for_selection(ctrl.get_selection())  # type: ignore[attr-defined]
+                # Prefer XML-centric update using cached selection
+                nodes = list(getattr(self, "_last_selected_xml_nodes", []) or [])
+                self._preview_coordinator.update_for_selection(nodes)  # type: ignore[attr-defined]
                 return
         except Exception:
             pass
-        # Fallback: direct call
-        topic_ref = self._get_first_selected_ref()
-        if not topic_ref:
-            try:
-                panel.clear()
-            except Exception:
-                pass
-            return
-        self._render_preview_for_ref(topic_ref, panel)
+        # No href fallback: if no nodes selected, clear panel
+        try:
+            panel.clear()
+        except Exception:
+            pass
+        return
 
     def _on_preview_mode_changed(self, mode: str) -> None:
         """Re-render preview when mode toggle changes."""
@@ -1953,25 +1916,26 @@ class StructureTab(ttk.Frame):
         if ctrl is None:
             return "break"
         try:
-            # Get current selection
+            # Capture current selection before operation
+            selected_elements = []
+            try:
+                selected_elements = self._tree.capture_current_selection()
+            except Exception:
+                pass
+            
+            # Get current selection for controller operations
             selected_refs = getattr(ctrl, "selected_items", []) or []
             
             # Handle based on selection size and type  
             if len(selected_refs) <= 1:
-                # Single or no selection - use existing logic
-                result = ctrl.handle_move_operation(direction)  # OperationResult
-            elif len(selected_refs) >= 2 and direction in ["up", "down"]:
-                # Multi-selection for UP/DOWN - check if consecutive and handle accordingly
-                if hasattr(self._tree, "are_refs_successive_topics"):
-                    if self._tree.are_refs_successive_topics(selected_refs):
-                        # Use multi-topic move for consecutive topics
-                        result = ctrl.handle_multi_move_operation(direction, selected_refs)
-                    else:
-                        # Not consecutive - use single topic logic as fallback
-                        result = ctrl.handle_move_operation(direction)
+                # Prefer XML-centric movement for single/mixed selections
+                if hasattr(ctrl, 'handle_move_selection'):
+                    result = ctrl.handle_move_selection(selected_elements, direction)  # type: ignore[attr-defined]
                 else:
-                    # Fallback to single topic move if validation method not available
-                    result = ctrl.handle_move_operation(direction)
+                    result = ctrl.handle_move_operation(direction)  # OperationResult
+            elif len(selected_refs) >= 2 and direction in ["up", "down"]:
+                # Legacy path: fall back to single-item operation
+                result = ctrl.handle_move_operation(direction)
             else:
                 # Multi-selection for promote/demote - use single topic logic for now
                 result = ctrl.handle_move_operation(direction)
@@ -1979,13 +1943,10 @@ class StructureTab(ttk.Frame):
             if getattr(result, "success", False):
                 # After successful move, refresh tree and maintain selection
                 self._refresh_tree()
-                # Try to maintain selection after refresh
+                # Restore selection using unified system
                 try:
-                    if hasattr(self._tree, "update_selection") and selected_refs:
-                        ordered_refs = selected_refs
-                        if len(selected_refs) >= 2 and hasattr(self._tree, "get_ordered_consecutive_refs"):
-                            ordered_refs = self._tree.get_ordered_consecutive_refs(selected_refs) or selected_refs
-                        self._tree.update_selection(ordered_refs)
+                    if selected_elements:
+                        self._tree.restore_captured_selection(selected_elements)
                 except Exception:
                     pass
         except Exception:

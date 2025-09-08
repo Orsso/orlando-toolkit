@@ -296,13 +296,25 @@ class ContextActions:
         ctrl = self._get_controller()
         if ctrl is None:
             return
+        
+        # UNIFIED: Use same capture/restore pattern for consistency
+        selected_elements = []
+        try:
+            if hasattr(self._tree, 'capture_current_selection'):
+                selected_elements = self._tree.capture_current_selection()
+        except Exception:
+            pass
+        
         try:
             res = ctrl.handle_send_topics_to(target_index_path, refs)  # type: ignore[attr-defined]
             if not getattr(res, "success", False):
                 return
             self._refresh()
+            
+            # UNIFIED: Restore selection using unified system
             try:
-                self._tree.update_selection(refs)  # type: ignore[attr-defined]
+                if selected_elements:
+                    self._tree.restore_captured_selection(selected_elements)
             except Exception:
                 pass
         except Exception:
@@ -312,12 +324,28 @@ class ContextActions:
         ctrl = self._get_controller()
         if ctrl is None:
             return
+        
+        # UNIFIED: Capture ALL selected elements before operation
+        selected_elements = []
+        try:
+            if hasattr(self._tree, 'capture_current_selection'):
+                selected_elements = self._tree.capture_current_selection()
+        except Exception:
+            pass
+        
         try:
             if not isinstance(source_index_path, list) or not source_index_path:
                 return
             res = ctrl.handle_send_section_to(target_index_path, source_index_path)  # type: ignore[attr-defined]
             if getattr(res, "success", False):
                 self._refresh()
+                
+                # UNIFIED: Restore ALL selected elements after operation
+                try:
+                    if selected_elements and hasattr(self._tree, 'restore_captured_selection'):
+                        self._tree.restore_captured_selection(selected_elements)
+                except Exception:
+                    pass  # Robust fallback - operation succeeded, selection lost is acceptable
         except Exception:
             pass
 
@@ -325,6 +353,15 @@ class ContextActions:
         ctrl = self._get_controller()
         if ctrl is None:
             return
+        
+        # UNIFIED: Capture ALL selected elements before operation
+        selected_elements = []
+        try:
+            if hasattr(self._tree, 'capture_current_selection'):
+                selected_elements = self._tree.capture_current_selection()
+        except Exception:
+            pass
+        
         try:
             if not isinstance(source_index_paths, list) or not source_index_paths:
                 return
@@ -338,6 +375,13 @@ class ContextActions:
             if res and not getattr(res, "success", False):
                 return
             self._refresh()
+            
+            # UNIFIED: Restore ALL selected elements after operation
+            try:
+                if selected_elements and hasattr(self._tree, 'restore_captured_selection'):
+                    self._tree.restore_captured_selection(selected_elements)
+            except Exception:
+                pass  # Robust fallback - operation succeeded, selection lost is acceptable
         except Exception:
             pass
 
@@ -347,33 +391,33 @@ class ContextActions:
         section_paths: List[List[int]], 
         target_index_path: Optional[List[int]]
     ) -> None:
-        """Unified handler for mixed topic+section selections.
+        """Unified handler for mixed topic+section selections - GREATLY SIMPLIFIED.
         
-        This method handles any combination of topics and sections in a single
-        operation, with automatic hierarchy preservation and validation.
-        
-        Parameters
-        ----------
-        topic_refs : List[str]
-            List of topic href references to move
-        section_paths : List[List[int]]
-            List of section index paths to move
-        target_index_path : Optional[List[int]]
-            Destination path (None for root level)
+        Now uses single capture/restore for ALL elements with no topic/section distinction.
         """
         ctrl = self._get_controller()
         if ctrl is None:
             return
+        
+        # UNIFIED: Single capture for ALL elements (no topic/section distinction needed)
+        selected_elements = []
+        try:
+            if hasattr(self._tree, 'capture_current_selection'):
+                selected_elements = self._tree.capture_current_selection()
+        except Exception:
+            pass
+        
         try:
             res = ctrl.handle_send_mixed_selection_to(target_index_path, topic_refs, section_paths)
             if getattr(res, "success", False):
                 self._refresh()
-                # Only restore topic selection (sections don't have stable identifiers)
-                if topic_refs:
-                    try:
-                        self._tree.update_selection(topic_refs)  # type: ignore[attr-defined]
-                    except Exception:
-                        pass
+                
+                # UNIFIED: Single restore for ALL elements
+                try:
+                    if selected_elements and hasattr(self._tree, 'restore_captured_selection'):
+                        self._tree.restore_captured_selection(selected_elements)
+                except Exception:
+                    pass
         except Exception:
             pass
 

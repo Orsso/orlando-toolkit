@@ -10,7 +10,11 @@ def iter_visible_item_ids(widget: object) -> List[str]:
             for iid in widget._tree.get_children(parent):
                 order.append(iid)
                 try:
-                    is_open = bool(widget._tree.item(iid, "open"))
+                    if hasattr(widget, "is_item_open"):
+                        is_open = bool(widget.is_item_open(iid))
+                    else:
+                        raw = widget._tree.item(iid, "open")
+                        is_open = bool(widget._tree.tk.getboolean(raw))
                 except Exception:
                     is_open = False
                 if is_open:

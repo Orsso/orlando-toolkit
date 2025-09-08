@@ -1,4 +1,5 @@
 from typing import List, Dict, Literal, Optional, Callable, Any, Set
+import xml.etree.ElementTree as ET
 
 from orlando_toolkit.core.models import DitaContext
 from orlando_toolkit.core.services.structure_editing_service import (
@@ -55,7 +56,7 @@ class StructureController:
         # Transient UI-related state
         self.max_depth: int = 999
         self.search_term: str = ""
-        self.search_results: List[str] = []  # e.g., list of topic_ref ids
+        self.search_results: List[ET.Element] = []  # XML nodes matching search
         self.search_index: int = -1  # current index into search_results for navigation
         self.selected_items: List[str] = []
         self.filter_exclusions: Dict[str, bool] = {}  # group_key -> excluded
@@ -359,46 +360,6 @@ class StructureController:
             # Non-raising for routine errors: return an unsuccessful result.
             return OperationResult(success=False, message="Move operation failed")
 
-    def handle_multi_move_operation(
-        self, direction: Literal["up", "down"], selected_refs: List[str]
-    ) -> OperationResult:
-        """Handle move operation for multiple consecutive topics.
-        
-        This method validates that the selected topics are consecutive siblings
-        and then delegates to the editing service to move them as a group while
-        preserving their relative order.
-        
-        Parameters
-        ----------
-        direction : Literal["up", "down"]
-            The direction to move the group of topics.
-        selected_refs : List[str]
-            List of topic references that should be moved together.
-            
-        Returns
-        -------
-        OperationResult
-            Success/failure result with appropriate message.
-        """
-        # Validate input
-        if not selected_refs or len(selected_refs) < 2:
-            return OperationResult(
-                success=False, 
-                message="Select at least two consecutive topics to move together"
-            )
-        
-        # Validate that topics are consecutive (this will be delegated to service)
-        try:
-            return self._recorded_edit(
-                lambda: self.editing_service.move_consecutive_topics(
-                    self.context, selected_refs, direction
-                )
-            )
-        except Exception:
-            return OperationResult(
-                success=False, 
-                message="Multi-topic move operation failed"
-            )
 
     def handle_rename(self, topic_ref: str, new_title: str) -> OperationResult:
         """Rename a topic via the editing service wrapped with undo snapshots."""
@@ -638,7 +599,7 @@ class StructureController:
             pass
         return style_excl_map
 
-    def handle_search(self, term: str) -> List[str]:
+    def handle_search(self, term: str) -> List[ET.Element]:
         """Handle a search request and store transient search state.
 
         Attempts to compute conservative search results using the available
@@ -652,8 +613,8 @@ class StructureController:
 
         Returns
         -------
-        List[str]
-            A list of matched topic_ref identifiers. Empty list on failure or no match.
+        List[ET.Element]
+            A list of matched XML nodes. Empty list on failure or no match.
 
         Notes
         -----
@@ -768,7 +729,7 @@ class StructureController:
                             return bool(s) and term_lower in s.lower()
                         if _contains(title) or _contains(href) or _contains(basename):
                             if href:
-                                matches.append(href)
+                                matches.append(node)
 
                     try:
                         # Push children in reverse order so the DFS visit preserves
@@ -782,12 +743,13 @@ class StructureController:
                         pass
 
                 # Deduplicate while preserving order
-                seen: Dict[str, bool] = {}
-                uniq: List[str] = []
-                for h in matches:
-                    if h not in seen:
-                        seen[h] = True
-                        uniq.append(h)
+                seen: Dict[int, bool] = {}
+                uniq: List[ET.Element] = []
+                for node in matches:
+                    node_id = id(node)  # Use object identity for deduplication
+                    if node_id not in seen:
+                        seen[node_id] = True
+                        uniq.append(node)
                 self.search_results = uniq
                 self.search_index = 0 if self.search_results else -1
                 return self.search_results
@@ -831,7 +793,8 @@ class StructureController:
                     seen2[c] = True
                     unique_candidates.append(c)
 
-            self.search_results = [c for c in unique_candidates if term_lower in c.lower()]
+            # Fallback search now returns empty - XML-based search above should handle most cases
+            self.search_results = []
             self.search_index = 0 if self.search_results else -1
         except Exception:
             self.search_results = []
@@ -949,28 +912,37 @@ class StructureController:
         except Exception:
             return None
 
-    def select_items(self, item_refs: List[str]) -> None:
-        """Set the current selection to the provided list of item references.
+    def select_items(self, xml_nodes: List[ET.Element]) -> None:
+        """Set the current selection using XML nodes.
 
-        Ensures selection is stored as a list of unique references in order of first appearance.
+        Extracts hrefs from topicref nodes and stores as unique references.
 
         Parameters
         ----------
-        item_refs : List[str]
-            The list of item reference identifiers to select.
+        xml_nodes : List[ET.Element]
+            List of XML nodes to select
 
         Returns
         -------
         None
         """
-        if not isinstance(item_refs, list):
+        if not isinstance(xml_nodes, list):
             self.selected_items = []
             return
 
+        # Extract hrefs from XML nodes
+        hrefs = []
+        for node in xml_nodes:
+            if hasattr(node, 'get') and hasattr(node, 'tag') and node.tag == 'topicref':
+                href = node.get('href')
+                if href:
+                    hrefs.append(href)
+
+        # Store unique hrefs in order of first appearance
         seen: Dict[str, bool] = {}
         unique_refs: List[str] = []
-        for ref in item_refs:
-            if isinstance(ref, str) and ref and ref not in seen:
+        for ref in hrefs:
+            if ref and ref not in seen:
                 seen[ref] = True
                 unique_refs.append(ref)
         self.selected_items = unique_refs
@@ -1037,36 +1009,6 @@ class StructureController:
         except Exception:
             return False
 
-    def compile_preview(self, topic_ref: str) -> PreviewResult:
-        """Compile a preview for the provided or selected topic reference.
-
-        If topic_ref is falsy, attempts to use the first selected item. Returns
-        a conservative unsuccessful PreviewResult if neither is available.
-
-        Parameters
-        ----------
-        topic_ref : str
-            The topic reference identifier to compile. If empty, uses selection.
-
-        Returns
-        -------
-        PreviewResult
-            The result from the preview service compilation.
-        """
-        ref = topic_ref or (self.selected_items[0] if self.selected_items else "")
-        if not isinstance(ref, str) or not ref:
-            # Construct a conservative unsuccessful preview result.
-            return PreviewResult(success=False, message="No topic reference provided")
-
-        try:
-            # Prefer the canonical method if present, otherwise fall back to legacy name.
-            if hasattr(self.preview_service, "compile_topic_preview"):
-                return self.preview_service.compile_topic_preview(self.context, ref)  # type: ignore[attr-defined]
-            else:
-                return self.preview_service.compile_preview(self.context, ref)  # type: ignore[attr-defined]
-        except Exception:
-            # Construct a minimal unsuccessful PreviewResult; include required fields.
-            return PreviewResult(success=False, content="", message="Preview compilation failed")
 
     def render_html_preview(self, topic_ref: str) -> PreviewResult:
         """Render an HTML preview for the provided or selected topic reference.
@@ -1092,6 +1034,19 @@ class StructureController:
             return self.preview_service.render_html_preview(self.context, ref)
         except Exception:
             return PreviewResult(success=False, message="HTML rendering failed")
+
+    # XML-centric preview forwarding
+    def compile_preview_for_node(self, node: ET.Element) -> PreviewResult:
+        try:
+            return self.preview_service.compile_node_preview(self.context, node)
+        except Exception:
+            return PreviewResult(success=False, message="Failed to compile XML preview")
+
+    def render_html_preview_for_node(self, node: ET.Element) -> PreviewResult:
+        try:
+            return self.preview_service.render_html_preview_for_node(self.context, node)
+        except Exception:
+            return PreviewResult(success=False, message="Failed to render HTML preview")
 
     # ---------------------------------------------------------------------
     # Send-to operations and destination listing
@@ -1161,6 +1116,60 @@ class StructureController:
             )
         except Exception:
             return OperationResult(success=False, message="Failed to move mixed selection")
+
+    # XML-centric movement API
+    def handle_move_selection(self, nodes: List[ET.Element], direction: Literal["up", "down", "promote", "demote"]) -> OperationResult:
+        """Move selected XML nodes intelligently.
+        - For consecutive topicrefs and direction up/down: preserve group order using existing multi move
+        - Otherwise move nodes one-by-one using intelligent algorithms (supports sections too)
+        """
+        if not nodes:
+            return OperationResult(success=False, message="No selection")
+        # Filter out non-elements
+        xml_nodes = [n for n in nodes if hasattr(n, 'tag')]
+        if not xml_nodes:
+            return OperationResult(success=False, message="No selection")
+
+        # Group consecutive topics path - but prefer single-item movement for stability
+        only_topics = all(getattr(n, 'tag', None) == 'topicref' for n in xml_nodes)
+        if only_topics and direction in ("up", "down") and len(xml_nodes) >= 3:
+            # Only use grouped move for 3+ topics (2 topics can be unstable)
+            hrefs: List[str] = []
+            for n in xml_nodes:
+                try:
+                    href = n.get('href')  # type: ignore[attr-defined]
+                    if href:
+                        hrefs.append(href)
+                except Exception:
+                    pass
+            if len(hrefs) >= 3:
+                try:
+                    return self._recorded_edit(lambda: self.editing_service.move_consecutive_topics(self.context, hrefs, direction))
+                except Exception:
+                    # Fallback to one-by-one
+                    pass
+            # For 1-2 topics, use one-by-one movement for better stability
+
+        # Fallback: move one-by-one using intelligent element movement
+        def _move_one(n: ET.Element) -> bool:
+            try:
+                if direction == 'up':
+                    return bool(self.editing_service.move_element_up(self.context, n).success)
+                elif direction == 'down':
+                    return bool(self.editing_service.move_element_down(self.context, n).success)
+                # Promote/demote could be implemented later
+                return False
+            except Exception:
+                return False
+
+        # Order matters for stability
+        ordered = list(xml_nodes) if direction == 'up' else list(reversed(xml_nodes))
+        moved_any = False
+        for n in ordered:
+            if _move_one(n):
+                moved_any = True
+
+        return OperationResult(success=moved_any, message=("Moved selection." if moved_any else "Cannot move selection."))
 
     def list_send_to_destinations(self) -> List[Dict[str, object]]:
         """Return list of possible destinations for Send-to menu.

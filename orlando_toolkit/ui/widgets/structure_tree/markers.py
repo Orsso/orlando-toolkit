@@ -23,7 +23,14 @@ def apply_marker_image(widget: object, item_id: str) -> None:
 
         child_style_colors: List[str] = []
         if is_section:
-            is_open = bool(widget._tree.item(item_id, "open"))
+            try:
+                if hasattr(widget, 'is_item_open'):
+                    is_open = bool(widget.is_item_open(item_id))
+                else:
+                    raw = widget._tree.item(item_id, "open")
+                    is_open = bool(widget._tree.tk.getboolean(raw))
+            except Exception:
+                is_open = False
             if not is_open:
                 child_styles = collect_child_styles(widget, item_id)
                 child_style_colors = [widget._style_colors.get(s, "#F57C00") for s in child_styles]

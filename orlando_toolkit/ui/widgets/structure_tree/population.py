@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from typing import Dict, List, Optional, Tuple
+import xml.etree.ElementTree as ET
 
 
 def populate_tree(tree: object, context: object, max_depth: int = 999) -> None:
@@ -71,8 +72,12 @@ def populate_tree(tree: object, context: object, max_depth: int = 999) -> None:
     except Exception:
         pass
     root_label = _safe_getattr(context, "title") or "Root"
+    # Create synthetic root node for fallback case
+    root_node = ET.Element("map")
     root_ref = _safe_getattr(context, "root_ref")
-    root_id = _insert_item(tree, "", root_label, topic_ref=root_ref)
+    if root_ref:
+        root_node.set("href", root_ref)
+    root_id = _insert_item(tree, "", root_label, root_node)
     try:
         tree._tree.item(root_id, open=True)
     except Exception:
@@ -98,7 +103,10 @@ def populate_tree(tree: object, context: object, max_depth: int = 999) -> None:
                 if not label:
                     label = str(key)
                 ref = str(key)
-                _insert_item(tree, root_id, label, topic_ref=ref)
+                # Create synthetic topicref node for fallback case
+                topic_node = ET.Element("topicref")
+                topic_node.set("href", ref)
+                _insert_item(tree, root_id, label, topic_node)
                 count += 1
         else:
             count = 0
@@ -112,7 +120,11 @@ def populate_tree(tree: object, context: object, max_depth: int = 999) -> None:
                 label, ref = _extract_label_and_ref(item)
                 if isinstance(ref, str) and ref and not ref.startswith("topics/") and ref.endswith(".dita"):
                     ref = f"topics/{ref}"
-                _insert_item(tree, root_id, label, topic_ref=ref)
+                # Create synthetic topicref node for fallback case
+                topic_node = ET.Element("topicref")
+                if ref:
+                    topic_node.set("href", ref)
+                _insert_item(tree, root_id, label, topic_node)
                 count += 1
     except Exception:
         pass
@@ -193,21 +205,26 @@ def _collect_direct_children(node: object) -> List[object]:
     return children
 
 
-def _insert_item(tree: object, parent: str, text: str, topic_ref: Optional[str], tags: Optional[Tuple[str, ...]] = None) -> str:
+def _insert_item(tree: object, parent: str, text: str, xml_node: ET.Element, tags: Optional[Tuple[str, ...]] = None) -> str:
+    """Insert tree item with unified XML element tracking for ALL items."""
     safe_text = text if isinstance(text, str) and text else "Untitled"
     try:
         if isinstance(safe_text, str):
             safe_text = " ".join(safe_text.split())
     except Exception:
         pass
+    
     item_id = tree._tree.insert(parent, "end", text=safe_text, image=getattr(tree, "_marker_none", ""), tags=(tags or ()))
-    if topic_ref is not None:
-        try:
-            tree._id_to_ref[item_id] = topic_ref
-            if topic_ref not in tree._ref_to_id:
-                tree._ref_to_id[topic_ref] = item_id
-        except Exception:
-            pass
+    
+    # Store XML element for ALL items (topics AND sections)
+    try:
+        tree._id_to_xml_node[item_id] = xml_node
+        # Only store reverse mapping if not already present (handle duplicates)
+        if xml_node not in tree._xml_node_to_id:
+            tree._xml_node_to_id[xml_node] = item_id
+    except Exception:
+        pass  # Robust fallback - tree item exists even if mapping fails
+    
     return item_id
 
 
@@ -300,7 +317,7 @@ def _traverse_and_insert(tree: object, node: object, parent_id: str, depth: int,
             tree,
             parent_id,
             _with_section_number(label, tree, node, tag_name),
-            ref,
+            node,
             tags=(("section",) if is_section_node else None),
         )
 
@@ -346,8 +363,17 @@ def _traverse_and_insert(tree: object, node: object, parent_id: str, depth: int,
             label = " ".join(label.split())
     except Exception:
         pass
-    ref = _safe_getattr(node, "ref") or _safe_getattr(node, "topic_ref")
-    current_id = _insert_item(tree, parent_id, label, ref)
+    # Use the node directly for XML element tracking (fallback for non-ET elements)
+    if hasattr(node, 'tag'):
+        # Real XML element
+        current_id = _insert_item(tree, parent_id, label, node)
+    else:
+        # Generic object - create synthetic XML node
+        synthetic_node = ET.Element("item")
+        ref = _safe_getattr(node, "ref") or _safe_getattr(node, "topic_ref")
+        if ref:
+            synthetic_node.set("href", str(ref))
+        current_id = _insert_item(tree, parent_id, label, synthetic_node)
 
     children = (
         _safe_getattr(node, "children")

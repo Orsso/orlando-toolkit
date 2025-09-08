@@ -8,10 +8,6 @@ release/
 dist/
 build/
 
-# dev mode plugin management
-../plugins/.dev_plugin_states.json
-../plugins/.dev_fetched_plugins.json
-
 # sample / reference documents
 *.docx
 Reference/
@@ -22,28 +18,17 @@ verification_output/
 *.swp
 .cursor/
 .vscode/
-preview_design.md
-preview_plan.md
 CLAUDE.md
 .claude/
 
 dita-project/
 user_guide.md
 user_guide_outline.md
-AIROPS/
-
-FCOM-MAN-OMB_2025-06-19_17-36/
-AUDIT_TASKS.md
-TEST_PLAN_INSTALLER.md
-PIVOT_PLAN.md
-.qoder/quests/multi-topic-movement.md
-.qoder/quests/section-state-management.md
-.qoder/quests/section-movement-detector.md
-.qoder/quests/topic-section-drag-drop.md
-../plugins/
-VIDLIB-TEST_REIBEL_2025-09-02_10-30/
-TESTNODTDNOFOLDER/
-TESTDTDEMBEDDED/
 archive/
 docs/debug/orlando_import_debug_report.md
 SECTION_SELECTION_BUG.md
+OPTIMIZATION_OPPORTUNITIES.md
+IMPLEMENTATION_SUMMARY.md
+ATTENTION_POINTS.md
+
+scripts/dev_debug_expansion.py

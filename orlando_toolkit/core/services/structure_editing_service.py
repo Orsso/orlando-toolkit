@@ -28,7 +28,7 @@ Basic usage:
 
 from dataclasses import dataclass
 import logging
-from typing import Any, Dict, List, Optional, Literal
+from typing import Any, Dict, List, Optional, Literal, Callable
 
 from lxml import etree as ET  # type: ignore
 
@@ -93,10 +93,141 @@ class StructureEditingService:
         """
         self._app_context = app_context
         self._logger = logging.getLogger(f"{__name__}.StructureEditingService")
+        # Optional UI-provided predicate to check if a section (topichead) is expanded/open
+        self._is_section_open: Optional[Callable[[object], bool]] = None
+        # Optional UI-provided resolver to get adjacent visible neighbor (UI source of truth)
+        self._visible_neighbor_resolver: Optional[Callable[[object, str], Optional[object]]] = None
 
     # -------------------------------------------------------------------------
     # Public API
     # -------------------------------------------------------------------------
+
+    def set_section_open_predicate(self, fn: Optional[Callable[[object], bool]]) -> None:
+        """Supply a UI-aware predicate that reports if a section node is expanded.
+        If unset, movement assumes sections are open (maintains legacy behavior).
+        """
+        self._is_section_open = fn
+
+    def set_visible_neighbor_resolver(self, fn: Optional[Callable[[object, str], Optional[object]]]) -> None:
+        """Supply a UI-aware resolver to get the adjacent visible XML node for a given node and direction ('up'|'down')."""
+        self._visible_neighbor_resolver = fn
+
+    # --------------------------- Movement helpers (DRY) ---------------------------
+    def _is_section(self, node: object) -> bool:
+        try:
+            return getattr(node, "tag", None) == "topichead"
+        except Exception:
+            return False
+
+    def _is_open_section(self, node: object) -> bool:
+        # Default to True (legacy behavior) if predicate not set or errors occur
+        is_open = True
+        try:
+            if callable(self._is_section_open):
+                is_open = bool(self._is_section_open(node))  # type: ignore[arg-type]
+                logger.debug("section_open_predicate: predicate_set=True node_tag=%s open=%s", getattr(node, 'tag', None), is_open)
+            else:
+                logger.debug("section_open_predicate: predicate_set=False node_tag=%s defaulting to True", getattr(node, 'tag', None))
+        except Exception as e:
+            try:
+                logger.debug("section_open_predicate: error=%s; defaulting to True", e)
+            except Exception:
+                pass
+            is_open = True
+        return is_open
+
+    def _place_before(self, parent, node, ref_node) -> None:
+        """Place node immediately before ref_node under the same parent.
+        Removal-aware: removes node first when under same parent, recomputes ref index, then inserts.
+        """
+        try:
+            # Remove first if currently under the same parent to avoid index shift errors
+            try:
+                if getattr(node, 'getparent', lambda: None)() is parent:
+                    parent.remove(node)
+            except Exception:
+                pass
+            # Recompute reference index after potential removal
+            try:
+                idx_ref = list(parent).index(ref_node)
+            except ValueError:
+                idx_ref = 0
+            # Insert before the reference
+            try:
+                parent.insert(idx_ref, node)
+            except Exception:
+                # Fallback: reparent via helper
+                self._reparent_node(node, parent, parent, idx_ref)
+        except Exception:
+            # Fallback: put at beginning
+            self._reparent_node(node, parent, parent, 0)
+
+    def _place_after(self, parent, node, ref_node) -> None:
+        """Place node immediately after ref_node under the same parent.
+        Removal-aware: removes node first when under same parent, recomputes ref index, then inserts after.
+        """
+        try:
+            # Remove first if currently under the same parent to avoid index shift errors
+            try:
+                if getattr(node, 'getparent', lambda: None)() is parent:
+                    parent.remove(node)
+            except Exception:
+                pass
+            # Recompute reference index after potential removal
+            try:
+                idx_ref = list(parent).index(ref_node)
+            except ValueError:
+                idx_ref = len(list(parent)) - 1
+            insert_at = idx_ref + 1
+            try:
+                if insert_at >= len(list(parent)):
+                    parent.append(node)
+                else:
+                    parent.insert(insert_at, node)
+            except Exception:
+                # Fallback: reparent via helper
+                self._reparent_node(node, parent, parent, insert_at)
+        except Exception:
+            # Fallback: append
+            self._reparent_node(node, parent, parent, 10**9)
+
+    def _enter_section_first(self, section_node, node) -> None:
+        self._reparent_node(node, node.getparent(), section_node, 0)
+        target_level = self._calculate_target_level(node, section_node)
+        self._apply_level_adaptation(node, target_level)
+
+    def _enter_section_last(self, section_node, node) -> None:
+        self._reparent_node(node, node.getparent(), section_node, 10**9)
+        target_level = self._calculate_target_level(node, section_node)
+        self._apply_level_adaptation(node, target_level)
+
+    def _exit_up_to_grandparent(self, current_parent, node) -> bool:
+        try:
+            grandparent = current_parent.getparent()
+            if grandparent is None:
+                return False
+            parent_index_in_gp = list(grandparent).index(current_parent)
+            self._reparent_node(node, current_parent, grandparent, parent_index_in_gp)
+            target_level = self._calculate_target_level(node, grandparent)
+            self._apply_level_adaptation(node, target_level)
+            logger.debug("move_up_intelligent: EXIT to grandparent before parent")
+            return True
+        except Exception:
+            return False
+
+    def _exit_down_to_grandparent(self, current_parent, node) -> bool:
+        try:
+            grandparent = current_parent.getparent()
+            if grandparent is None:
+                return False
+            parent_index_in_gp = list(grandparent).index(current_parent)
+            self._reparent_node(node, current_parent, grandparent, parent_index_in_gp + 1)
+            target_level = self._calculate_target_level(node, grandparent)
+            self._apply_level_adaptation(node, target_level)
+            logger.debug("move_down_intelligent: EXIT to grandparent after parent")
+            return True
+        except Exception:
+            return False
 
     def move_topic(
         self,
@@ -119,7 +250,7 @@ class StructureEditingService:
             return OperationResult(False, f"Topic not found for id '{topic_id}'.", {"topic_id": topic_id})
 
         if direction == "up":
-            ok = self._move_up(context, node)
+            ok = self._move_up_intelligent(context, node)
             if ok:
                 # Persist this structural change as the new baseline for future depth-limit merges
                 self._invalidate_original_structure(context)
@@ -130,7 +261,7 @@ class StructureEditingService:
                 logger.info("Edit noop: move_topic direction=up boundary topic=%s", topic_id)
             return res
         if direction == "down":
-            ok = self._move_down(context, node)
+            ok = self._move_down_intelligent(context, node)
             if ok:
                 # Persist this structural change as the new baseline for future depth-limit merges
                 self._invalidate_original_structure(context)
@@ -253,6 +384,51 @@ class StructureEditingService:
                 f"Cannot move {direction} (at boundary).",
                 {"direction": direction, "topic_count": len(nodes)}
             )
+
+    # ---------------- XML-centric movement wrappers ----------------
+    def move_element_up(self, context: DitaContext, node) -> OperationResult:
+        """Move a topicref/topichead element up using intelligent algorithm."""
+        try:
+            ok = self._move_up_intelligent(context, node)
+            return OperationResult(ok, ("Moved element up." if ok else "Cannot move up (at boundary)."))
+        except Exception as e:
+            return OperationResult(False, "Move up failed.", {"error": str(e)})
+
+    def move_element_down(self, context: DitaContext, node) -> OperationResult:
+        """Move a topicref/topichead element down using intelligent algorithm."""
+        try:
+            ok = self._move_down_intelligent(context, node)
+            return OperationResult(ok, ("Moved element down." if ok else "Cannot move down (at boundary)."))
+        except Exception as e:
+            return OperationResult(False, "Move down failed.", {"error": str(e)})
+
+    def move_elements_consecutive(self, context: DitaContext, nodes: List, direction: Literal["up", "down"]) -> OperationResult:
+        """Move a consecutive run of elements preserving order (topics preferred)."""
+        if not nodes:
+            return OperationResult(False, "No elements to move.")
+        try:
+            # If all topics and consecutive: delegate to topic API via hrefs
+            if all(getattr(n, 'tag', None) == 'topicref' for n in nodes) and self._are_nodes_consecutive_siblings(nodes):
+                hrefs: List[str] = []
+                for n in nodes:
+                    try:
+                        href = n.get('href')  # type: ignore[attr-defined]
+                        if href:
+                            hrefs.append(href)
+                    except Exception:
+                        continue
+                if hrefs:
+                    return self.move_consecutive_topics(context, hrefs, direction)
+            # Otherwise move one-by-one in appropriate order
+            ordered = list(nodes) if direction == 'up' else list(reversed(nodes))
+            moved = 0
+            for n in ordered:
+                ok = self._move_up_intelligent(context, n) if direction == 'up' else self._move_down_intelligent(context, n)
+                if ok:
+                    moved += 1
+            return OperationResult(moved > 0, ("Moved elements." if moved > 0 else "Cannot move elements."), {"moved": moved, "total": len(nodes)})
+        except Exception as e:
+            return OperationResult(False, "Failed to move elements.", {"error": str(e)})
 
     def merge_topics(self, context, source_ids: List[str], target_id: str) -> OperationResult:
         """Manually merge selected topics into the first selected target.
@@ -426,7 +602,7 @@ class StructureEditingService:
             return OperationResult(False, "Failed to apply depth limit", {"error": str(e)})
 
     # -------------------------------------------------------------------------
-    # New: direct move operations to a destination
+    # Direct move operations to a destination
     # -------------------------------------------------------------------------
 
     def move_topics_to_target(
@@ -894,13 +1070,6 @@ class StructureEditingService:
         filename = self._normalize_filename(topic_id)
         return self._find_topicref_by_filename(root, filename)
 
-    def _move_up(self, context, node) -> bool:
-        """Move topic up in the visual list with intelligent level adaptation."""
-        return self._move_up_intelligent(context, node)
-
-    def _move_down(self, context, node) -> bool:
-        """Move topic down in the visual list with intelligent level adaptation."""
-        return self._move_down_intelligent(context, node)
 
     def _move_up_intelligent(self, context, node) -> bool:
         """Move node up with intelligent section boundary crossing and level adaptation."""
@@ -910,33 +1079,66 @@ class StructureEditingService:
             if root is None:
                 return False
             
-            # Build linear view of all structural nodes
-            linear_view = self._build_linear_view(root)
-            if not linear_view:
-                return False
-            
-            # Find current node in linear view
-            current_index = self._find_node_in_linear_view(linear_view, node)
-            if current_index <= 0:  # Already at top or not found
-                return False
-            
-            # Get target position (one position up in visual order)
-            target_index = current_index - 1
-            target_node, target_parent, target_index_in_parent = linear_view[target_index]
-            
-            # Get current node info
-            current_node, current_parent, current_index_in_parent = linear_view[current_index]
-            
+            # Try UI visible neighbor resolver first (UI is source of truth)
+            current_node = node
+            current_parent = getattr(node, 'getparent', lambda: None)()
+            target_node = None
+            target_parent = None
+            target_index_in_parent = -1
+            used_resolver = False
+            try:
+                if callable(self._visible_neighbor_resolver):
+                    target_node = self._visible_neighbor_resolver(node, 'up')  # type: ignore[arg-type]
+                    used_resolver = target_node is not None
+            except Exception:
+                used_resolver = False
+            if used_resolver and target_node is not None:
+                try:
+                    target_parent = getattr(target_node, 'getparent', lambda: None)()
+                    target_index_in_parent = list(target_parent).index(target_node) if target_parent is not None else -1
+                except Exception:
+                    target_parent = getattr(target_node, 'getparent', lambda: None)()
+                    target_index_in_parent = -1
+            else:
+                # Build linear view fallback
+                linear_view = self._build_linear_view(root)
+                if not linear_view:
+                    return False
+                current_index = self._find_node_in_linear_view(linear_view, node)
+                if current_index <= 0:  # Already at top or not found
+                    return False
+                target_index = current_index - 1
+                target_node, target_parent, target_index_in_parent = linear_view[target_index]
+                current_node, current_parent, current_index_in_parent = linear_view[current_index]
+
+            # Debug
+            try:
+                logger.debug("move_up_intelligent: current=%s target=%s same_parent=%s",
+                             getattr(current_node, 'tag', None), getattr(target_node, 'tag', None), current_parent is target_parent)
+            except Exception:
+                pass
+
             # Case 1: Moving within same parent
             if current_parent is target_parent:
-                # If the previous item is a section, enter it as last child
+                # If the previous item is a section, conditionally enter
                 if getattr(target_node, "tag", None) == "topichead":
-                    self._reparent_node(node, current_parent, target_node, 10**9)
-                    target_level = self._calculate_target_level(node, target_node)
-                    self._apply_level_adaptation(node, target_level)
-                    return True
+                    is_open = self._is_open_section(target_node)
+                    if is_open:
+                        self._enter_section_last(target_node, node)
+                        logger.debug("move_up_intelligent: ENTER previous section (expanded)")
+                        return True
+                    else:
+                        self._place_before(current_parent, node, target_node)
+                        target_level = self._calculate_target_level(node, current_parent)
+                        self._apply_level_adaptation(node, target_level)
+                        logger.debug("move_up_intelligent: SKIP collapsed previous section; place before")
+                        return True
                 # Otherwise perform simple sibling movement
                 res = self._move_sibling(context, current_parent, node, delta=-1)
+                try:
+                    logger.debug("move_up_intelligent: sibling move within same parent (delta=-1) success=%s", bool(res.success))
+                except Exception:
+                    pass
                 return bool(res.success)
             
             # Case 2: Moving to different parent (section boundary crossing)
@@ -954,34 +1156,22 @@ class StructureEditingService:
                 self._reparent_node(node, current_parent, grandparent, parent_index_in_gp)
                 target_level = self._calculate_target_level(node, grandparent)
                 self._apply_level_adaptation(node, target_level)
+                try:
+                    logger.debug("move_up_intelligent: EXIT section to grandparent level")
+                except Exception:
+                    pass
                 return True
 
-            # Try to enter the nearest enclosing section that is a direct child of current_parent
-            # Example: moving from between Section 2 and Section 3 into Section 2 should append
-            # as the last direct child of Section 2, not inside a nested subsection.
-            enter_parent = None
-            probe = target_node
-            try:
-                while probe is not None and probe.getparent() is not None and probe.getparent() is not current_parent:
-                    probe = probe.getparent()
-                # If probe is a section under current_parent, enter it
-                if getattr(probe, "tag", None) == "topichead" and probe.getparent() is current_parent:
-                    enter_parent = probe
-            except Exception:
-                enter_parent = None
-
-            if enter_parent is not None:
-                # Append to the end of the section (last direct child)
-                self._reparent_node(node, current_parent, enter_parent, 10**9)
-                target_level = self._calculate_target_level(node, enter_parent)
-                self._apply_level_adaptation(node, target_level)
-                return True
 
             # General case: move to the same level as target_node, placing right after it
             insert_index = target_index_in_parent + 1
             self._reparent_node(node, current_parent, target_parent, insert_index)
             target_level = self._calculate_target_level(node, target_parent)
             self._apply_level_adaptation(node, target_level)
+            try:
+                logger.debug("move_up_intelligent: general move to target parent's level after target")
+            except Exception:
+                pass
             
             return True
             
@@ -991,73 +1181,112 @@ class StructureEditingService:
     def _move_down_intelligent(self, context, node) -> bool:
         """Move node down with intelligent section boundary crossing and level adaptation."""
         try:
-            # Get the root for building linear view
-            root = getattr(context, "ditamap_root", None)
-            if root is None:
-                return False
-            
-            # Build linear view of all structural nodes
-            linear_view = self._build_linear_view(root)
-            if not linear_view:
-                return False
-            
-            # Find current node in linear view
-            current_index = self._find_node_in_linear_view(linear_view, node)
-            if current_index < 0 or current_index >= len(linear_view) - 1:  # Already at bottom or not found
-                return False
-            
-            # Get target position (one position down in visual order)
-            target_index = current_index + 1
-            target_node, target_parent, target_index_in_parent = linear_view[target_index]
-            
             # Get current node info
-            current_node, current_parent, current_index_in_parent = linear_view[current_index]
+            current_node = node
+            current_parent = getattr(node, 'getparent', lambda: None)()
+            if current_parent is None:
+                return False
             
+            # Try UI visible neighbor resolver first (UI is source of truth)
+            target_node = None
+            target_parent = None
+            target_index_in_parent = -1
+            used_resolver = False
+            
+            try:
+                if callable(self._visible_neighbor_resolver):
+                    target_node = self._visible_neighbor_resolver(node, 'down')  # type: ignore[arg-type]
+                    used_resolver = target_node is not None
+            except Exception as e:
+                logger.debug("move_down_intelligent: visible resolver failed: %s", e)
+                used_resolver = False
+            
+            if used_resolver and target_node is not None:
+                try:
+                    target_parent = getattr(target_node, 'getparent', lambda: None)()
+                    if target_parent is not None:
+                        target_index_in_parent = list(target_parent).index(target_node)
+                    else:
+                        target_index_in_parent = -1
+                    
+                    # Validate the resolver result makes sense for single-step movement
+                    # If target is too far away (different grandparent), fall back to XML order
+                    if target_parent is not None and current_parent is not None:
+                        current_gp = getattr(current_parent, 'getparent', lambda: None)()
+                        target_gp = getattr(target_parent, 'getparent', lambda: None)()
+                        # Allow same parent, or one level difference, but reject wild jumps
+                        if (current_parent is not target_parent and 
+                            current_gp is not target_parent and 
+                            target_gp is not current_parent and 
+                            current_gp is not target_gp):
+                            logger.debug("move_down_intelligent: resolver target too far, using fallback")
+                            used_resolver = False
+                            target_node = None
+                except Exception:
+                    target_parent = getattr(target_node, 'getparent', lambda: None)()
+                    target_index_in_parent = -1
+            else:
+                # Fallback: use XML linear view
+                root = getattr(context, "ditamap_root", None)
+                if root is None:
+                    return False
+                linear_view = self._build_linear_view(root)
+                if not linear_view:
+                    return False
+                current_index = self._find_node_in_linear_view(linear_view, node)
+                if current_index < 0 or current_index >= len(linear_view) - 1:
+                    return False
+                target_index = current_index + 1
+                target_node, target_parent, target_index_in_parent = linear_view[target_index]
+
+            # Validate we have a valid target
+            if target_node is None:
+                return False
+
+            # Debug logging
+            try:
+                logger.debug("move_down_intelligent: current=%s target=%s same_parent=%s used_resolver=%s",
+                             getattr(current_node, 'tag', None), getattr(target_node, 'tag', None), 
+                             current_parent is target_parent, used_resolver)
+            except Exception:
+                pass
+
             # If moving down from inside a section and the next item is the next section
             # at the same grandparent level, first exit current section and land after it
             # (symmetric to the UP behavior), instead of entering the next section directly.
             if getattr(target_node, "tag", None) == "topichead":
-                try:
-                    # Find the nearest ancestor of current_parent that is a direct child of target_parent
-                    ancestor = current_parent
-                    while (
-                        ancestor is not None
-                        and getattr(ancestor, "getparent", None) is not None
-                        and ancestor.getparent() is not None
-                        and ancestor.getparent() is not target_parent
-                    ):
-                        ancestor = ancestor.getparent()
-
-                    if (
-                        ancestor is not None
-                        and getattr(ancestor, "getparent", None) is not None
-                        and ancestor.getparent() is target_parent
-                        and getattr(ancestor, "tag", None) in ("topicref", "topichead")
-                    ):
-                        # Insert right after this ancestor at target_parent level
-                        try:
-                            ancestor_index = list(target_parent).index(ancestor)
-                        except ValueError:
-                            ancestor_index = None
-                        if ancestor_index is not None:
-                            self._reparent_node(node, current_parent, target_parent, ancestor_index + 1)
-                            target_level = self._calculate_target_level(node, target_parent)
-                            self._apply_level_adaptation(node, target_level)
-                            return True
-                except Exception:
-                    pass
-                # Default: enter the section - become first child of target_node
-                new_parent = target_node
-                insert_index = 0
-                self._reparent_node(node, current_parent, new_parent, insert_index)
-                target_level = self._calculate_target_level(node, new_parent)
-                self._apply_level_adaptation(node, target_level)
-                return True
+                is_open = self._is_open_section(target_node)
+                if is_open:
+                    self._enter_section_first(target_node, node)
+                    logger.debug("move_down_intelligent: ENTER next section (expanded)")
+                    return True
+                else:
+                    if current_parent is target_parent:
+                        self._place_after(target_parent, node, target_node)
+                        target_level = self._calculate_target_level(node, target_parent)
+                        self._apply_level_adaptation(node, target_level)
+                        logger.debug("move_down_intelligent: SKIP collapsed next section; place after")
+                        return True
+                    # Different parent: insert after target in target_parent
+                    raw_children = list(target_parent)
+                    try:
+                        idx_target = raw_children.index(target_node)
+                    except ValueError:
+                        idx_target = target_index_in_parent
+                    self._reparent_node(node, current_parent, target_parent, idx_target + 1)
+                    target_level = self._calculate_target_level(node, target_parent)
+                    self._apply_level_adaptation(node, target_level)
+                    logger.debug("move_down_intelligent: place after section in different parent level")
+                    return True
             
             # Case 1: Moving within same parent (simple sibling movement)
             elif current_parent is target_parent:
                 # Use existing sibling movement logic
                 res = self._move_sibling(context, current_parent, node, delta=1)
+                try:
+                    logger.debug("move_down_intelligent: sibling move within same parent (delta=+1) success=%s", bool(res.success))
+                except Exception:
+                    pass
                 return bool(res.success)
             
             # Case 2: Moving to different parent (section boundary crossing)
