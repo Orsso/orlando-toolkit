@@ -222,7 +222,6 @@ flowchart TD
 | Resource | Purpose |
 |----------|----------|
 | [**GitHub Issues**](https://github.com/Orsso/orlando-toolkit/issues) | Report bugs and request features |
-| [**GitHub Discussions**](https://github.com/Orsso/orlando-toolkit/discussions) | Community support and questions |
 | [**Documentation**](#documentation) | Comprehensive guides and references |
 
 ### Contributing
