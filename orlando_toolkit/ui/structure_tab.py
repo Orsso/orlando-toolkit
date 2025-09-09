@@ -1200,14 +1200,8 @@ class StructureTab(ttk.Frame):
         if ctrl is None:
             return
         try:
-            # Extract hrefs from XML nodes for controller (topic previews and legacy paths)
-            refs = []
-            for node in selected_nodes:
-                if hasattr(node, 'get') and hasattr(node, 'tag') and node.tag == 'topicref':
-                    href = node.get('href')
-                    if href:
-                        refs.append(href)
-            ctrl.select_items(refs)
+            # Pass XML nodes directly; controller extracts hrefs internally
+            ctrl.select_items(list(selected_nodes or []))
             # Cache XML nodes for preview and movement
             try:
                 self._last_selected_xml_nodes = list(selected_nodes)
@@ -1269,9 +1263,8 @@ class StructureTab(ttk.Frame):
                 return
 
             # Resolve current topic selection to a topic element
-            topic_ref = self._get_first_selected_ref()
             ctx = getattr(ctrl, "context", None)
-            if not topic_ref or not isinstance(topic_ref, str) or not ctx:
+            if ctx is None:
                 if hasattr(panel, 'clear_data'):
                     try:
                         panel.clear_data()
@@ -1279,26 +1272,102 @@ class StructureTab(ttk.Frame):
                         pass
                 return
 
-            filename = None
-            try:
-                if topic_ref.startswith('topics/'):
+            topic_el = None
+            topic_ref = self._get_first_selected_ref()
+            # Try href-based resolution first
+            if isinstance(topic_ref, str) and topic_ref.startswith('topics/'):
+                try:
                     filename = topic_ref.split('/')[-1]
-            except Exception:
-                filename = None
+                except Exception:
+                    filename = None
+                if filename and hasattr(ctx, 'topics') and filename in ctx.topics:
+                    topic_el = ctx.topics.get(filename)
 
-            if filename and hasattr(ctx, 'topics') and filename in ctx.topics:
-                topic_el = ctx.topics.get(filename)
-                if hasattr(panel, 'set_topic_data') and topic_el is not None:
+            # Fallback: XML-based resolution from selected nodes
+            if topic_el is None:
+                try:
+                    nodes = list(getattr(self, "_last_selected_xml_nodes", []) or [])
+                except Exception:
+                    nodes = []
+
+                href = None
+                # Prefer topicref selections directly
+                for n in nodes:
                     try:
-                        panel.set_topic_data(topic_el, ctx)
+                        if getattr(n, 'tag', None) == 'topicref':
+                            h = n.get('href') if hasattr(n, 'get') else None
+                            if isinstance(h, str) and h:
+                                href = h
+                                break
                     except Exception:
-                        # Fall back to clearing to avoid stale items
+                        continue
+
+                # If a section (topichead) is selected, take its first descendant topicref
+                if not href:
+                    for n in nodes:
                         try:
-                            panel.clear_data()
+                            if getattr(n, 'tag', None) == 'topichead':
+                                # Try lxml xpath first
+                                try:
+                                    tlist = n.xpath('.//topicref[@href]')
+                                    if tlist:
+                                        href = tlist[0].get('href')
+                                except Exception:
+                                    # Fallback to xml.etree iteration
+                                    href = None
+                                    it = list(n.iter()) if hasattr(n, 'iter') else []
+                                    for t in it:
+                                        try:
+                                            if getattr(t, 'tag', None) == 'topicref':
+                                                hh = t.get('href') if hasattr(t, 'get') else None
+                                                if isinstance(hh, str) and hh:
+                                                    href = hh
+                                                    break
+                                        except Exception:
+                                            continue
+                                if href:
+                                    break
                         except Exception:
-                            pass
+                            continue
+
+                # Last resort: first topicref in the map
+                if not href:
+                    try:
+                        root = getattr(ctx, 'ditamap_root', None)
+                        if root is not None:
+                            try:
+                                tlist = root.xpath('.//topicref[@href]')
+                                if tlist:
+                                    href = tlist[0].get('href')
+                            except Exception:
+                                it = list(root.iter()) if hasattr(root, 'iter') else []
+                                for t in it:
+                                    if getattr(t, 'tag', None) == 'topicref':
+                                        hh = t.get('href') if hasattr(t, 'get') else None
+                                        if isinstance(hh, str) and hh:
+                                            href = hh
+                                            break
+                    except Exception:
+                        href = None
+
+                if isinstance(href, str) and href.startswith('topics/') and hasattr(ctx, 'topics'):
+                    try:
+                        fname = href.split('/')[-1]
+                    except Exception:
+                        fname = None
+                    if fname and fname in ctx.topics:
+                        topic_el = ctx.topics.get(fname)
+
+            # Deliver to panel or clear
+            if topic_el is not None and hasattr(panel, 'set_topic_data'):
+                try:
+                    panel.set_topic_data(topic_el, ctx)
+                except Exception:
+                    try:
+                        panel.clear_data()
+                    except Exception:
+                        pass
             else:
-                # Non-topic selection (e.g., section); clear panel items
                 if hasattr(panel, 'clear_data'):
                     try:
                         panel.clear_data()

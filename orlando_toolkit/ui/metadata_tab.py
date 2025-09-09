@@ -54,6 +54,16 @@ class MetadataTab(ttk.Frame):
         self.context = context
         self._form.load_context(context)
 
+    def commit(self) -> None:
+        """Persist current form values into context.metadata immediately."""
+        if not self.context:
+            return
+        try:
+            for key, var in self._form.entries.items():
+                self.context.metadata[key] = var.get()
+        except Exception:
+            pass
+
     def _on_form_change(self) -> None:
         # Form already synced context; just propagate to other tabs and caller
         if not self.context:

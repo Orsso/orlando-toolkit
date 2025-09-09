@@ -1631,6 +1631,13 @@ class OrlandoToolkit:
             messagebox.showerror("Error", "No DITA context is loaded.")
             return
 
+        # Commit latest metadata from UI before reading values
+        try:
+            if getattr(self, "metadata_tab", None):
+                self.metadata_tab.commit()
+        except Exception:
+            pass
+
         manual_code = (self.dita_context.metadata.get("manual_code") or "dita_project") if self.dita_context else "dita_project"
         save_path = filedialog.asksaveasfilename(
             title="Save DITA archive",
