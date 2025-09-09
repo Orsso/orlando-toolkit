@@ -103,6 +103,7 @@ Orlando Toolkit uses a **plugin architecture** for extensible format conversion.
 | 2 | Enter a GitHub repository URL |
 | 3 | Click **"Import Plugin"** to download and install |
 | 4 | **Activate** the plugin to enable functionality |
+| 5 | **Restarting** the app migh be needed for some plugins |
 
 ### Available Plugins
 
